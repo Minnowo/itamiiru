@@ -67,7 +67,7 @@
 | D2 | Renderer | glow (OpenGL) | Far fewer crates than wgpu | A GL driver issue on some target |
 | D3 | Concurrency | std threads + mpsc channels | File I/O isn't truly async anyway; no runtime; easy to reason about | Never, for this project |
 | D4 | Picker <-> portal | Separate processes, stdin/stdout line protocol | Isolation, simplicity, standalone testing | Startup time becomes noticeable |
-| D5 | D-Bus | Hand-written minimal client | Few crates; the portal surface is tiny | It takes more than about a week or proves flaky. Fallback: zbus's blocking API behind the same `dbus` module interface (ask first) |
+| D5 | D-Bus | Hand-written minimal client (done in Phase 3: about 1,100 lines with tests) | Few crates; the portal surface is tiny | It takes more than about a week or proves flaky. Fallback: zbus's blocking API behind the same `dbus` module interface (ask first) |
 | D6 | Image decoding | Individual pure-Rust format crates, no `image` umbrella | Memory safety on untrusted files; fewer crates | - |
 | D7 | Video thumbnails | Out of scope | No pure-Rust decoders | Later, as an optional sandboxed subprocess |
 | D8 | Thumbnail cache | freedesktop spec format (own directory on Windows and macOS) | Shared with Nautilus, Dolphin and others | - |
@@ -301,7 +301,7 @@ egui's built-in fonts lack CJK and most emoji, so filenames in those scripts wou
 - `/org/freedesktop/portal/desktop` exposes:
   - `org.freedesktop.impl.portal.FileChooser`: `OpenFile`, `SaveFile`, `SaveFiles`
   - `org.freedesktop.DBus.Introspectable`, returning a static XML string
-  - `org.freedesktop.DBus.Properties`: `Get`/`GetAll` for `version`. Check the frontend's `-v` log to see whether and how it asks.
+  - `org.freedesktop.DBus.Properties`: the impl FileChooser interface defines no properties (checked against the XML, so no `version`): `GetAll` returns an empty dict, `Get` an UnknownProperty error.
   - `org.freedesktop.DBus.Peer`: `Ping`
 - The `handle` object path passed with each call exposes `org.freedesktop.impl.portal.Request.Close`, from the moment the call arrives until the reply is sent.
 
@@ -319,7 +319,7 @@ per-pick thread: child stdout -> Event::PickDone(handle, output, status) +    (o
   - `choices` (a(ss))
   - For SaveFiles, build the URIs by joining the chosen folder with each name from the `files` option (`aay`).
 - **Close:** kill the child and reply with response 2. Confirm against the frontend's behaviour in its `-v` logs.
-- **Options to handle:** `accept_label`, `modal`, `multiple`, `directory`, `filters`, `current_filter`, `choices`, `current_name`, `current_folder` (`ay`, NUL-terminated), `current_file` (`ay`), `files` (`aay`, SaveFiles).
+- **Options to handle:** `accept_label`, `modal`, `multiple`, `directory`, `filters`, `current_filter`, `choices` (`a(ssa(ss)s)`: id, label, options, then the default), `current_name`, `current_folder` (`ay`, NUL-terminated), `current_file` (`ay`), `files` (`aay`, SaveFiles). A `current_filter` that isn't in `filters` is added to them.
 - **Picker binary lookup:** `$ITAMI_BIN`, then the directory of `current_exe()`, then `PATH`.
 
 **Install files (`data/`):**
@@ -399,14 +399,19 @@ UI in `crates/itamiiru/src/picker.rs`; typed names are checked on a worker (`ita
 **Done when:** every file in `tests/requests/` behaves correctly, and `cargo run -p itamiiru -- --pick < tests/requests/save-text.req` prints a valid response.
 
 ### Phase 3: Portal backend (Linux)
-- [ ] P3.1 `dbus/conn.rs`: address parsing, connect, SASL EXTERNAL, Hello, RequestName.
-- [ ] P3.2 `dbus/wire.rs`: `Value` enum, signature parser, marshal and unmarshal with alignment rules, both endiannesses in, size limits. Tests against captured fixtures.
-- [ ] P3.3 `dbus/msg.rs`: header build and parse, method call, method return, error, signal.
-- [ ] P3.4 Main loop (reader thread + PickDone events, as in section 9). Handle Introspectable, Properties and Peer.
-- [ ] P3.5 FileChooser methods: options -> protocol request, spawn the picker, response -> results.
-- [ ] P3.6 Request objects and Close.
-- [ ] P3.7 `scripts/install-dev.sh` works end to end.
-- [ ] P3.8 Errors to stderr (the journal); clean shutdown when the bus connection drops.
+
+`crates/itamiiru-portal/src/{dbus/{wire,msg,conn}.rs, portal.rs, main.rs}`. `scripts/test-portal.sh` runs it on the session bus with a fake picker and checks OpenFile, SaveFiles, cancel, Close, Ping and errors (no window needed).
+
+- [x] P3.1 `dbus/conn.rs`: address parsing, connect, SASL EXTERNAL, Hello, RequestName.
+- [x] P3.2 `dbus/wire.rs`: `Value` enum, signature parser, marshal and unmarshal with alignment rules, both endiannesses in, size limits. Tests against captured fixtures.
+- [x] P3.3 `dbus/msg.rs`: header build and parse, method call, method return, error, signal.
+- [x] P3.4 Main loop (reader thread + PickDone events, as in section 9). Handle Introspectable, Properties and Peer.
+- [x] P3.5 FileChooser methods: options -> protocol request, spawn the picker, response -> results.
+- [x] P3.6 Request objects and Close.
+- [x] P3.7 `scripts/install-dev.sh` works end to end.
+- [x] P3.8 Errors to stderr (the journal); clean shutdown when the bus connection drops.
+
+Checked 2026-10-11 on XFCE: open file, open folder and save all work through the real frontend after `scripts/install-dev.sh`; `scripts/test-portal.sh` covers direct calls and Close. Firefox not tried yet (Phase 6, P6.2).
 
 **Done when:**
 - A direct `gdbus call` to our bus name opens the picker and returns URIs (section 12).

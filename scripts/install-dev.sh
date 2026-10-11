@@ -1,7 +1,19 @@
 #!/usr/bin/env bash
 # Development install of the itamiiru portal backend. Re-run after every rebuild.
+# Run as your normal user, not with sudo: it builds with your own cargo and
+# asks for your password only to install the .portal file into /usr/share.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+if [ "$(id -u)" -eq 0 ]; then
+  echo "Run this as your normal user, not with sudo." >&2
+  echo "It uses your cargo, and asks for sudo itself for the one system file." >&2
+  exit 1
+fi
+# rustup's cargo lives in ~/.cargo/bin, which some shells don't add to PATH.
+if ! command -v cargo > /dev/null && [ -f "$HOME/.cargo/env" ]; then
+  . "$HOME/.cargo/env"
+fi
 
 cargo build --release -p itamiiru -p itamiiru-portal
 
