@@ -8,6 +8,7 @@ pub mod listing;
 pub mod names;
 pub mod natsort;
 pub mod percent;
+pub mod places;
 pub mod platform;
 pub mod sort;
 

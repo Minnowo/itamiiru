@@ -1,6 +1,6 @@
 //! The main window: toolbar, file list and status bar.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -10,6 +10,7 @@ use eframe::egui::{self, Key, Modifiers, Sense};
 use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
+use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg};
 use itamiiru_core::sort::{self, SortColumn, SortOrder};
 
 use crate::details::{self, Rename, TableAction, TableInput};
@@ -17,13 +18,24 @@ use crate::icons::{Arrow, arrow_button};
 use crate::menus::{self, Command, MenuState};
 use crate::ops_ui::{self, RunningOp};
 use crate::selection::{Selection, TypeAhead};
+use crate::sidebar::{self, SidebarAction};
 use crate::theme::{self, Theme};
+use crate::thispc::{self, TileAction};
 use crate::zoom;
 
 /// How often to check whether the open folder changed (PLAN.md D9).
 const CHANGE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
+/// How often to look for new drives and bookmarks while focused.
+const PLACES_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 /// How many rows Page Up / Page Down move.
 const PAGE_ROWS: isize = 20;
+
+/// A place in the Back/Forward history.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Location {
+    Folder(PathBuf),
+    ThisPc,
+}
 
 /// Files cut or copied inside the app, waiting to be pasted.
 struct FileClipboard {
@@ -47,8 +59,12 @@ pub struct App {
 
     /// The folder being shown.
     current: PathBuf,
-    back: Vec<PathBuf>,
-    forward: Vec<PathBuf>,
+    back: Vec<Location>,
+    forward: Vec<Location>,
+    /// Showing the This PC page instead of `current`.
+    this_pc: bool,
+    /// The selected tile on the This PC page.
+    this_pc_selected: Option<PathBuf>,
     /// The address bar's text while it's being edited.
     address: String,
 
@@ -101,17 +117,30 @@ pub struct App {
     confirm_delete: Option<Vec<PathBuf>>,
     rename: Option<Rename>,
     after_listing: AfterListing,
+
+    places: Places,
+    usage: HashMap<PathBuf, DiskUsage>,
+    /// Drives whose usage is being measured. A hung drive stays here and
+    /// is never asked again, so threads don't pile up.
+    usage_pending: HashSet<PathBuf>,
+    places_scan_running: bool,
+    last_places_scan: f64,
+    places_tx: Sender<PlacesMsg>,
+    places_rx: Receiver<PlacesMsg>,
 }
 
 impl App {
     pub fn new(ctx: egui::Context, theme: Theme, start: PathBuf) -> App {
         let (list_tx, list_rx) = mpsc::channel();
         let (mtime_tx, mtime_rx) = mpsc::channel();
+        let (places_tx, places_rx) = mpsc::channel();
         let mut app = App {
             theme,
             current: start,
             back: Vec::new(),
             forward: Vec::new(),
+            this_pc: false,
+            this_pc_selected: None,
             address: String::new(),
             entries: Vec::new(),
             visible: Vec::new(),
@@ -146,41 +175,93 @@ impl App {
             confirm_delete: None,
             rename: None,
             after_listing: AfterListing::default(),
+            places: Places::default(),
+            usage: HashMap::new(),
+            usage_pending: HashSet::new(),
+            places_scan_running: false,
+            last_places_scan: 0.0,
+            places_tx,
+            places_rx,
         };
         app.load();
+        app.scan_places();
         return app;
     }
 
-    /// Goes to `path`, remembering the current folder for Back.
+    /// Where we are, for the history.
+    fn location(&self) -> Location {
+        if self.this_pc {
+            return Location::ThisPc;
+        }
+        return Location::Folder(self.current.clone());
+    }
+
+    /// Goes to `path`, remembering where we were for Back.
     fn navigate(&mut self, path: PathBuf) {
-        if path == self.current {
+        if !self.this_pc && path == self.current {
             return;
         }
-        let previous = std::mem::replace(&mut self.current, path);
-        self.back.push(previous);
+        self.back.push(self.location());
         self.forward.clear();
+        self.this_pc = false;
+        self.current = path;
         self.load();
     }
 
+    /// Shows the This PC page, remembering where we were for Back.
+    fn show_this_pc(&mut self) {
+        if self.this_pc {
+            return;
+        }
+        self.back.push(self.location());
+        self.forward.clear();
+        self.enter_this_pc();
+    }
+
+    fn enter_this_pc(&mut self) {
+        self.this_pc = true;
+        self.this_pc_selected = None;
+        self.rename = None;
+        self.selection.clear();
+        // Fresh usage numbers for the tiles.
+        self.scan_places();
+    }
+
+    /// Goes somewhere from the history, without adding to it.
+    fn go_to_location(&mut self, location: Location) {
+        match location {
+            Location::Folder(path) => {
+                self.this_pc = false;
+                self.current = path;
+                self.load();
+            }
+            Location::ThisPc => self.enter_this_pc(),
+        }
+    }
+
     fn go_back(&mut self) {
-        if let Some(path) = self.back.pop() {
-            let previous = std::mem::replace(&mut self.current, path);
-            self.forward.push(previous);
-            self.load();
+        if let Some(location) = self.back.pop() {
+            self.forward.push(self.location());
+            self.go_to_location(location);
         }
     }
 
     fn go_forward(&mut self) {
-        if let Some(path) = self.forward.pop() {
-            let previous = std::mem::replace(&mut self.current, path);
-            self.back.push(previous);
-            self.load();
+        if let Some(location) = self.forward.pop() {
+            self.back.push(self.location());
+            self.go_to_location(location);
         }
     }
 
+    /// Up one folder. Up from the top of the filesystem goes to This PC,
+    /// like going up from C:\ in Explorer.
     fn go_up(&mut self) {
-        if let Some(parent) = self.current.parent() {
-            self.navigate(parent.to_path_buf());
+        if self.this_pc {
+            return;
+        }
+        match self.current.parent() {
+            Some(parent) => self.navigate(parent.to_path_buf()),
+            None => self.show_this_pc(),
         }
     }
 
@@ -568,6 +649,62 @@ impl App {
         });
     }
 
+    fn scan_places(&mut self) {
+        if self.places_scan_running {
+            return;
+        }
+        self.places_scan_running = true;
+        let ctx = self.ctx.clone();
+        places::start_scan(
+            self.places_tx.clone(),
+            Box::new(move || ctx.request_repaint()),
+        );
+    }
+
+    /// Rescans places every few seconds while the window is focused, so
+    /// plugged-in drives and new bookmarks show up.
+    fn check_places(&mut self, ctx: &egui::Context) {
+        let (focused, now) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.time));
+        if !focused {
+            return;
+        }
+        ctx.request_repaint_after(PLACES_SCAN_INTERVAL);
+        if now - self.last_places_scan >= PLACES_SCAN_INTERVAL.as_secs_f64() {
+            self.last_places_scan = now;
+            self.scan_places();
+        }
+    }
+
+    fn receive_places(&mut self) {
+        while let Ok(msg) = self.places_rx.try_recv() {
+            match msg {
+                PlacesMsg::Places(places) => {
+                    self.places_scan_running = false;
+                    self.places = places;
+                    // Measure every drive again, except ones still busy.
+                    let mut to_measure = Vec::new();
+                    for drive in &self.places.drives {
+                        if self.usage_pending.insert(drive.mount_point.clone()) {
+                            to_measure.push(drive.mount_point.clone());
+                        }
+                    }
+                    for mount_point in to_measure {
+                        let ctx = self.ctx.clone();
+                        let wake: listing::Wake = Box::new(move || ctx.request_repaint());
+                        places::start_usage(mount_point, self.places_tx.clone(), wake);
+                    }
+                }
+                PlacesMsg::Usage { mount_point, usage } => {
+                    self.usage_pending.remove(&mount_point);
+                    match usage {
+                        Some(usage) => self.usage.insert(mount_point, usage),
+                        None => self.usage.remove(&mount_point),
+                    };
+                }
+            }
+        }
+    }
+
     fn menu_state(&self) -> MenuState {
         return MenuState {
             selected: self.selection.count(),
@@ -709,6 +846,26 @@ impl App {
             now = input.time;
         });
 
+        if self.this_pc {
+            // Only navigation makes sense on the This PC page.
+            if back {
+                self.go_back();
+            }
+            if forward {
+                self.go_forward();
+            }
+            if toggle_hidden {
+                self.toggle_hidden();
+            }
+            if refresh {
+                self.scan_places();
+            }
+            if open && let Some(path) = self.this_pc_selected.clone() {
+                self.navigate(path);
+            }
+            return;
+        }
+
         if back {
             self.go_back();
         }
@@ -745,7 +902,7 @@ impl App {
     /// worker whether the folder's modified time changed, and refreshes if so.
     fn check_for_changes(&mut self, ctx: &egui::Context) {
         let (focused, now) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.time));
-        if !focused || self.loading || self.error.is_some() {
+        if !focused || self.loading || self.error.is_some() || self.this_pc {
             return;
         }
         // Keep frames coming while idle, so this check keeps running.
@@ -791,7 +948,7 @@ impl App {
             if forward.inner.on_hover_text("Forward (Alt+Right)").clicked() {
                 self.go_forward();
             }
-            let can_go_up = self.current.parent().is_some();
+            let can_go_up = !self.this_pc;
             let up = ui.add_enabled_ui(can_go_up, |ui| arrow_button(ui, Arrow::Up));
             if up.inner.on_hover_text("Up (Alt+Up)").clicked() {
                 self.go_up();
@@ -802,20 +959,36 @@ impl App {
                 .hint_text("Address");
             let response = ui.add(edit);
             if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                let path = self.parse_address(&self.address);
-                self.navigate(path);
+                if self.address.trim().eq_ignore_ascii_case("this pc") {
+                    self.show_this_pc();
+                } else {
+                    let path = self.parse_address(&self.address);
+                    self.navigate(path);
+                }
             }
             if !response.has_focus() {
                 // Not being edited: show where we are. This also undoes
                 // unfinished edits when the field loses focus or Escape is hit.
-                self.address = self.current.to_string_lossy().into_owned();
+                if self.this_pc {
+                    self.address = "This PC".to_string();
+                } else {
+                    self.address = self.current.to_string_lossy().into_owned();
+                }
             }
         });
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            let count = self.visible.len();
+            let mut count = self.visible.len();
+            if self.this_pc {
+                count = 0;
+                for drive in &self.places.drives {
+                    if self.show_hidden || !drive.hidden {
+                        count += 1;
+                    }
+                }
+            }
             let items = if count == 1 { "item" } else { "items" };
             ui.label(format!("{count} {items}"));
             let selected = self.selection.count();
@@ -851,8 +1024,10 @@ impl eframe::App for App {
         self.receive_listing();
         self.receive_mtime();
         self.receive_op();
+        self.receive_places();
         self.handle_keys(ui.ctx());
         self.check_for_changes(ui.ctx());
+        self.check_places(ui.ctx());
         self.dialogs(ui.ctx());
 
         let bar_frame = egui::Frame::new()
@@ -871,7 +1046,53 @@ impl eframe::App for App {
                 .show(ui, |ui| running.progress_panel(ui));
         }
 
+        let mut sidebar_action = None;
+        egui::Panel::left("places")
+            .resizable(true)
+            .default_size(220.0)
+            .frame(bar_frame)
+            .show(ui, |ui| {
+                let current = if self.this_pc {
+                    None
+                } else {
+                    Some(self.current.as_path())
+                };
+                sidebar_action = sidebar::show(
+                    ui,
+                    &self.places,
+                    &self.usage,
+                    current,
+                    self.show_hidden,
+                    &self.theme,
+                );
+            });
+        match sidebar_action {
+            Some(SidebarAction::GoTo(path)) => self.navigate(path),
+            Some(SidebarAction::ThisPc) => self.show_this_pc(),
+            None => {}
+        }
+
         egui::CentralPanel::default().show(ui, |ui| {
+            if self.this_pc {
+                ops_ui::error_banner(ui, &self.theme, &mut self.op_errors);
+                let action = thispc::show(
+                    ui,
+                    &self.places,
+                    &self.usage,
+                    self.show_hidden,
+                    self.this_pc_selected.as_deref(),
+                    &self.theme,
+                );
+                match action {
+                    Some(TileAction::Select(path)) => self.this_pc_selected = Some(path),
+                    Some(TileAction::Open(path)) => self.navigate(path),
+                    Some(TileAction::CopyPath(path)) => {
+                        self.ctx.copy_text(path.to_string_lossy().into_owned());
+                    }
+                    None => {}
+                }
+                return;
+            }
             if let Some(error) = &self.error {
                 show_error(ui, &self.theme, &self.current, error);
                 return;

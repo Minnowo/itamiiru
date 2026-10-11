@@ -5,7 +5,9 @@ mod icons;
 mod menus;
 mod ops_ui;
 mod selection;
+mod sidebar;
 mod theme;
+mod thispc;
 mod zoom;
 
 use std::path::PathBuf;

@@ -200,7 +200,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 | Key | Action |
 |---|---|
 | Enter | Open folder / accept |
-| Backspace, Alt+Up | Up one folder |
+| Backspace, Alt+Up | Up one folder (from `/`, to This PC) |
 | Alt+Left / Alt+Right | Back / forward |
 | Ctrl+L, Alt+D, F4 | Edit address bar |
 | Ctrl+F, F3 | Focus search |
@@ -402,11 +402,14 @@ Each phase ends with its "Done when" check passing, plus `cargo test`, `cargo cl
 - Cancelling in the app (Close) closes itamiiru.
 
 ### Phase 4: Windows-style layout and places
-- [ ] P4.1 Linux mountinfo parser with escape decoding and tests (use a fixture file).
-- [ ] P4.2 Drive model and worker: labels, usage via statvfs (thread per mount), categories (system, removable, network).
-- [ ] P4.3 User dirs and GTK bookmarks parsers, with tests.
-- [ ] P4.4 Navigation pane: Quick access, Bookmarks, This PC, Network. Collapsible, resizable.
-- [ ] P4.5 "This PC" page with drive tiles and usage bars.
+
+P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's request. Places are rescanned every 5 s while focused; drive usage is measured per drive on its own thread, and a drive whose check hangs is not asked again.
+
+- [x] P4.1 Linux mountinfo parser with escape decoding and tests (use a fixture file).
+- [x] P4.2 Drive model and worker: labels, usage via statvfs (thread per mount), categories (system, removable, network).
+- [x] P4.3 User dirs and GTK bookmarks parsers, with tests.
+- [x] P4.4 Navigation pane: Quick access, Bookmarks, This PC, Network. Collapsible, resizable.
+- [x] P4.5 "This PC" page with drive tiles and usage bars. Also shows the Quick access folders and network locations as tiles. Reached from the pane's "This PC" title, by typing "This PC" in the address bar, or with Up from `/`; it's a Back/Forward history entry.
 - [ ] P4.6 Breadcrumb address bar (section 6).
 - [ ] P4.7 Toolbar: New folder (works in picker mode too), view selector, hidden toggle.
 - [ ] P4.8 List and icon views (thumbnails come in Phase 5; use large painted icons for now).

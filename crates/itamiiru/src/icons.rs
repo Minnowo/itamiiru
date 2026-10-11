@@ -4,6 +4,7 @@
 use eframe::egui::{self, Color32, Pos2, Rect, Sense, Shape, Stroke, StrokeKind, TextStyle};
 use itamiiru_core::entry::{Entry, EntryKind};
 use itamiiru_core::filekind::{FileKind, file_kind};
+use itamiiru_core::places::{DriveKind, PlaceKind};
 
 use crate::theme::Theme;
 
@@ -202,4 +203,45 @@ fn paint_link_badge(painter: &egui::Painter, rect: Rect, fill: Color32, arrow: C
     painter.line_segment([at(badge, 0.25, 0.75), tip], stroke);
     painter.line_segment([at(badge, 0.4, 0.25), tip], stroke);
     painter.line_segment([at(badge, 0.75, 0.6), tip], stroke);
+}
+
+/// Icons for the navigation pane.
+pub fn paint_place_icon(painter: &egui::Painter, rect: Rect, kind: PlaceKind, theme: &Theme) {
+    match kind {
+        PlaceKind::Home => paint_home(painter, rect, theme),
+        PlaceKind::Folder | PlaceKind::Bookmark => paint_folder(painter, rect, theme),
+        PlaceKind::Network => paint_drive(painter, rect, theme.blue, theme.on_blue),
+    }
+}
+
+pub fn paint_drive_icon(painter: &egui::Painter, rect: Rect, kind: DriveKind, theme: &Theme) {
+    let (body, light) = match kind {
+        DriveKind::System => (theme.on_surface_variant, theme.green),
+        DriveKind::Removable => (theme.outline, theme.yellow),
+        DriveKind::Network => (theme.blue, theme.on_blue),
+    };
+    paint_drive(painter, rect, body, light);
+}
+
+/// A house: a roof over a box with a door.
+fn paint_home(painter: &egui::Painter, rect: Rect, theme: &Theme) {
+    let roof = vec![
+        at(rect, 0.5, 0.08),
+        at(rect, 0.95, 0.5),
+        at(rect, 0.05, 0.5),
+    ];
+    painter.add(Shape::convex_polygon(roof, theme.d_yellow, Stroke::NONE));
+    let body = Rect::from_min_max(at(rect, 0.18, 0.45), at(rect, 0.82, 0.92));
+    painter.rect_filled(body, 1.0, theme.yellow);
+    let door = Rect::from_min_max(at(rect, 0.42, 0.62), at(rect, 0.58, 0.92));
+    painter.rect_filled(door, 0.0, theme.on_yellow);
+}
+
+/// A drive: a flat box with a small status light.
+fn paint_drive(painter: &egui::Painter, rect: Rect, body: Color32, light: Color32) {
+    let case = Rect::from_min_max(at(rect, 0.05, 0.3), at(rect, 0.95, 0.75));
+    painter.rect_filled(case, 2.0, body);
+    painter.circle_filled(at(rect, 0.78, 0.525), rect.width() * 0.07, light);
+    let slot = Stroke::new((rect.height() / 16.0).max(1.0), light.gamma_multiply(0.6));
+    painter.line_segment([at(rect, 0.18, 0.525), at(rect, 0.55, 0.525)], slot);
 }

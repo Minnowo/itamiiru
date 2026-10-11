@@ -3,17 +3,24 @@
 
 use std::path::PathBuf;
 
-/// The itamiiru config folder: `$XDG_CONFIG_HOME/itamiiru`, or `~/.config/itamiiru`.
-pub fn config_dir() -> Option<PathBuf> {
+mod places;
+pub use places::{bookmarks, disk_usage, drives, network_places, quick_access};
+
+/// `$XDG_CONFIG_HOME`, or `~/.config`.
+pub fn config_home() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
         let dir = PathBuf::from(dir);
         // The XDG spec says relative paths are invalid and must be ignored.
         if dir.is_absolute() {
-            return Some(dir.join("itamiiru"));
+            return Some(dir);
         }
     }
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    return Some(home.join(".config").join("itamiiru"));
+    return Some(home_dir()?.join(".config"));
+}
+
+/// The itamiiru config folder: `$XDG_CONFIG_HOME/itamiiru`, or `~/.config/itamiiru`.
+pub fn config_dir() -> Option<PathBuf> {
+    return Some(config_home()?.join("itamiiru"));
 }
 
 /// Dotfiles are hidden.

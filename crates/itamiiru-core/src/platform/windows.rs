@@ -100,3 +100,51 @@ pub fn trash(_path: &std::path::Path) -> std::io::Result<()> {
         "moving to the Recycle Bin isn't supported on Windows yet",
     ));
 }
+
+/// Home and the usual folders inside it; the places scan drops missing ones.
+pub fn quick_access() -> Vec<crate::places::Place> {
+    use crate::places::{Place, PlaceKind};
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    let mut places = vec![Place {
+        name: "Home".to_string(),
+        path: home.clone(),
+        kind: PlaceKind::Home,
+    }];
+    for name in [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Music",
+        "Pictures",
+        "Videos",
+    ] {
+        places.push(Place {
+            name: name.to_string(),
+            path: home.join(name),
+            kind: PlaceKind::Folder,
+        });
+    }
+    return places;
+}
+
+/// No bookmark source yet.
+pub fn bookmarks() -> Vec<crate::places::Place> {
+    return Vec::new();
+}
+
+/// No network place source yet.
+pub fn network_places() -> Vec<crate::places::Place> {
+    return Vec::new();
+}
+
+/// TODO(Phase 8, P8.1): GetLogicalDrives and friends.
+pub fn drives() -> Vec<crate::places::Drive> {
+    return Vec::new();
+}
+
+/// TODO(Phase 8, P8.1): GetDiskFreeSpaceExW.
+pub fn disk_usage(_path: &std::path::Path) -> Option<crate::places::DiskUsage> {
+    return None;
+}

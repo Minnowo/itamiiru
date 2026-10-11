@@ -24,7 +24,7 @@ The layout copies the Windows 10/11 file dialog.
 2. **No `async`/`await` and no async runtimes.** Concurrency means `std::thread` plus `std::sync::mpsc`, with `Mutex`, `Condvar` or `AtomicBool` where needed. See "Threading model" in PLAN.md.
 3. **The UI thread never touches the filesystem**, except to read small config files at startup. Directory listing, `stat`, thumbnailing, drive scanning and file operations all go through worker threads.
 4. **`unsafe` only in `platform/` FFI code and the D-Bus socket code.** Every `unsafe` block gets a `// SAFETY:` comment. The workspace denies `unsafe_code`; allow it per module with `#![allow(unsafe_code)]`.
-5. **Platform-specific code lives only in `crates/itamiiru-core/src/platform/{linux,windows,macos}.rs`** (plus the Linux-only `itamiiru-portal` crate), behind `#[cfg(target_os = "...")]`. Everything else must compile on all three OSes.
+5. **Platform-specific code lives only in `crates/itamiiru-core/src/platform/{linux,windows,macos}.rs`** (and their submodule folders, e.g. `platform/linux/places.rs`) (plus the Linux-only `itamiiru-portal` crate), behind `#[cfg(target_os = "...")]`. Everything else must compile on all three OSes.
 6. **Every vendored module has unit tests.** Use official test vectors where they exist, such as the RFC 1321 vectors for MD5.
 7. **Treat untrusted input as hostile.** This covers image files, D-Bus messages, picker requests and anything in `/proc`. Check sizes and lengths *before* allocating, and never `unwrap()` on data derived from them.
 8. **No `unwrap()` in non-test code** unless failure is truly impossible; use `expect("why this can't fail")` there.
@@ -58,6 +58,7 @@ PLAN.md                    architecture + phased tasks
 crates/
   itamiiru-core/           library: no egui. Filesystem, workers, thumbnails, protocol, vendored helpers
     src/platform/            the only place for OS-specific code
+                             (linux.rs, plus linux/ for its submodules)
   itamiiru/                egui binary "itami": explorer mode (default) and picker mode (--pick)
   itamiiru-portal/         Linux-only binary "xdg-desktop-portal-itamiiru": the D-Bus backend
 data/                      .portal file, D-Bus service file, example configs

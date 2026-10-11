@@ -100,3 +100,92 @@ pub fn trash(_path: &std::path::Path) -> std::io::Result<()> {
         "moving to the Trash isn't supported on macOS yet",
     ));
 }
+
+/// Home and the usual folders inside it; the places scan drops missing ones.
+pub fn quick_access() -> Vec<crate::places::Place> {
+    use crate::places::{Place, PlaceKind};
+    let Some(home) = home_dir() else {
+        return Vec::new();
+    };
+    let mut places = vec![Place {
+        name: "Home".to_string(),
+        path: home.clone(),
+        kind: PlaceKind::Home,
+    }];
+    for name in [
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "Music",
+        "Pictures",
+        "Videos",
+    ] {
+        places.push(Place {
+            name: name.to_string(),
+            path: home.join(name),
+            kind: PlaceKind::Folder,
+        });
+    }
+    return places;
+}
+
+/// No bookmark source yet.
+pub fn bookmarks() -> Vec<crate::places::Place> {
+    return Vec::new();
+}
+
+/// No network place source yet.
+pub fn network_places() -> Vec<crate::places::Place> {
+    return Vec::new();
+}
+
+/// The startup disk, plus what's in /Volumes. TODO(Phase 8): labels, kinds.
+pub fn drives() -> Vec<crate::places::Drive> {
+    use crate::places::{Drive, DriveKind};
+    let mut drives = vec![Drive {
+        name: "System".to_string(),
+        mount_point: PathBuf::from("/"),
+        fs_type: String::new(),
+        kind: DriveKind::System,
+        hidden: false,
+    }];
+    let Ok(items) = std::fs::read_dir("/Volumes") else {
+        return drives;
+    };
+    for item in items.flatten() {
+        // "Macintosh HD" is a symlink to /; skip links.
+        let Ok(kind) = item.file_type() else {
+            continue;
+        };
+        if kind.is_symlink() {
+            continue;
+        }
+        drives.push(Drive {
+            name: item.file_name().to_string_lossy().into_owned(),
+            mount_point: item.path(),
+            fs_type: String::new(),
+            kind: DriveKind::Removable,
+            hidden: false,
+        });
+    }
+    return drives;
+}
+
+/// Total and free space via statvfs.
+pub fn disk_usage(path: &std::path::Path) -> Option<crate::places::DiskUsage> {
+    use std::os::unix::ffi::OsStrExt;
+    let c_path = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
+    // SAFETY: libc::statvfs is a plain C struct of integers; all zeroes is valid.
+    let mut stats: libc::statvfs = unsafe { std::mem::zeroed() };
+    // SAFETY: c_path is a valid NUL-terminated string and `stats` a valid
+    // struct to write into; both live for the whole call.
+    let result = unsafe { libc::statvfs(c_path.as_ptr(), &mut stats) };
+    if result != 0 {
+        return None;
+    }
+    let block = stats.f_frsize as u64;
+    return Some(crate::places::DiskUsage {
+        total: (stats.f_blocks as u64).saturating_mul(block),
+        free: (stats.f_bavail as u64).saturating_mul(block),
+    });
+}
