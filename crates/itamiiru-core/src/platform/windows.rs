@@ -61,3 +61,42 @@ pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
     }
     return fonts;
 }
+
+/// Raw bytes (e.g. a decoded file URI) to a path. Windows paths here must be UTF-8.
+pub fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
+    let text = String::from_utf8(bytes).ok()?;
+    return Some(PathBuf::from(text));
+}
+
+/// Opens a file in its default app. TODO(Phase 8): ShellExecuteW.
+pub fn open_with_default_app(path: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Stdio;
+    let mut child = std::process::Command::new("explorer")
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    return Ok(());
+}
+
+/// Recreates the symlink `src` at `dst`, pointing at the same target.
+pub fn copy_symlink(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(src)?;
+    // Windows has separate file and folder symlinks.
+    if std::fs::metadata(src).map(|m| m.is_dir()).unwrap_or(false) {
+        return std::os::windows::fs::symlink_dir(target, dst);
+    }
+    return std::os::windows::fs::symlink_file(target, dst);
+}
+
+/// TODO(Phase 8, P8.1): SHFileOperationW with FOF_ALLOWUNDO.
+pub fn trash(_path: &std::path::Path) -> std::io::Result<()> {
+    return Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "moving to the Recycle Bin isn't supported on Windows yet",
+    ));
+}

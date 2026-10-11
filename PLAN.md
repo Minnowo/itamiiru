@@ -79,6 +79,7 @@
 | D14 | Text sizes | ponkotsu's web sizes scaled from a 16 px to a 14 px body (heading 19, small 12) | A file manager is denser than a web form | Text feels too small or too large in use |
 | D15 | Natural sort case | ASCII letters compare case-insensitively; other letters by raw bytes | Simple and allocation-free | Non-English names sort badly in practice |
 | D16 | UI scaling | egui's built-in zoom (Ctrl+Plus, Ctrl+Minus, Ctrl+0; 10% steps), plus `[-] 100% [+]` buttons in the status bar, the percentage resets | One knob scales text, icons and spacing together, like a browser; painted icons stay sharp at any size | - |
+| D17 | File clipboard | In-app list of cut/copied paths; the paths also go on the system clipboard as text | egui's clipboard is text-only, and egui only reports Ctrl+V when the clipboard holds text, so putting the paths there makes Ctrl+V reach us and lets them paste into a terminal. No file interop with other file managers | Interop with other file managers is wanted (needs `text/uri-list` / `x-special/gnome-copied-files` clipboard targets) |
 
 ## 4. Threading model
 
@@ -370,7 +371,7 @@ Each phase ends with its "Done when" check passing, plus `cargo test`, `cargo cl
 `scripts/make-test-dirs.sh` builds the folders for these checks. Measured sort cost (ignored test `stream_sort_50k`): streaming 50,000 entries in 100 batches, the worst batch re-sort is 2.8 ms in release (14 ms debug); a full re-sort is 4.5 ms (25 ms debug).
 
 ### Phase 2: Picker mode and protocol
-- [ ] P2.1 `percent.rs` (encode/decode, `file://` URI <-> path from raw bytes) with tests, including non-UTF-8 paths.
+- [x] P2.1 `percent.rs` (encode/decode, `file://` URI <-> path from raw bytes) with tests, including non-UTF-8 paths.
 - [ ] P2.2 `protocol.rs`: request/response structs, parse and serialize, round-trip tests, tests for the `-` empty-field rule.
 - [ ] P2.3 `itami --pick`: read the request from stdin, configure the dialog, write the response to stdout, set the exit code. Closing the window means cancel.
 - [ ] P2.4 Open mode: single and multiple selection, and the filename-field behaviours in section 6.
@@ -440,10 +441,13 @@ Each phase ends with its "Done when" check passing, plus `cargo test`, `cargo cl
 **Done when:** every app you use daily shows itamiiru, or is listed as impossible with the reason.
 
 ### Phase 7: Explorer mode
-- [ ] P7.1 Open files with the default app (`xdg-open`, `ShellExecuteW`, `open`).
-- [ ] P7.2 File-operation worker: copy and move with progress, a conflict prompt (skip, replace, keep both, apply to all), cancellation.
-- [ ] P7.3 Rename (F2, inline), New folder, and Delete to Trash (freedesktop trash spec, with tests in a temp directory); Shift+Delete with confirmation.
-- [ ] P7.4 In-app cut/copy/paste.
+
+P7.1-P7.4 were done early, after Phase 1, at the developer's request.
+
+- [x] P7.1 Open files with the default app (`xdg-open`, `open`; Windows uses `explorer <file>` until `ShellExecuteW` in Phase 8).
+- [x] P7.2 File-operation worker: copy and move with progress, a conflict prompt (skip, replace, keep both, apply to all), cancellation.
+- [x] P7.3 Rename (F2, inline), New folder, and Delete to Trash (freedesktop trash spec, with tests in a temp directory); Shift+Delete with confirmation. Trash is Linux-only for now; elsewhere Delete asks and deletes permanently.
+- [x] P7.4 In-app cut/copy/paste, plus right-click menus for items and for empty space (section 3 D17).
 - [ ] P7.5 `org.freedesktop.FileManager1` (ShowFolders, ShowItems, ShowItemProperties) in itamiiru-portal, launching `itamiiru` with a selection argument.
 - [ ] P7.6 `itamiiru.desktop` file and `inode/directory` default (`xdg-mime default itamiiru.desktop inode/directory`).
 

@@ -65,3 +65,38 @@ pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
     }
     return fonts;
 }
+
+/// Raw bytes (e.g. a decoded file URI) to a path. Unix paths are bytes.
+pub fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    return Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)));
+}
+
+/// Opens a file in its default app with `open`.
+pub fn open_with_default_app(path: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Stdio;
+    let mut child = std::process::Command::new("open")
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    return Ok(());
+}
+
+/// Recreates the symlink `src` at `dst`, pointing at the same target.
+pub fn copy_symlink(src: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    let target = std::fs::read_link(src)?;
+    return std::os::unix::fs::symlink(target, dst);
+}
+
+/// TODO(Phase 8, P8.3): decide between osascript and objc FFI.
+pub fn trash(_path: &std::path::Path) -> std::io::Result<()> {
+    return Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "moving to the Trash isn't supported on macOS yet",
+    ));
+}

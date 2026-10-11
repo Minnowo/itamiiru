@@ -30,6 +30,21 @@ pub fn format_local_time(time: SystemTime) -> String {
     return format_unix_seconds(secs.saturating_add(offset));
 }
 
+/// "2026-10-11T15:42:07" in the local time zone (the `.trashinfo` format).
+pub fn format_local_iso(time: SystemTime) -> String {
+    let secs = unix_seconds(time);
+    let local = secs.saturating_add(crate::platform::utc_offset_seconds(secs));
+    let days = local.div_euclid(86_400);
+    let secs_of_day = local.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let (hour, minute, second) = (
+        secs_of_day / 3600,
+        secs_of_day % 3600 / 60,
+        secs_of_day % 60,
+    );
+    return format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}");
+}
+
 /// Seconds since 1970-01-01 UTC; negative for earlier times.
 fn unix_seconds(time: SystemTime) -> i64 {
     return match time.duration_since(UNIX_EPOCH) {
@@ -86,6 +101,13 @@ mod tests {
         assert_eq!(format_unix_seconds(1_791_740_520), "2026-10-11 17:42");
         assert_eq!(format_unix_seconds(-1), "1969-12-31 23:59");
         assert_eq!(format_unix_seconds(253_402_300_799), "9999-12-31 23:59");
+    }
+
+    #[test]
+    fn iso_shape() {
+        let text = format_local_iso(SystemTime::now());
+        assert_eq!(text.len(), 19);
+        assert_eq!(&text[10..11], "T");
     }
 
     #[test]

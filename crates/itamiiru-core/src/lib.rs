@@ -2,9 +2,12 @@
 
 pub mod entry;
 pub mod filekind;
+pub mod fileops;
 pub mod format;
 pub mod listing;
+pub mod names;
 pub mod natsort;
+pub mod percent;
 pub mod platform;
 pub mod sort;
 

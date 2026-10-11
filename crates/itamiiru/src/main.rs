@@ -2,6 +2,8 @@ mod app;
 mod details;
 mod fonts;
 mod icons;
+mod menus;
+mod ops_ui;
 mod selection;
 mod theme;
 mod zoom;

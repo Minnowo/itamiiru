@@ -1,16 +1,21 @@
 //! The main window: toolbar, file list and status bar.
 
+use std::collections::{HashSet, VecDeque};
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
-use eframe::egui::{self, Key, Modifiers};
+use eframe::egui::{self, Key, Modifiers, Sense};
 use itamiiru_core::entry::Entry;
+use itamiiru_core::fileops::Op;
 use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
 use itamiiru_core::sort::{self, SortColumn, SortOrder};
 
-use crate::details::{self, TableAction};
+use crate::details::{self, Rename, TableAction, TableInput};
 use crate::icons::{Arrow, arrow_button};
+use crate::menus::{self, Command, MenuState};
+use crate::ops_ui::{self, RunningOp};
 use crate::selection::{Selection, TypeAhead};
 use crate::theme::{self, Theme};
 use crate::zoom;
@@ -19,6 +24,23 @@ use crate::zoom;
 const CHANGE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// How many rows Page Up / Page Down move.
 const PAGE_ROWS: isize = 20;
+
+/// Files cut or copied inside the app, waiting to be pasted.
+struct FileClipboard {
+    paths: Vec<PathBuf>,
+    /// The same paths, for a fast "is this one cut?" check while drawing.
+    set: HashSet<PathBuf>,
+    cut: bool,
+}
+
+/// What to do once the next listing of the current folder completes.
+#[derive(Default)]
+struct AfterListing {
+    /// Select these (e.g. just pasted or renamed items).
+    select: Vec<PathBuf>,
+    /// Start renaming this one (a new folder).
+    rename: Option<PathBuf>,
+}
 
 pub struct App {
     theme: Theme,
@@ -66,6 +88,19 @@ pub struct App {
     mtime_rx: Receiver<MtimeMsg>,
     ctx: egui::Context,
     click_fix: zoom::ClickPositionFix,
+
+    clipboard: Option<FileClipboard>,
+    /// An empty set, for drawing when nothing is cut.
+    no_cut: HashSet<PathBuf>,
+    running: Option<RunningOp>,
+    /// Operations waiting for the running one to finish.
+    queued: VecDeque<Op>,
+    /// Failed items from file operations, shown in a banner.
+    op_errors: Vec<String>,
+    /// Paths waiting for "Delete permanently?" to be answered.
+    confirm_delete: Option<Vec<PathBuf>>,
+    rename: Option<Rename>,
+    after_listing: AfterListing,
 }
 
 impl App {
@@ -103,6 +138,14 @@ impl App {
             mtime_rx,
             ctx,
             click_fix: zoom::ClickPositionFix::default(),
+            clipboard: None,
+            no_cut: HashSet::new(),
+            running: None,
+            queued: VecDeque::new(),
+            op_errors: Vec::new(),
+            confirm_delete: None,
+            rename: None,
+            after_listing: AfterListing::default(),
         };
         app.load();
         return app;
@@ -147,6 +190,7 @@ impl App {
         self.entries.clear();
         self.visible.clear();
         self.selection.clear();
+        self.rename = None;
         self.error = None;
         self.refreshing = false;
         self.start_listing();
@@ -182,6 +226,7 @@ impl App {
     fn receive_listing(&mut self) {
         // Several batches can arrive between frames; sort once at the end.
         let mut needs_sort = false;
+        let mut finished = false;
         while let Ok(msg) = self.list_rx.try_recv() {
             match msg {
                 ListMsg::Batch {
@@ -212,6 +257,7 @@ impl App {
                     self.skipped = skipped;
                     self.dir_mtime = dir_mtime;
                     self.error = None;
+                    finished = true;
                 }
                 ListMsg::Failed { generation, error } if generation == self.generation => {
                     needs_sort = false;
@@ -228,6 +274,23 @@ impl App {
         }
         if needs_sort {
             self.sort_and_filter();
+        }
+        if finished {
+            self.apply_after_listing();
+        }
+    }
+
+    /// Selects just-created items, and starts renaming a new folder.
+    fn apply_after_listing(&mut self) {
+        let after = std::mem::take(&mut self.after_listing);
+        if !after.select.is_empty() {
+            let mut selection = std::mem::take(&mut self.selection);
+            let paths = self.visible_paths();
+            self.scroll_to = selection.select_paths(&paths, &after.select);
+            self.selection = selection;
+        }
+        if let Some(path) = after.rename {
+            self.start_rename(&path);
         }
     }
 
@@ -272,7 +335,7 @@ impl App {
         self.sort_and_filter();
     }
 
-    /// Opens the entry at a visible row. Files do nothing yet (picker mode is Phase 2).
+    /// Double-click: opens a folder, or a file in its default app.
     fn open_row(&mut self, row: usize) {
         let Some(&index) = self.visible.get(row) else {
             return;
@@ -280,25 +343,238 @@ impl App {
         let entry = &self.entries[index];
         if entry.is_dir() {
             self.navigate(entry.path.clone());
+            return;
+        }
+        let path = entry.path.clone();
+        self.open_file(&path);
+    }
+
+    /// Enter or "Open": one selected folder is opened in place; selected
+    /// files are opened in their default apps.
+    fn open_selected(&mut self) {
+        let selected = self.selected_entries();
+        if selected.len() == 1 && selected[0].is_dir() {
+            let path = selected[0].path.clone();
+            self.navigate(path);
+            return;
+        }
+        let mut files = Vec::new();
+        for entry in selected {
+            if !entry.is_dir() {
+                files.push(entry.path.clone());
+            }
+        }
+        for path in files {
+            self.open_file(&path);
         }
     }
 
-    /// Enter: opens the row the keyboard cursor is on.
-    fn open_cursor(&mut self) {
-        let Some(cursor) = self.selection.cursor() else {
+    fn open_file(&mut self, path: &Path) {
+        if let Err(err) = itamiiru_core::platform::open_with_default_app(path) {
+            let name = path.to_string_lossy();
+            ops_ui::push_error(&mut self.op_errors, format!("{name}: can't open: {err}"));
+        }
+    }
+
+    /// The selected entries, in display order.
+    fn selected_entries(&self) -> Vec<&Entry> {
+        let mut selected = Vec::new();
+        for &i in &self.visible {
+            let entry = &self.entries[i];
+            if self.selection.is_selected(&entry.path) {
+                selected.push(entry);
+            }
+        }
+        return selected;
+    }
+
+    fn selected_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        for entry in self.selected_entries() {
+            paths.push(entry.path.clone());
+        }
+        return paths;
+    }
+
+    /// Right-click on a row: like Explorer, an unselected row becomes the
+    /// only selection; a selected one keeps the whole selection.
+    fn right_click_row(&mut self, row: usize) {
+        let Some(&index) = self.visible.get(row) else {
             return;
         };
-        let paths = self.visible_paths();
-        let mut row = None;
-        for (i, path) in paths.iter().enumerate() {
-            if *path == cursor {
-                row = Some(i);
+        if !self.selection.is_selected(&self.entries[index].path) {
+            self.click_row(row, false, false);
+        }
+    }
+
+    fn run_command(&mut self, command: Command) {
+        match command {
+            Command::Open => self.open_selected(),
+            Command::Cut => self.cut_or_copy(true),
+            Command::Copy => self.cut_or_copy(false),
+            Command::Paste => self.paste(),
+            Command::CopyPath => {
+                let text = paths_as_text(&self.selected_paths());
+                if !text.is_empty() {
+                    self.ctx.copy_text(text);
+                }
+            }
+            Command::Rename => {
+                if let Some(cursor) = self.selection.cursor() {
+                    let path = cursor.to_path_buf();
+                    self.start_rename(&path);
+                }
+            }
+            Command::Trash => {
+                let paths = self.selected_paths();
+                if paths.is_empty() {
+                    return;
+                }
+                if trash_supported() {
+                    self.start_op(Op::Trash { paths });
+                } else {
+                    // No trash on this OS yet: fall back to asking first.
+                    self.confirm_delete = Some(paths);
+                }
+            }
+            Command::DeletePermanently => {
+                let paths = self.selected_paths();
+                if !paths.is_empty() {
+                    self.confirm_delete = Some(paths);
+                }
+            }
+            Command::NewFolder => {
+                let parent = self.current.clone();
+                self.start_op(Op::NewFolder { parent });
+            }
+            Command::SelectAll => self.select_all(),
+            Command::Refresh => self.refresh(),
+            Command::ToggleHidden => self.toggle_hidden(),
+        }
+    }
+
+    /// Ctrl+X / Ctrl+C: remembers the selection for Paste. The paths also go
+    /// on the system clipboard as text, so they can be pasted into a
+    /// terminal, and so Ctrl+V reaches us (egui only reports it when the
+    /// system clipboard holds text).
+    fn cut_or_copy(&mut self, cut: bool) {
+        let paths = self.selected_paths();
+        if paths.is_empty() {
+            return;
+        }
+        self.ctx.copy_text(paths_as_text(&paths));
+        let set = paths.iter().cloned().collect();
+        self.clipboard = Some(FileClipboard { paths, set, cut });
+    }
+
+    fn paste(&mut self) {
+        let Some(clipboard) = &self.clipboard else {
+            return;
+        };
+        let sources = clipboard.paths.clone();
+        let dest_dir = self.current.clone();
+        if clipboard.cut {
+            // Cut items can only be pasted once.
+            self.clipboard = None;
+            self.start_op(Op::Move { sources, dest_dir });
+        } else {
+            self.start_op(Op::Copy { sources, dest_dir });
+        }
+    }
+
+    /// Starts an operation, or queues it behind the running one.
+    fn start_op(&mut self, op: Op) {
+        if self.running.is_some() {
+            self.queued.push_back(op);
+            return;
+        }
+        self.running = Some(RunningOp::start(op, &self.ctx));
+    }
+
+    /// Takes messages from the running operation. When it finishes, the
+    /// folder is refreshed and the new items get selected.
+    fn receive_op(&mut self) {
+        let Some(running) = &mut self.running else {
+            return;
+        };
+        let Some(created) = running.poll(&mut self.op_errors) else {
+            return;
+        };
+        let was_new_folder = running.is_new_folder;
+        self.running = None;
+
+        // Only items in the folder on screen can be selected.
+        let mut here = Vec::new();
+        for path in created {
+            if path.parent() == Some(self.current.as_path()) {
+                here.push(path);
+            }
+        }
+        if was_new_folder {
+            self.after_listing.rename = here.first().cloned();
+        }
+        self.after_listing.select = here;
+        self.refresh();
+
+        if let Some(next) = self.queued.pop_front() {
+            self.start_op(next);
+        }
+    }
+
+    /// F2: edits the name in place.
+    fn start_rename(&mut self, path: &Path) {
+        let mut entry_name = None;
+        for entry in &self.entries {
+            if entry.path == path {
+                entry_name = Some(entry.name.clone());
                 break;
             }
         }
-        if let Some(row) = row {
-            self.open_row(row);
+        let Some(name) = entry_name else {
+            return;
+        };
+        let Some(text) = name.to_str() else {
+            // Editing would replace the invalid bytes; don't risk it.
+            let shown = name.to_string_lossy();
+            let error = format!("{shown}: this name isn't valid text; rename it in a terminal");
+            ops_ui::push_error(&mut self.op_errors, error);
+            return;
+        };
+        self.rename = Some(Rename {
+            path: path.to_path_buf(),
+            text: text.to_string(),
+            needs_focus: true,
+        });
+        let mut selection = std::mem::take(&mut self.selection);
+        let paths = self.visible_paths();
+        self.scroll_to = selection.select_paths(&paths, &[path.to_path_buf()]);
+        self.selection = selection;
+    }
+
+    fn finish_rename(&mut self, commit: bool) {
+        let Some(rename) = self.rename.take() else {
+            return;
+        };
+        if !commit {
+            return;
         }
+        let new_name = OsString::from(rename.text.trim());
+        if Some(new_name.as_os_str()) == rename.path.file_name() {
+            return;
+        }
+        self.start_op(Op::Rename {
+            from: rename.path,
+            new_name,
+        });
+    }
+
+    fn menu_state(&self) -> MenuState {
+        return MenuState {
+            selected: self.selection.count(),
+            can_paste: self.clipboard.is_some(),
+            show_hidden: self.show_hidden,
+            trash_supported: trash_supported(),
+        };
     }
 
     fn click_row(&mut self, row: usize, ctrl: bool, shift: bool) {
@@ -359,8 +635,11 @@ impl App {
     }
 
     fn handle_keys(&mut self, ctx: &egui::Context) {
-        // Leave keys alone while the user is typing in a text field.
-        if ctx.egui_wants_keyboard_input() {
+        // Leave keys alone while the user is typing in a text field, or a
+        // dialog is waiting for an answer.
+        let dialog_open = self.confirm_delete.is_some()
+            || self.running.as_ref().is_some_and(|op| op.has_conflict());
+        if ctx.egui_wants_keyboard_input() || dialog_open {
             return;
         }
         let all_rows = self.visible.len() as isize;
@@ -374,6 +653,7 @@ impl App {
         let mut cursor_move: Option<(isize, bool)> = None;
         let mut typed = String::new();
         let mut now = 0.0;
+        let mut commands = Vec::new();
 
         ctx.input_mut(|input| {
             // egui ignores an extra Shift or Alt when matching a key, so the
@@ -383,6 +663,17 @@ impl App {
             up = input.consume_key(Modifiers::ALT, Key::ArrowUp)
                 || input.consume_key(Modifiers::NONE, Key::Backspace);
             open = input.consume_key(Modifiers::NONE, Key::Enter);
+            if input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::N) {
+                commands.push(Command::NewFolder);
+            }
+            if input.consume_key(Modifiers::NONE, Key::F2) {
+                commands.push(Command::Rename);
+            }
+            if input.consume_key(Modifiers::SHIFT, Key::Delete) {
+                commands.push(Command::DeletePermanently);
+            } else if input.consume_key(Modifiers::NONE, Key::Delete) {
+                commands.push(Command::Trash);
+            }
             select_all = input.consume_key(Modifiers::COMMAND, Key::A);
             toggle_hidden = input.consume_key(Modifiers::COMMAND, Key::H);
             refresh = input.consume_key(Modifiers::NONE, Key::F5);
@@ -405,9 +696,14 @@ impl App {
 
             // Letters typed into the list, for type-ahead. egui doesn't send
             // text events for Ctrl or Alt shortcuts.
+            // egui turns Ctrl+C/X/V into Copy/Cut/Paste events, not keys.
             for event in &input.events {
-                if let egui::Event::Text(text) = event {
-                    typed.push_str(text);
+                match event {
+                    egui::Event::Text(text) => typed.push_str(text),
+                    egui::Event::Copy => commands.push(Command::Copy),
+                    egui::Event::Cut => commands.push(Command::Cut),
+                    egui::Event::Paste(_) => commands.push(Command::Paste),
+                    _ => {}
                 }
             }
             now = input.time;
@@ -423,7 +719,10 @@ impl App {
             self.go_up();
         }
         if open {
-            self.open_cursor();
+            self.open_selected();
+        }
+        for command in commands {
+            self.run_command(command);
         }
         if select_all {
             self.select_all();
@@ -551,8 +850,10 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         self.receive_listing();
         self.receive_mtime();
+        self.receive_op();
         self.handle_keys(ui.ctx());
         self.check_for_changes(ui.ctx());
+        self.dialogs(ui.ctx());
 
         let bar_frame = egui::Frame::new()
             .fill(self.theme.surface_container_1)
@@ -564,29 +865,94 @@ impl eframe::App for App {
         egui::Panel::bottom("status")
             .frame(bar_frame)
             .show(ui, |ui| self.status_bar(ui));
+        if let Some(running) = &mut self.running {
+            egui::Panel::bottom("operation")
+                .frame(bar_frame)
+                .show(ui, |ui| running.progress_panel(ui));
+        }
 
         egui::CentralPanel::default().show(ui, |ui| {
             if let Some(error) = &self.error {
                 show_error(ui, &self.theme, &self.current, error);
                 return;
             }
-            let action = details::show(
-                ui,
-                &self.entries,
-                &self.visible,
-                &self.selection,
-                self.sort,
-                &self.theme,
-                self.scroll_to.take(),
-            );
+            ops_ui::error_banner(ui, &self.theme, &mut self.op_errors);
+            let menu = self.menu_state();
+            let cut = match &self.clipboard {
+                Some(clipboard) if clipboard.cut => &clipboard.set,
+                _ => &self.no_cut,
+            };
+            let input = TableInput {
+                entries: &self.entries,
+                visible: &self.visible,
+                selection: &self.selection,
+                sort: self.sort,
+                theme: &self.theme,
+                cut,
+                menu: &menu,
+            };
+            let action = details::show(ui, &input, &mut self.rename, self.scroll_to.take());
+
+            // The empty space below the rows: click to deselect, right-click
+            // for the folder menu.
+            let rest = ui.available_rect_before_wrap();
+            let background = ui.allocate_rect(rest, Sense::click());
+            let mut background_command = None;
+            background.context_menu(|ui| {
+                background_command = menus::background_menu(ui, &menu);
+            });
+            if background.clicked() || background.secondary_clicked() {
+                self.selection.clear();
+            }
+
             match action {
                 Some(TableAction::Sort(column)) => self.set_sort(column),
                 Some(TableAction::Click { row, ctrl, shift }) => self.click_row(row, ctrl, shift),
                 Some(TableAction::Open(row)) => self.open_row(row),
+                Some(TableAction::RightClick(row)) => self.right_click_row(row),
+                Some(TableAction::Command(command)) => self.run_command(command),
+                Some(TableAction::RenameDone { commit }) => self.finish_rename(commit),
                 None => {}
+            }
+            if let Some(command) = background_command {
+                self.run_command(command);
             }
         });
     }
+}
+
+impl App {
+    /// The conflict question and the delete confirmation, when needed.
+    fn dialogs(&mut self, ctx: &egui::Context) {
+        if let Some(running) = &mut self.running {
+            running.conflict_dialog(ctx, &self.theme);
+        }
+        if let Some(paths) = &self.confirm_delete
+            && let Some(confirmed) = ops_ui::confirm_delete_dialog(ctx, &self.theme, paths)
+        {
+            let paths = self.confirm_delete.take().unwrap_or_default();
+            if confirmed {
+                self.start_op(Op::Delete { paths });
+            }
+        }
+    }
+}
+
+/// Only Linux has a trash implementation so far (PLAN.md P8.1, P8.3).
+fn trash_supported() -> bool {
+    return cfg!(target_os = "linux");
+}
+
+/// One path per line, for the system clipboard.
+fn paths_as_text(paths: &[PathBuf]) -> String {
+    let mut text = String::new();
+    for path in paths {
+        if !text.is_empty() {
+            text.push('\n');
+        }
+        text.push_str(&path.to_string_lossy());
+    }
+    return text;
 }
 
 /// An inline message in place of the list, never a popup (P1.11).

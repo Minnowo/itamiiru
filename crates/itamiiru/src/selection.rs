@@ -112,6 +112,27 @@ impl Selection {
         return Some(target);
     }
 
+    /// Selects exactly the rows of `wanted` that are in `paths`, e.g. the
+    /// files just pasted. Returns the first one's row, to scroll to.
+    pub fn select_paths(&mut self, paths: &[&Path], wanted: &[PathBuf]) -> Option<usize> {
+        let wanted_set: HashSet<&Path> = wanted.iter().map(|p| p.as_path()).collect();
+        self.selected.clear();
+        self.anchor = None;
+        self.cursor = None;
+        let mut first = None;
+        for (row, path) in paths.iter().enumerate() {
+            if wanted_set.contains(path) {
+                self.selected.insert(path.to_path_buf());
+                if first.is_none() {
+                    first = Some(row);
+                    self.anchor = Some(path.to_path_buf());
+                    self.cursor = Some(path.to_path_buf());
+                }
+            }
+        }
+        return first;
+    }
+
     /// Forgets rows that are no longer in `paths`, e.g. after hiding hidden files.
     pub fn retain_visible(&mut self, paths: &[&Path]) {
         // Nothing to forget. Skips building a set of every path while a
@@ -315,6 +336,20 @@ mod tests {
         sel.click(&p, 99);
         sel.ctrl_click(&p, 99);
         sel.shift_click(&p, 99);
+        assert_eq!(sel.count(), 0);
+    }
+
+    #[test]
+    fn select_paths_picks_visible_ones() {
+        let v = paths();
+        let p = refs(&v);
+        let mut sel = Selection::default();
+        sel.click(&p, 0);
+        let wanted = vec![PathBuf::from("d"), PathBuf::from("b"), PathBuf::from("zzz")];
+        assert_eq!(sel.select_paths(&p, &wanted), Some(1));
+        assert_eq!(selected_names(&sel, &v), "bd");
+        assert_eq!(sel.cursor(), Some(Path::new("b")));
+        assert_eq!(sel.select_paths(&p, &[]), None);
         assert_eq!(sel.count(), 0);
     }
 
