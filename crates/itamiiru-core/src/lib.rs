@@ -1,5 +1,6 @@
 //! itamiiru-core: everything that isn't UI. No egui in here.
 
+pub mod config;
 pub mod entry;
 pub mod filekind;
 pub mod fileops;

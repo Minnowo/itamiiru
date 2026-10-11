@@ -9,6 +9,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
 use eframe::egui::{self, Key, Modifiers, Sense};
+use itamiiru_core::config::Config;
 use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
@@ -23,6 +24,7 @@ use crate::iconview::{self, KeySteps};
 use crate::menus::{self, Command, MenuState};
 use crate::ops_ui::{self, RunningOp};
 use crate::selection::{Selection, TypeAhead};
+use crate::settings::{ColumnWidths, Settings};
 use crate::sidebar::{self, SidebarAction};
 use crate::theme::{self, Theme};
 use crate::thispc::{self, TileAction};
@@ -33,6 +35,9 @@ use crate::zoom;
 const CHANGE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// How often to look for new drives and bookmarks while focused.
 const PLACES_SCAN_INTERVAL: Duration = Duration::from_secs(5);
+/// Settings are saved this long after the last change (window drags and
+/// column resizes change them every frame).
+const SAVE_DELAY: f64 = 1.0;
 /// Searching starts this long after the last key typed in the search box.
 const SEARCH_DELAY: f64 = 0.3;
 /// Width of the search box, in points.
@@ -158,10 +163,29 @@ pub struct App {
     search: Option<ActiveSearch>,
     search_tx: Sender<SearchMsg>,
     search_rx: Receiver<SearchMsg>,
+
+    /// The config file's contents, kept so unknown keys and comments survive.
+    config: Config,
+    config_path: Option<PathBuf>,
+    /// The settings as last written, and as of this frame.
+    saved_settings: Settings,
+    latest_settings: Settings,
+    settings_changed_at: Option<f64>,
+    sidebar_width: f32,
+    column_widths: ColumnWidths,
+    auto_refresh_folder: bool,
+    auto_refresh_drives: bool,
 }
 
 impl App {
-    pub fn new(ctx: egui::Context, theme: Theme, start: PathBuf) -> App {
+    pub fn new(
+        ctx: egui::Context,
+        theme: Theme,
+        start: PathBuf,
+        config: Config,
+        config_path: Option<PathBuf>,
+    ) -> App {
+        let settings = Settings::from_config(&config);
         let (list_tx, list_rx) = mpsc::channel();
         let (mtime_tx, mtime_rx) = mpsc::channel();
         let (places_tx, places_rx) = mpsc::channel();
@@ -176,7 +200,7 @@ impl App {
             address: AddressBar::default(),
             entries: Vec::new(),
             visible: Vec::new(),
-            show_hidden: false,
+            show_hidden: settings.show_hidden,
             generation: 0,
             loading: false,
             refreshing: false,
@@ -186,11 +210,8 @@ impl App {
             selection: Selection::default(),
             type_ahead: TypeAhead::default(),
             scroll_to: None,
-            sort: SortOrder {
-                column: SortColumn::Name,
-                ascending: true,
-            },
-            view: ViewMode::Details,
+            sort: settings.sort,
+            view: settings.view,
             key_steps: KeySteps {
                 vertical: 1,
                 horizontal: 0,
@@ -225,6 +246,15 @@ impl App {
             search: None,
             search_tx,
             search_rx,
+            config,
+            config_path,
+            saved_settings: settings.clone(),
+            latest_settings: settings.clone(),
+            settings_changed_at: None,
+            sidebar_width: settings.sidebar_width,
+            column_widths: settings.columns,
+            auto_refresh_folder: settings.auto_refresh_folder,
+            auto_refresh_drives: settings.auto_refresh_drives,
         };
         app.load();
         app.scan_places();
@@ -889,7 +919,7 @@ impl App {
     /// plugged-in drives and new bookmarks show up.
     fn check_places(&mut self, ctx: &egui::Context) {
         let (focused, now) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.time));
-        if !focused {
+        if !focused || !self.auto_refresh_drives {
             return;
         }
         ctx.request_repaint_after(PLACES_SCAN_INTERVAL);
@@ -1161,7 +1191,12 @@ impl App {
     /// worker whether the folder's modified time changed, and refreshes if so.
     fn check_for_changes(&mut self, ctx: &egui::Context) {
         let (focused, now) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.time));
-        if !focused || self.loading || self.error.is_some() || self.this_pc || self.search.is_some()
+        if !focused
+            || !self.auto_refresh_folder
+            || self.loading
+            || self.error.is_some()
+            || self.this_pc
+            || self.search.is_some()
         {
             return;
         }
@@ -1287,7 +1322,80 @@ impl App {
     }
 }
 
+impl App {
+    /// The settings as they are this frame.
+    fn current_settings(&self, ctx: &egui::Context) -> Settings {
+        let zoom = ctx.zoom_factor();
+        let (inner, maximized) = ctx.input(|i| {
+            (
+                i.viewport().inner_rect,
+                i.viewport().maximized.unwrap_or(false),
+            )
+        });
+        // Keep the normal size while maximized, so un-maximizing next time
+        // restores it. egui reports the size in zoomed points; undo the zoom.
+        let mut window_size = self.latest_settings.window_size;
+        if !maximized && let Some(rect) = inner {
+            window_size = [rect.width() * zoom, rect.height() * zoom];
+        }
+        return Settings {
+            view: self.view,
+            sort: self.sort,
+            show_hidden: self.show_hidden,
+            zoom,
+            sidebar_width: self.sidebar_width,
+            window_size,
+            maximized,
+            columns: self.column_widths,
+            auto_refresh_folder: self.auto_refresh_folder,
+            auto_refresh_drives: self.auto_refresh_drives,
+        };
+    }
+
+    /// Saves settings a moment after they stop changing, on a worker thread.
+    fn persist_settings(&mut self, ctx: &egui::Context) {
+        self.latest_settings = self.current_settings(ctx);
+        if self.latest_settings == self.saved_settings {
+            self.settings_changed_at = None;
+            return;
+        }
+        let now = ctx.input(|i| i.time);
+        let changed_at = *self.settings_changed_at.get_or_insert(now);
+        if now - changed_at < SAVE_DELAY {
+            let wait = SAVE_DELAY - (now - changed_at);
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+            return;
+        }
+        self.settings_changed_at = None;
+        self.saved_settings = self.latest_settings.clone();
+        self.latest_settings.write_to(&mut self.config);
+        let Some(path) = self.config_path.clone() else {
+            return;
+        };
+        let config = self.config.clone();
+        std::thread::spawn(move || {
+            if let Err(err) = config.save(&path) {
+                itamiiru_core::debug!("config: can't save {}: {err}", path.display());
+            }
+        });
+    }
+}
+
 impl eframe::App for App {
+    /// A last save on the way out, if something changed since the last one.
+    /// Writing here, on the UI thread, is fine: the window is closing.
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        if self.latest_settings == self.saved_settings {
+            return;
+        }
+        self.latest_settings.write_to(&mut self.config);
+        if let Some(path) = &self.config_path
+            && let Err(err) = self.config.save(path)
+        {
+            itamiiru_core::debug!("config: can't save {}: {err}", path.display());
+        }
+    }
+
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.click_fix.fix(ctx.zoom_factor(), raw_input);
     }
@@ -1302,6 +1410,8 @@ impl eframe::App for App {
         self.check_search_typing(ui.ctx());
         self.check_for_changes(ui.ctx());
         self.check_places(ui.ctx());
+        // Uses the sidebar and column widths measured last frame.
+        self.persist_settings(ui.ctx());
         self.dialogs(ui.ctx());
 
         let bar_frame = egui::Frame::new()
@@ -1323,9 +1433,9 @@ impl eframe::App for App {
         }
 
         let mut sidebar_action = None;
-        egui::Panel::left("places")
+        let sidebar = egui::Panel::left("places")
             .resizable(true)
-            .default_size(220.0)
+            .default_size(self.sidebar_width)
             .frame(bar_frame)
             .show(ui, |ui| {
                 let current = if self.this_pc {
@@ -1342,6 +1452,7 @@ impl eframe::App for App {
                     &self.theme,
                 );
             });
+        self.sidebar_width = sidebar.response.rect.width();
         match sidebar_action {
             Some(SidebarAction::GoTo(path)) => self.navigate(path),
             Some(SidebarAction::ThisPc) => self.show_this_pc(),
@@ -1388,6 +1499,7 @@ impl eframe::App for App {
                 cut,
                 menu: &menu,
                 show_folder: self.search.is_some(),
+                columns: self.column_widths,
             };
             let scroll_to = self.scroll_to.take();
             let action = match self.view {
@@ -1396,7 +1508,21 @@ impl eframe::App for App {
                         vertical: 1,
                         horizontal: 0,
                     };
-                    details::show(ui, &input, &mut self.rename, scroll_to)
+                    let (action, widths) = details::show(ui, &input, &mut self.rename, scroll_to);
+                    // Columns: Name, [Folder,] Date modified, Type, Size.
+                    if let Some(widths) = widths
+                        && widths.len() >= 4
+                    {
+                        self.column_widths.name = widths[0];
+                        let mut next = 1;
+                        if input.show_folder && widths.len() >= 5 {
+                            self.column_widths.folder = widths[1];
+                            next = 2;
+                        }
+                        self.column_widths.modified = widths[next];
+                        self.column_widths.kind = widths[next + 1];
+                    }
+                    action
                 }
                 ViewMode::List => {
                     let (action, steps) =

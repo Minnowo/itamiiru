@@ -7,6 +7,7 @@ mod iconview;
 mod menus;
 mod ops_ui;
 mod selection;
+mod settings;
 mod sidebar;
 mod theme;
 mod thispc;
@@ -16,11 +17,19 @@ mod zoom;
 use std::path::PathBuf;
 
 use eframe::egui;
+use itamiiru_core::config::{self, Config};
+use settings::Settings;
 use theme::Theme;
 
 fn main() -> eframe::Result {
-    // Startup is the one time the UI thread may read small files:
-    // the theme, and the time zone (loaded by the first local-time call).
+    // Startup is the one time the UI thread may read small files: the
+    // config, the theme, and the time zone (loaded by the first local-time call).
+    let config_path = config::default_path();
+    let config = match &config_path {
+        Some(path) => Config::load(path),
+        None => Config::default(),
+    };
+    let settings = Settings::from_config(&config);
     let theme = Theme::load();
     let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
     let start = start_folder();
@@ -29,7 +38,8 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_title("itamiiru")
             .with_app_id("itamiiru")
-            .with_inner_size([900.0, 600.0]),
+            .with_inner_size(settings.window_size)
+            .with_maximized(settings.maximized),
         ..Default::default()
     };
     return eframe::run_native(
@@ -37,8 +47,9 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             theme.install(&cc.egui_ctx);
+            cc.egui_ctx.set_zoom_factor(settings.zoom);
             fonts::load_in_background(cc.egui_ctx.clone());
-            let app = app::App::new(cc.egui_ctx.clone(), theme, start);
+            let app = app::App::new(cc.egui_ctx.clone(), theme, start, config, config_path);
             return Ok(Box::new(app));
         }),
     );

@@ -219,7 +219,7 @@ View mode, sort column and direction, column widths, sidebar width, window size,
 
 ### Optional features (settings)
 
-Features the developer may want to switch on or off. Each one lives in its own module, hooks into the rest of the UI at a single call site, and is checked against a `key=value` setting in the config file (section 6 Persistence). With the setting off, the hook is skipped and no other code changes behaviour.
+Features the developer may want to switch on or off. Each one lives in its own module, hooks into the rest of the UI at a single call site, and is checked against a `key=value` setting in the config file (section 6 Persistence). With the setting off, the hook is skipped and no other code changes behaviour. The two auto-refresh settings are already read from the config file (edit it by hand until there's a settings page); `breadcrumb_dropdowns` waits for P4.6b.
 
 | Setting | Default | Feature | Where it hooks in |
 |---|---|---|---|
@@ -390,7 +390,7 @@ Each phase ends with its "Done when" check passing, plus `cargo test`, `cargo cl
 - [ ] P2.7 `glob.rs` with tests (case-sensitive; `[pP][nN][gG]`-style patterns work). Filter dropdown; filters applied live.
 - [ ] P2.8 `mime:` filters via globs2 on Linux; a small built-in table (common image, text, audio, video, archive and document types) elsewhere.
 - [ ] P2.9 Choices UI (combo boxes and checkboxes).
-- [ ] P2.10 Config file and last folder per app.
+- [ ] P2.10 Config file and last folder per app. (Config file done with P4.10: `itamiiru-core/src/config.rs`, keeps comments and unknown keys, atomic save. Last folder per app is still to do.)
 - [ ] P2.11 Picker keyboard shortcuts (section 6).
 
 **Done when:** every file in `tests/requests/` behaves correctly, and `cargo run -p itamiiru -- --pick < tests/requests/save-text.req` prints a valid response.
@@ -425,7 +425,7 @@ P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's 
 - [x] P4.7 Toolbar: New folder (works in picker mode too), view selector, hidden toggle. Also Cut, Copy, Paste, Rename, Delete and a Sort menu, like the Windows 11 command bar (`toolbar.rs`). The view selector lists all five views; only Details is enabled until P4.8. The hidden toggle moved here from the status bar.
 - [x] P4.8 List and icon views (thumbnails come in Phase 5; use large painted icons for now). `iconview.rs`: List flows in 260 pt columns scrolling sideways; icon views are a grid of 48/96/192 pt painted icons with two-line names. Both draw only what's on screen. Arrow keys follow the layout (a row in the grid, a column in List).
 - [x] P4.9 Search: recursive name match from the current folder on a worker, streamed results, cancelled via `AtomicBool`, entry and depth caps, shown as a results list with a Folder column. Breadth-first, case-insensitive substring; 10,000 results / 64 levels; symlinked folders not followed; /proc, /sys, /dev, /run skipped. Only folders and matches are stat'ed (`/usr`, 132k entries: about 90 ms warm). Search box right of the address bar, Ctrl+F / F3, starts 0.3 s after typing, Escape clears. Results support all file commands; F5 re-runs the search.
-- [ ] P4.10 Persist layout settings.
+- [x] P4.10 Persist layout settings. `settings.rs` maps view, sort, hidden toggle, zoom, sidebar width, Details column widths, window size and maximized state to config keys. Loaded at startup; saved on a worker 1 s after the last change, and once more on exit.
 
 **Done when:** placed side by side with a screenshot of the Windows dialog, the structure and behaviour clearly match.
 

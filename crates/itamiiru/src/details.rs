@@ -12,6 +12,7 @@ use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
 use crate::icons::{Arrow, paint_arrow, paint_entry_icon};
 use crate::menus::{self, Command, MenuState};
 use crate::selection::Selection;
+use crate::settings::ColumnWidths;
 use crate::theme::{self, Theme};
 
 /// Something the user did in the table. The app applies it after drawing.
@@ -58,6 +59,8 @@ pub struct TableInput<'a> {
     pub menu: &'a MenuState,
     /// Search results: add a Folder column showing where each item is.
     pub show_folder: bool,
+    /// Starting column widths (from the config file).
+    pub columns: ColumnWidths,
 }
 
 /// Draws the table. `scroll_to` scrolls that row into view, e.g. after an
@@ -67,8 +70,9 @@ pub fn show(
     input: &TableInput,
     rename: &mut Option<Rename>,
     scroll_to: Option<usize>,
-) -> Option<TableAction> {
+) -> (Option<TableAction>, Option<Vec<f32>>) {
     let mut action = None;
+    let mut widths = None;
     let line_height = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
     let row_height = line_height + theme::GAP_SMALL;
     // `command` is Ctrl on Linux and Windows, Cmd on macOS.
@@ -89,13 +93,29 @@ pub fn show(
         // Shrink to the rows, so the empty space below can take clicks.
         .auto_shrink([false, true])
         .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(320.0).at_least(120.0).clip(true));
+        .column(
+            Column::initial(input.columns.name)
+                .at_least(120.0)
+                .clip(true),
+        );
     if input.show_folder {
-        table = table.column(Column::initial(260.0).at_least(80.0).clip(true));
+        table = table.column(
+            Column::initial(input.columns.folder)
+                .at_least(80.0)
+                .clip(true),
+        );
     }
     table = table
-        .column(Column::initial(140.0).at_least(60.0).clip(true))
-        .column(Column::initial(110.0).at_least(50.0).clip(true))
+        .column(
+            Column::initial(input.columns.modified)
+                .at_least(60.0)
+                .clip(true),
+        )
+        .column(
+            Column::initial(input.columns.kind)
+                .at_least(50.0)
+                .clip(true),
+        )
         .column(Column::remainder().at_least(60.0).clip(true));
     if let Some(row) = scroll_to {
         table = table.scroll_to_row(row, None);
@@ -135,6 +155,8 @@ pub fn show(
             }
         })
         .body(|body| {
+            // The widths after any dragging, so they can be saved.
+            widths = Some(body.widths().to_vec());
             // `rows` only calls the closure for rows on screen, so 50,000
             // entries cost no more per frame than 50.
             body.rows(row_height, input.visible.len(), |mut row| {
@@ -193,7 +215,7 @@ pub fn show(
             });
         });
 
-    return action;
+    return (action, widths);
 }
 
 /// What a click, double-click or right-click on an item means. Shared by

@@ -13,3 +13,5 @@ unsafe_code = "deny"
 [workspace.lints.clippy]
 # House style: functions end with an explicit `return x;`, Go-style.
 needless_return = "allow"
+# House style: a plain for loop is fine where clippy would suggest .find().
+manual_find = "allow"

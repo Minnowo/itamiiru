@@ -36,6 +36,26 @@ impl ViewMode {
         };
     }
 
+    /// The name used in the config file.
+    pub fn key(self) -> &'static str {
+        return match self {
+            ViewMode::Details => "details",
+            ViewMode::List => "list",
+            ViewMode::MediumIcons => "medium_icons",
+            ViewMode::LargeIcons => "large_icons",
+            ViewMode::ExtraLargeIcons => "extra_large_icons",
+        };
+    }
+
+    pub fn from_key(key: &str) -> Option<ViewMode> {
+        for view in ViewMode::ALL {
+            if view.key() == key {
+                return Some(view);
+            }
+        }
+        return None;
+    }
+
     /// File icon size in points for the icon views (Details and List use
     /// the small list icon).
     pub fn icon_size(self) -> f32 {
