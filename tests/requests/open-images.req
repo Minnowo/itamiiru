@@ -1,0 +1,10 @@
+itamiiru-protocol 1
+mode open
+title Open%20Images
+accept_label Open
+multiple 1
+app_id test.itamiiru
+filter Images glob:*.png glob:*.jpg glob:*.jpeg mime:image/webp
+filter All%20files glob:*
+current_filter 0
+end

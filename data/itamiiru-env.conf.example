@@ -1,0 +1,6 @@
+# Copy to ~/.config/environment.d/60-itamiiru.conf, then log out and back in.
+# Makes GTK and Qt apps route file dialogs through the portal (and so to itamiiru).
+GTK_USE_PORTAL=1
+GDK_DEBUG=portals
+# Note: this replaces qt5ct/qt6ct as the Qt platform theme if you use those.
+QT_QPA_PLATFORMTHEME=xdgdesktopportal

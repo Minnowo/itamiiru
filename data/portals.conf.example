@@ -1,0 +1,6 @@
+# ~/.config/xdg-desktop-portal/portals.conf
+# Use itamiiru for file choosing only; everything else stays on your usual backend.
+# Change "default" to what you use now: gtk, gnome, kde, wlr, hyprland, cosmic, ...
+[preferred]
+default=gtk
+org.freedesktop.impl.portal.FileChooser=itamiiru

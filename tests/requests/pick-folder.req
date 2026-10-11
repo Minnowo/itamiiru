@@ -1,0 +1,6 @@
+itamiiru-protocol 1
+mode folder
+title Choose%20a%20Folder
+accept_label Select%20Folder
+app_id test.itamiiru
+end

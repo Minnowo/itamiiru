@@ -1,0 +1,17 @@
+[package]
+name = "itamiiru"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "itami"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+itamiiru-core = { path = "../itamiiru-core" }
+eframe = { version = "0.36.2", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+egui_extras = { version = "0.36.2", default-features = false }

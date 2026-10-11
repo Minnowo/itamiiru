@@ -1,0 +1,13 @@
+itamiiru-protocol 1
+mode save
+title Save%20As
+accept_label Save
+app_id test.itamiiru
+folder /tmp
+name untitled.txt
+filter Text%20files glob:*.txt
+filter All%20files glob:*
+current_filter 0
+choice encoding Encoding utf8 utf8 UTF-8 latin1 Latin-1
+choice bom Add%20byte%20order%20mark false
+end
