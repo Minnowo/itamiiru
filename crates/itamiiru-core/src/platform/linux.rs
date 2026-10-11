@@ -310,6 +310,16 @@ fn move_to_trash(
     ));
 }
 
+/// Virtual filesystems a search shouldn't walk into.
+pub fn is_virtual_dir(path: &std::path::Path) -> bool {
+    for dir in ["/proc", "/sys", "/dev", "/run"] {
+        if path == std::path::Path::new(dir) {
+            return true;
+        }
+    }
+    return false;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -148,3 +148,8 @@ pub fn drives() -> Vec<crate::places::Drive> {
 pub fn disk_usage(_path: &std::path::Path) -> Option<crate::places::DiskUsage> {
     return None;
 }
+
+/// Nothing to skip on Windows.
+pub fn is_virtual_dir(_path: &std::path::Path) -> bool {
+    return false;
+}

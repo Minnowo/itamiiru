@@ -10,6 +10,7 @@ pub mod natsort;
 pub mod percent;
 pub mod places;
 pub mod platform;
+pub mod search;
 pub mod sort;
 
 #[cfg(test)]

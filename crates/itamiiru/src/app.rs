@@ -3,6 +3,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, SystemTime};
 
@@ -11,6 +13,7 @@ use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg};
+use itamiiru_core::search::{self, SearchMsg};
 use itamiiru_core::sort::{self, SortColumn, SortOrder};
 
 use crate::address::{AddressAction, AddressBar};
@@ -30,6 +33,10 @@ use crate::zoom;
 const CHANGE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// How often to look for new drives and bookmarks while focused.
 const PLACES_SCAN_INTERVAL: Duration = Duration::from_secs(5);
+/// Searching starts this long after the last key typed in the search box.
+const SEARCH_DELAY: f64 = 0.3;
+/// Width of the search box, in points.
+const SEARCH_BOX_WIDTH: f32 = 220.0;
 /// How many rows Page Up / Page Down move.
 const PAGE_ROWS: isize = 20;
 
@@ -46,6 +53,16 @@ struct FileClipboard {
     /// The same paths, for a fast "is this one cut?" check while drawing.
     set: HashSet<PathBuf>,
     cut: bool,
+}
+
+/// A search running or finished in the current folder. While one exists,
+/// `entries` holds its results instead of the folder's contents.
+struct ActiveSearch {
+    query: String,
+    cancel: Arc<AtomicBool>,
+    running: bool,
+    /// Stopped at a limit before searching everything.
+    truncated: bool,
 }
 
 /// What to do once the next listing of the current folder completes.
@@ -132,6 +149,15 @@ pub struct App {
     last_places_scan: f64,
     places_tx: Sender<PlacesMsg>,
     places_rx: Receiver<PlacesMsg>,
+
+    search_text: String,
+    /// Ctrl+F or F3 was pressed: focus the search box next frame.
+    focus_search: bool,
+    /// When the search text last changed; the search starts SEARCH_DELAY later.
+    search_edited_at: Option<f64>,
+    search: Option<ActiveSearch>,
+    search_tx: Sender<SearchMsg>,
+    search_rx: Receiver<SearchMsg>,
 }
 
 impl App {
@@ -139,6 +165,7 @@ impl App {
         let (list_tx, list_rx) = mpsc::channel();
         let (mtime_tx, mtime_rx) = mpsc::channel();
         let (places_tx, places_rx) = mpsc::channel();
+        let (search_tx, search_rx) = mpsc::channel();
         let mut app = App {
             theme,
             current: start,
@@ -192,6 +219,12 @@ impl App {
             last_places_scan: 0.0,
             places_tx,
             places_rx,
+            search_text: String::new(),
+            focus_search: false,
+            search_edited_at: None,
+            search: None,
+            search_tx,
+            search_rx,
         };
         app.load();
         app.scan_places();
@@ -208,6 +241,14 @@ impl App {
 
     /// Goes to `path`, remembering where we were for Back.
     fn navigate(&mut self, path: PathBuf) {
+        if self.search.is_some() {
+            self.end_search();
+            if !self.this_pc && path == self.current {
+                // Clicking the searched folder itself: back to its contents.
+                self.load();
+                return;
+            }
+        }
         if !self.this_pc && path == self.current {
             return;
         }
@@ -229,6 +270,7 @@ impl App {
     }
 
     fn enter_this_pc(&mut self) {
+        self.end_search();
         self.this_pc = true;
         self.this_pc_selected = None;
         self.rename = None;
@@ -239,6 +281,7 @@ impl App {
 
     /// Goes somewhere from the history, without adding to it.
     fn go_to_location(&mut self, location: Location) {
+        self.end_search();
         match location {
             Location::Folder(path) => {
                 self.this_pc = false;
@@ -290,6 +333,11 @@ impl App {
     /// Lists the current folder again, keeping the list and selection on
     /// screen until the new listing is complete (F5 and change detection).
     fn refresh(&mut self) {
+        if let Some(active) = &self.search {
+            let query = active.query.clone();
+            self.start_search(query);
+            return;
+        }
         if self.loading && !self.refreshing {
             // A navigation is still streaming in; it will be up to date.
             return;
@@ -447,7 +495,149 @@ impl App {
 
     fn toggle_hidden(&mut self) {
         self.show_hidden = !self.show_hidden;
+        if let Some(active) = &self.search {
+            // Hidden matches were never collected; search again.
+            let query = active.query.clone();
+            self.start_search(query);
+            return;
+        }
         self.sort_and_filter();
+    }
+
+    /// Searches the current folder and everything below it for `text`.
+    /// Results replace the file list until the search is cleared.
+    fn start_search(&mut self, text: String) {
+        if let Some(active) = &self.search {
+            active.cancel.store(true, Ordering::Relaxed);
+        }
+        // A new generation also makes any running listing's results stale.
+        self.generation += 1;
+        self.entries.clear();
+        self.visible.clear();
+        self.selection.clear();
+        self.rename = None;
+        self.error = None;
+        self.loading = false;
+        self.refreshing = false;
+        let query = search::Query {
+            root: self.current.clone(),
+            text: text.clone(),
+            show_hidden: self.show_hidden,
+            limits: search::Limits::default(),
+        };
+        let ctx = self.ctx.clone();
+        let wake: listing::Wake = Box::new(move || ctx.request_repaint());
+        let cancel = search::start(query, self.generation, self.search_tx.clone(), wake);
+        self.search = Some(ActiveSearch {
+            query: text,
+            cancel,
+            running: true,
+            truncated: false,
+        });
+    }
+
+    /// Leaves search mode without re-listing (navigation lists anyway).
+    fn end_search(&mut self) {
+        if let Some(active) = self.search.take() {
+            active.cancel.store(true, Ordering::Relaxed);
+        }
+        self.search_text.clear();
+        self.search_edited_at = None;
+    }
+
+    /// Escape, or an emptied search box: back to the folder's contents.
+    fn clear_search(&mut self) {
+        let was_searching = self.search.is_some();
+        self.end_search();
+        if was_searching {
+            self.load();
+        }
+    }
+
+    fn receive_search(&mut self) {
+        let mut needs_sort = false;
+        while let Ok(msg) = self.search_rx.try_recv() {
+            match msg {
+                SearchMsg::Batch {
+                    generation,
+                    mut entries,
+                } if generation == self.generation && self.search.is_some() => {
+                    sort::sort_entries(&mut entries, self.sort.column, self.sort.ascending);
+                    self.entries.append(&mut entries);
+                    needs_sort = true;
+                }
+                SearchMsg::Finished {
+                    generation,
+                    truncated,
+                } if generation == self.generation => {
+                    if let Some(active) = &mut self.search {
+                        active.running = false;
+                        active.truncated = truncated;
+                    }
+                }
+                // From an older search.
+                _ => {}
+            }
+        }
+        if needs_sort {
+            self.sort_and_filter();
+        }
+    }
+
+    /// Starts (or clears) the search a moment after typing stops.
+    fn check_search_typing(&mut self, ctx: &egui::Context) {
+        let Some(edited_at) = self.search_edited_at else {
+            return;
+        };
+        let now = ctx.input(|i| i.time);
+        let waited = now - edited_at;
+        if waited < SEARCH_DELAY {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(SEARCH_DELAY - waited));
+            return;
+        }
+        self.search_edited_at = None;
+        let text = self.search_text.trim().to_string();
+        if text.is_empty() {
+            let was_searching = self.search.is_some();
+            if let Some(active) = self.search.take() {
+                active.cancel.store(true, Ordering::Relaxed);
+            }
+            if was_searching {
+                self.load();
+            }
+            return;
+        }
+        if !self.this_pc {
+            self.start_search(text);
+        }
+    }
+
+    fn search_box(&mut self, ui: &mut egui::Ui) {
+        let hint = match self.current.file_name() {
+            Some(name) if !self.this_pc => format!("Search {}", name.to_string_lossy()),
+            _ => "Search".to_string(),
+        };
+        let edit = egui::TextEdit::singleline(&mut self.search_text)
+            .id(egui::Id::new("search-box"))
+            .hint_text(hint)
+            .desired_width(SEARCH_BOX_WIDTH);
+        let response = ui.add_enabled(!self.this_pc, edit);
+        if self.focus_search {
+            self.focus_search = false;
+            response.request_focus();
+        }
+        let now = ui.input(|i| i.time);
+        if response.changed() {
+            self.search_edited_at = Some(now);
+        }
+        if response.lost_focus() {
+            if ui.input(|i| i.key_pressed(Key::Escape)) {
+                self.clear_search();
+            } else if ui.input(|i| i.key_pressed(Key::Enter)) {
+                // Enter searches right away.
+                self.search_edited_at = Some(now - SEARCH_DELAY);
+            }
+        }
     }
 
     /// Double-click: opens a folder, or a file in its default app.
@@ -826,6 +1016,8 @@ impl App {
         let mut now = 0.0;
         let mut commands = Vec::new();
         let mut edit_address = false;
+        let mut focus_search = false;
+        let mut escape = false;
 
         ctx.input_mut(|input| {
             // egui ignores an extra Shift or Alt when matching a key, so the
@@ -891,7 +1083,19 @@ impl App {
             edit_address = input.consume_key(Modifiers::COMMAND, Key::L)
                 || input.consume_key(Modifiers::ALT, Key::D)
                 || input.consume_key(Modifiers::NONE, Key::F4);
+            focus_search = input.consume_key(Modifiers::COMMAND, Key::F)
+                || input.consume_key(Modifiers::NONE, Key::F3);
+            escape = input.consume_key(Modifiers::NONE, Key::Escape);
         });
+
+        if focus_search && !self.this_pc {
+            self.focus_search = true;
+            return;
+        }
+        if escape && self.search.is_some() {
+            self.clear_search();
+            return;
+        }
 
         if edit_address {
             if self.this_pc {
@@ -957,7 +1161,8 @@ impl App {
     /// worker whether the folder's modified time changed, and refreshes if so.
     fn check_for_changes(&mut self, ctx: &egui::Context) {
         let (focused, now) = ctx.input(|i| (i.viewport().focused.unwrap_or(true), i.time));
-        if !focused || self.loading || self.error.is_some() || self.this_pc {
+        if !focused || self.loading || self.error.is_some() || self.this_pc || self.search.is_some()
+        {
             return;
         }
         // Keep frames coming while idle, so this check keeps running.
@@ -1009,25 +1214,35 @@ impl App {
                 self.go_up();
             }
 
-            let current = if self.this_pc {
-                None
-            } else {
-                Some(self.current.clone())
-            };
-            match self.address.show(ui, current.as_deref(), &self.theme) {
-                Some(AddressAction::GoTo(path)) => self.navigate(path),
-                Some(AddressAction::ThisPc) => self.show_this_pc(),
-                Some(AddressAction::Typed(text)) => {
-                    if text.trim().eq_ignore_ascii_case("this pc") {
-                        self.show_this_pc();
-                    } else {
-                        let path = self.parse_address(&text);
-                        self.navigate(path);
-                    }
-                }
-                None => {}
-            }
+            // The search box sits at the right; the address bar fills the rest.
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                self.search_box(ui);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                    self.address_bar(ui);
+                });
+            });
         });
+    }
+
+    fn address_bar(&mut self, ui: &mut egui::Ui) {
+        let current = if self.this_pc {
+            None
+        } else {
+            Some(self.current.clone())
+        };
+        match self.address.show(ui, current.as_deref(), &self.theme) {
+            Some(AddressAction::GoTo(path)) => self.navigate(path),
+            Some(AddressAction::ThisPc) => self.show_this_pc(),
+            Some(AddressAction::Typed(text)) => {
+                if text.trim().eq_ignore_ascii_case("this pc") {
+                    self.show_this_pc();
+                } else {
+                    let path = self.parse_address(&text);
+                    self.navigate(path);
+                }
+            }
+            None => {}
+        }
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
@@ -1041,8 +1256,19 @@ impl App {
                     }
                 }
             }
-            let items = if count == 1 { "item" } else { "items" };
-            ui.label(format!("{count} {items}"));
+            if let Some(active) = &self.search {
+                let results = if count == 1 { "result" } else { "results" };
+                ui.label(format!("{count} {results} for \"{}\"", active.query));
+                if active.running {
+                    ui.spinner();
+                }
+                if active.truncated {
+                    ui.weak("(stopped early: too many results or folders too deep)");
+                }
+            } else {
+                let items = if count == 1 { "item" } else { "items" };
+                ui.label(format!("{count} {items}"));
+            }
             let selected = self.selection.count();
             if selected > 0 {
                 ui.label(format!("{selected} selected"));
@@ -1071,7 +1297,9 @@ impl eframe::App for App {
         self.receive_mtime();
         self.receive_op();
         self.receive_places();
+        self.receive_search();
         self.handle_keys(ui.ctx());
+        self.check_search_typing(ui.ctx());
         self.check_for_changes(ui.ctx());
         self.check_places(ui.ctx());
         self.dialogs(ui.ctx());
@@ -1159,6 +1387,7 @@ impl eframe::App for App {
                 theme: &self.theme,
                 cut,
                 menu: &menu,
+                show_folder: self.search.is_some(),
             };
             let scroll_to = self.scroll_to.take();
             let action = match self.view {

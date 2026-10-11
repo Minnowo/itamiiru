@@ -189,3 +189,9 @@ pub fn disk_usage(path: &std::path::Path) -> Option<crate::places::DiskUsage> {
         free: (stats.f_bavail as u64).saturating_mul(block),
     });
 }
+
+/// Folders a search shouldn't walk into: devices, and /System/Volumes,
+/// which mirrors the startup disk.
+pub fn is_virtual_dir(path: &std::path::Path) -> bool {
+    return path == std::path::Path::new("/dev") || path == std::path::Path::new("/System/Volumes");
+}

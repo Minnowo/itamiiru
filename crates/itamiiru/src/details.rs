@@ -56,6 +56,8 @@ pub struct TableInput<'a> {
     /// Cut files, drawn faded until they're pasted.
     pub cut: &'a HashSet<PathBuf>,
     pub menu: &'a MenuState,
+    /// Search results: add a Folder column showing where each item is.
+    pub show_folder: bool,
 }
 
 /// Draws the table. `scroll_to` scrolls that row into view, e.g. after an
@@ -73,30 +75,47 @@ pub fn show(
     let modifiers = ui.input(|i| i.modifiers);
     let sort = input.sort;
 
-    let mut table = TableBuilder::new(ui);
-    if let Some(row) = scroll_to {
-        table = table.scroll_to_row(row, None);
-    }
-    table
+    // The two layouts keep separate column widths.
+    let table_id = if input.show_folder {
+        "search-table"
+    } else {
+        "folder-table"
+    };
+    let mut table = TableBuilder::new(ui)
+        .id_salt(table_id)
         .striped(true)
         .resizable(true)
         .sense(Sense::click())
         // Shrink to the rows, so the empty space below can take clicks.
         .auto_shrink([false, true])
         .cell_layout(Layout::left_to_right(Align::Center))
-        .column(Column::initial(320.0).at_least(120.0).clip(true))
+        .column(Column::initial(320.0).at_least(120.0).clip(true));
+    if input.show_folder {
+        table = table.column(Column::initial(260.0).at_least(80.0).clip(true));
+    }
+    table = table
         .column(Column::initial(140.0).at_least(60.0).clip(true))
         .column(Column::initial(110.0).at_least(50.0).clip(true))
-        .column(Column::remainder().at_least(60.0).clip(true))
+        .column(Column::remainder().at_least(60.0).clip(true));
+    if let Some(row) = scroll_to {
+        table = table.scroll_to_row(row, None);
+    }
+    table
         .header(row_height + theme::GAP_SMALL, |mut header| {
-            let columns = [
-                ("Name", SortColumn::Name),
-                ("Date modified", SortColumn::Modified),
-                ("Type", SortColumn::Type),
-                ("Size", SortColumn::Size),
-            ];
+            // None means the column can't be sorted by.
+            let mut columns = vec![("Name", Some(SortColumn::Name))];
+            if input.show_folder {
+                columns.push(("Folder", None));
+            }
+            columns.push(("Date modified", Some(SortColumn::Modified)));
+            columns.push(("Type", Some(SortColumn::Type)));
+            columns.push(("Size", Some(SortColumn::Size)));
             for (title, column) in columns {
                 header.col(|ui| {
+                    let Some(column) = column else {
+                        ui.label(RichText::new(title).strong());
+                        return;
+                    };
                     let button = egui::Button::new(RichText::new(title).strong()).frame(false);
                     if ui.add(button).clicked() {
                         action = Some(TableAction::Sort(column));
@@ -148,6 +167,13 @@ pub fn show(
                     }
                     cell_text(ui, name);
                 });
+                if input.show_folder {
+                    row.col(|ui| {
+                        if let Some(parent) = entry.path.parent() {
+                            cell_text(ui, RichText::new(parent.to_string_lossy()));
+                        }
+                    });
+                }
                 row.col(|ui| {
                     if let Some(mtime) = entry.mtime {
                         cell_text(ui, RichText::new(format_local_time(mtime)));
