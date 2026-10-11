@@ -241,7 +241,7 @@ fn sort_menu(ui: &mut egui::Ui, current: SortOrder) -> Option<SortOrder> {
 /// A button that looks like a drop-down field (label and a down arrow) and
 /// opens a menu below it. Used instead of egui's ComboBox, whose list sits
 /// in a scroll area that showed a needless scroll bar on hover.
-fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
     let padding = ui.spacing().button_padding;
     let font = TextStyle::Button.resolve(ui.style());
     let text_color = ui.visuals().text_color();

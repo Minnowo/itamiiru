@@ -195,3 +195,20 @@ pub fn disk_usage(path: &std::path::Path) -> Option<crate::places::DiskUsage> {
 pub fn is_virtual_dir(path: &std::path::Path) -> bool {
     return path == std::path::Path::new("/dev") || path == std::path::Path::new("/System/Volumes");
 }
+
+/// No shared-mime-info here; the built-in table is used.
+pub fn mime_glob_files() -> Vec<PathBuf> {
+    return Vec::new();
+}
+
+/// Whether this user may create files in `dir` (access with W_OK).
+pub fn is_writable_dir(dir: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c_path) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: c_path is a valid NUL-terminated string that outlives the call;
+    // access only reads it.
+    let result = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) };
+    return result == 0;
+}

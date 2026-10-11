@@ -153,3 +153,16 @@ pub fn disk_usage(_path: &std::path::Path) -> Option<crate::places::DiskUsage> {
 pub fn is_virtual_dir(_path: &std::path::Path) -> bool {
     return false;
 }
+
+/// No shared-mime-info here; the built-in table is used.
+pub fn mime_glob_files() -> Vec<PathBuf> {
+    return Vec::new();
+}
+
+/// Whether `dir` exists and isn't read-only. TODO(Phase 8): check ACLs.
+pub fn is_writable_dir(dir: &std::path::Path) -> bool {
+    return match std::fs::metadata(dir) {
+        Ok(meta) => meta.is_dir() && !meta.permissions().readonly(),
+        Err(_) => false,
+    };
+}

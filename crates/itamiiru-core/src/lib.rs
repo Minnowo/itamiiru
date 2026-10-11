@@ -5,12 +5,16 @@ pub mod entry;
 pub mod filekind;
 pub mod fileops;
 pub mod format;
+pub mod glob;
 pub mod listing;
+pub mod mime;
 pub mod names;
 pub mod natsort;
 pub mod percent;
 pub mod places;
 pub mod platform;
+pub mod probe;
+pub mod protocol;
 pub mod search;
 pub mod sort;
 

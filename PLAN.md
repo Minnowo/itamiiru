@@ -381,17 +381,20 @@ Each phase ends with its "Done when" check passing, plus `cargo test`, `cargo cl
 `scripts/make-test-dirs.sh` builds the folders for these checks. Measured sort cost (ignored test `stream_sort_50k`): streaming 50,000 entries in 100 batches, the worst batch re-sort is 2.8 ms in release (14 ms debug); a full re-sort is 4.5 ms (25 ms debug).
 
 ### Phase 2: Picker mode and protocol
+
+UI in `crates/itamiiru/src/picker.rs`; typed names are checked on a worker (`itamiiru-core/src/probe.rs`) before acting. The footer puts Cancel before the Open/Save button (ponkotsu: main action last).
+
 - [x] P2.1 `percent.rs` (encode/decode, `file://` URI <-> path from raw bytes) with tests, including non-UTF-8 paths.
-- [ ] P2.2 `protocol.rs`: request/response structs, parse and serialize, round-trip tests, tests for the `-` empty-field rule.
-- [ ] P2.3 `itami --pick`: read the request from stdin, configure the dialog, write the response to stdout, set the exit code. Closing the window means cancel.
-- [ ] P2.4 Open mode: single and multiple selection, and the filename-field behaviours in section 6.
-- [ ] P2.5 Folder mode.
-- [ ] P2.6 Save mode: prefill and select the stem, append the extension, overwrite confirmation, writability check, `file` handling.
-- [ ] P2.7 `glob.rs` with tests (case-sensitive; `[pP][nN][gG]`-style patterns work). Filter dropdown; filters applied live.
-- [ ] P2.8 `mime:` filters via globs2 on Linux; a small built-in table (common image, text, audio, video, archive and document types) elsewhere.
-- [ ] P2.9 Choices UI (combo boxes and checkboxes).
-- [ ] P2.10 Config file and last folder per app. (Config file done with P4.10: `itamiiru-core/src/config.rs`, keeps comments and unknown keys, atomic save. Last folder per app is still to do.)
-- [ ] P2.11 Picker keyboard shortcuts (section 6).
+- [x] P2.2 `protocol.rs`: request/response structs, parse and serialize, round-trip tests, tests for the `-` empty-field rule.
+- [x] P2.3 `itami --pick`: read the request from stdin, configure the dialog, write the response to stdout, set the exit code. Closing the window means cancel.
+- [x] P2.4 Open mode: single and multiple selection, and the filename-field behaviours in section 6.
+- [x] P2.5 Folder mode.
+- [x] P2.6 Save mode: prefill and select the stem, append the extension, overwrite confirmation, writability check, `file` handling.
+- [x] P2.7 `glob.rs` with tests (case-sensitive; `[pP][nN][gG]`-style patterns work). Filter dropdown; filters applied live.
+- [x] P2.8 `mime:` filters via globs2 on Linux; a small built-in table (common image, text, audio, video, archive and document types) elsewhere.
+- [x] P2.9 Choices UI (combo boxes and checkboxes).
+- [x] P2.10 Config file and last folder per app. (Config file: `itamiiru-core/src/config.rs`. Last folder: `last_folder.<percent-encoded app_id>` key, written when a pick succeeds; used when the request has no folder or file.)
+- [x] P2.11 Picker keyboard shortcuts (section 6).
 
 **Done when:** every file in `tests/requests/` behaves correctly, and `cargo run -p itamiiru -- --pick < tests/requests/save-text.req` prints a valid response.
 

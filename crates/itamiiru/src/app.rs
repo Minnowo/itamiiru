@@ -23,6 +23,7 @@ use crate::icons::{Arrow, arrow_button};
 use crate::iconview::{self, KeySteps};
 use crate::menus::{self, Command, MenuState};
 use crate::ops_ui::{self, RunningOp};
+use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::selection::{Selection, TypeAhead};
 use crate::settings::{ColumnWidths, Settings};
 use crate::sidebar::{self, SidebarAction};
@@ -175,6 +176,9 @@ pub struct App {
     column_widths: ColumnWidths,
     auto_refresh_folder: bool,
     auto_refresh_drives: bool,
+
+    /// Set in picker mode (`itami --pick`).
+    picker: Option<Picker>,
 }
 
 impl App {
@@ -184,6 +188,7 @@ impl App {
         start: PathBuf,
         config: Config,
         config_path: Option<PathBuf>,
+        picker: Option<Picker>,
     ) -> App {
         let settings = Settings::from_config(&config);
         let (list_tx, list_rx) = mpsc::channel();
@@ -255,6 +260,7 @@ impl App {
             column_widths: settings.columns,
             auto_refresh_folder: settings.auto_refresh_folder,
             auto_refresh_drives: settings.auto_refresh_drives,
+            picker,
         };
         app.load();
         app.scan_places();
@@ -468,9 +474,16 @@ impl App {
         sort::sort_entries(&mut self.entries, self.sort.column, self.sort.ascending);
         self.visible.clear();
         for (i, entry) in self.entries.iter().enumerate() {
-            if self.show_hidden || !entry.hidden {
-                self.visible.push(i);
+            if !self.show_hidden && entry.hidden {
+                continue;
             }
+            // In picker mode, only folders and files matching the filter.
+            if let Some(picker) = &self.picker
+                && !picker.shows(entry)
+            {
+                continue;
+            }
+            self.visible.push(i);
         }
         // Drop selected rows that disappeared (deleted, or now hidden).
         let mut selection = std::mem::take(&mut self.selection);
@@ -681,6 +694,16 @@ impl App {
             return;
         }
         let path = entry.path.clone();
+        if let Some(picker) = &mut self.picker {
+            // In the picker, double-clicking a file picks it.
+            if picker.mode() == itamiiru_core::protocol::Mode::Save {
+                picker.name = entry_name_text(&path);
+                self.picker_accept();
+            } else {
+                self.picker_finish(vec![path]);
+            }
+            return;
+        }
         self.open_file(&path);
     }
 
@@ -691,6 +714,11 @@ impl App {
         if selected.len() == 1 && selected[0].is_dir() {
             let path = selected[0].path.clone();
             self.navigate(path);
+            return;
+        }
+        if self.picker.is_some() {
+            // Enter on files in the picker is the Open/Save button.
+            self.picker_accept();
             return;
         }
         let mut files = Vec::new();
@@ -969,6 +997,10 @@ impl App {
     }
 
     fn click_row(&mut self, row: usize, ctrl: bool, shift: bool) {
+        // A picker for one file allows only one selected row.
+        let single = self.single_select();
+        let ctrl = ctrl && !single;
+        let shift = shift && !single;
         // The selection is taken out of `self` while it works on paths
         // borrowed from `self.entries`; Rust won't allow both borrows at once.
         let mut selection = std::mem::take(&mut self.selection);
@@ -984,6 +1016,7 @@ impl App {
     }
 
     fn move_cursor(&mut self, delta: isize, extend: bool) {
+        let extend = extend && !self.single_select();
         let mut selection = std::mem::take(&mut self.selection);
         let paths = self.visible_paths();
         self.scroll_to = selection.move_cursor(&paths, delta, extend);
@@ -991,6 +1024,9 @@ impl App {
     }
 
     fn select_all(&mut self) {
+        if self.single_select() {
+            return;
+        }
         let mut selection = std::mem::take(&mut self.selection);
         selection.select_all(&self.visible_paths());
         self.selection = selection;
@@ -1124,6 +1160,10 @@ impl App {
         }
         if escape && self.search.is_some() {
             self.clear_search();
+            return;
+        }
+        if escape && self.picker.is_some() {
+            self.picker_cancel();
             return;
         }
 
@@ -1323,6 +1363,113 @@ impl App {
 }
 
 impl App {
+    /// True in a picker that returns one file or folder.
+    fn single_select(&self) -> bool {
+        return match &self.picker {
+            Some(picker) => !picker.allows_multiple(),
+            None => false,
+        };
+    }
+
+    /// The Open/Save button, or Enter in the name field.
+    fn picker_accept(&mut self) {
+        let Some(mut picker) = self.picker.take() else {
+            return;
+        };
+        let selected = self.selected_entries();
+        let current = self.current.clone();
+        let resolve = |text: &str| self.parse_address(text);
+        let outcome = picker.accept(&current, &selected, &self.ctx, &resolve);
+        self.picker = Some(picker);
+        if let Some(outcome) = outcome {
+            self.picker_apply(outcome);
+        }
+    }
+
+    fn picker_apply(&mut self, outcome: ProbeOutcome) {
+        match outcome {
+            ProbeOutcome::Finish(paths) => self.picker_finish(paths),
+            ProbeOutcome::Navigate(path) => {
+                if let Some(picker) = &mut self.picker {
+                    picker.name = if picker.mode() == itamiiru_core::protocol::Mode::Save {
+                        picker.suggested_name()
+                    } else {
+                        String::new()
+                    };
+                }
+                self.navigate(path);
+            }
+            ProbeOutcome::ConfirmOverwrite(path) => {
+                if let Some(picker) = &mut self.picker {
+                    picker.confirm_overwrite = Some(path);
+                }
+            }
+            ProbeOutcome::Error(message) => {
+                if let Some(picker) = &mut self.picker {
+                    picker.error = Some(message);
+                }
+            }
+        }
+    }
+
+    /// Answers the request, remembers the folder for this app, and closes.
+    fn picker_finish(&mut self, paths: Vec<PathBuf>) {
+        let Some(picker) = &self.picker else {
+            return;
+        };
+        picker.finish(&paths);
+        let app_id = picker.request.app_id.clone();
+        if !app_id.is_empty() {
+            let key = last_folder_key(&app_id);
+            let value = itamiiru_core::percent::encode(self.current.as_os_str().as_encoded_bytes());
+            self.config.set(&key, &value);
+            // Written now: the window is about to close.
+            if let Some(path) = &self.config_path
+                && let Err(err) = self.config.save(path)
+            {
+                itamiiru_core::debug!("config: can't save {}: {err}", path.display());
+            }
+        }
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    fn picker_cancel(&mut self) {
+        if let Some(picker) = &self.picker {
+            picker.cancel();
+        }
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+    }
+
+    /// Per-frame picker work: follow the selection, take probe results,
+    /// re-filter when the filter changed, and the overwrite question.
+    fn picker_frame(&mut self, ctx: &egui::Context) {
+        let Some(mut picker) = self.picker.take() else {
+            return;
+        };
+        {
+            let selected = self.selected_entries();
+            picker.follow_selection(&selected, self.selection.cursor());
+        }
+        let outcome = picker.receive_probe();
+        let filter_changed = picker.take_filter_changed();
+        // Read before the dialog: answering it clears the path.
+        let overwrite_path = picker.confirm_overwrite.clone();
+        let overwrite = picker.overwrite_dialog(ctx, &self.theme);
+        self.picker = Some(picker);
+
+        if filter_changed {
+            self.sort_and_filter();
+        }
+        if let Some(outcome) = outcome {
+            self.picker_apply(outcome);
+        }
+        if overwrite == Some(true)
+            && let Some(path) = overwrite_path
+        {
+            self.picker_finish(vec![path]);
+        }
+    }
+
     /// The settings as they are this frame.
     fn current_settings(&self, ctx: &egui::Context) -> Settings {
         let zoom = ctx.zoom_factor();
@@ -1406,6 +1553,7 @@ impl eframe::App for App {
         self.receive_op();
         self.receive_places();
         self.receive_search();
+        self.picker_frame(ui.ctx());
         self.handle_keys(ui.ctx());
         self.check_search_typing(ui.ctx());
         self.check_for_changes(ui.ctx());
@@ -1426,6 +1574,19 @@ impl eframe::App for App {
         egui::Panel::bottom("status")
             .frame(bar_frame)
             .show(ui, |ui| self.status_bar(ui));
+        let mut footer_action = None;
+        if let Some(picker) = &mut self.picker {
+            egui::Panel::bottom("picker")
+                .frame(bar_frame)
+                .show(ui, |ui| {
+                    footer_action = picker.footer(ui, &self.theme);
+                });
+        }
+        match footer_action {
+            Some(FooterAction::Accept) => self.picker_accept(),
+            Some(FooterAction::Cancel) => self.picker_cancel(),
+            None => {}
+        }
         if let Some(running) = &mut self.running {
             egui::Panel::bottom("operation")
                 .frame(bar_frame)
@@ -1583,6 +1744,21 @@ impl App {
             }
         }
     }
+}
+
+/// The config key for an app's last picker folder.
+pub fn last_folder_key(app_id: &str) -> String {
+    return format!(
+        "last_folder.{}",
+        itamiiru_core::percent::encode(app_id.as_bytes())
+    );
+}
+
+fn entry_name_text(path: &Path) -> String {
+    return match path.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => String::new(),
+    };
 }
 
 /// Only Linux has a trash implementation so far (PLAN.md P8.1, P8.3).

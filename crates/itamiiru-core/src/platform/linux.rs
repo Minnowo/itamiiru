@@ -320,6 +320,47 @@ pub fn is_virtual_dir(path: &std::path::Path) -> bool {
     return false;
 }
 
+/// shared-mime-info globs2 files: `$XDG_DATA_HOME` first, then `$XDG_DATA_DIRS`.
+pub fn mime_glob_files() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    match std::env::var_os("XDG_DATA_HOME") {
+        Some(dir) if PathBuf::from(&dir).is_absolute() => dirs.push(PathBuf::from(dir)),
+        _ => {
+            if let Some(home) = home_dir() {
+                dirs.push(home.join(".local").join("share"));
+            }
+        }
+    }
+    let data_dirs = std::env::var("XDG_DATA_DIRS").unwrap_or_default();
+    let data_dirs = if data_dirs.is_empty() {
+        "/usr/local/share:/usr/share".to_string()
+    } else {
+        data_dirs
+    };
+    for dir in data_dirs.split(':') {
+        if dir.starts_with('/') {
+            dirs.push(PathBuf::from(dir));
+        }
+    }
+    let mut files = Vec::new();
+    for dir in dirs {
+        files.push(dir.join("mime").join("globs2"));
+    }
+    return files;
+}
+
+/// Whether this user may create files in `dir` (access with W_OK).
+pub fn is_writable_dir(dir: &std::path::Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c_path) = std::ffi::CString::new(dir.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: c_path is a valid NUL-terminated string that outlives the call;
+    // access only reads it.
+    let result = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) };
+    return result == 0;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
