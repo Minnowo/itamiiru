@@ -33,6 +33,8 @@ pub enum TableAction {
     RenameDone {
         commit: bool,
     },
+    /// A click on empty space.
+    ClearSelection,
 }
 
 /// A name being edited in place (F2).
@@ -161,31 +163,43 @@ pub fn show(
                 });
 
                 let response = row.response();
-                if response.double_clicked() {
-                    action = Some(TableAction::Open(row_number));
-                } else if response.clicked() {
-                    action = Some(TableAction::Click {
-                        row: row_number,
-                        ctrl: modifiers.command,
-                        shift: modifiers.shift,
-                    });
-                } else if response.secondary_clicked() {
-                    action = Some(TableAction::RightClick(row_number));
-                }
-                response.context_menu(|ui| {
-                    if let Some(command) = menus::item_menu(ui, input.menu) {
-                        action = Some(TableAction::Command(command));
-                    }
-                });
+                item_action(&response, row_number, modifiers, input.menu, &mut action);
             });
         });
 
     return action;
 }
 
+/// What a click, double-click or right-click on an item means. Shared by
+/// all the views.
+pub fn item_action(
+    response: &egui::Response,
+    row: usize,
+    modifiers: egui::Modifiers,
+    menu: &MenuState,
+    action: &mut Option<TableAction>,
+) {
+    if response.double_clicked() {
+        *action = Some(TableAction::Open(row));
+    } else if response.clicked() {
+        *action = Some(TableAction::Click {
+            row,
+            ctrl: modifiers.command,
+            shift: modifiers.shift,
+        });
+    } else if response.secondary_clicked() {
+        *action = Some(TableAction::RightClick(row));
+    }
+    response.context_menu(|ui| {
+        if let Some(command) = menus::item_menu(ui, menu) {
+            *action = Some(TableAction::Command(command));
+        }
+    });
+}
+
 /// The inline rename text box. Returns Some(commit) when it closes:
 /// Enter or clicking elsewhere commits, Escape cancels.
-fn rename_box(ui: &mut egui::Ui, editing: &mut Rename) -> Option<bool> {
+pub fn rename_box(ui: &mut egui::Ui, editing: &mut Rename) -> Option<bool> {
     let id = ui.id().with("rename");
     let edit = egui::TextEdit::singleline(&mut editing.text)
         .id(id)

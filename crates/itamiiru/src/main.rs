@@ -3,12 +3,14 @@ mod app;
 mod details;
 mod fonts;
 mod icons;
+mod iconview;
 mod menus;
 mod ops_ui;
 mod selection;
 mod sidebar;
 mod theme;
 mod thispc;
+mod toolbar;
 mod zoom;
 
 use std::path::PathBuf;

@@ -16,12 +16,14 @@ use itamiiru_core::sort::{self, SortColumn, SortOrder};
 use crate::address::{AddressAction, AddressBar};
 use crate::details::{self, Rename, TableAction, TableInput};
 use crate::icons::{Arrow, arrow_button};
+use crate::iconview::{self, KeySteps};
 use crate::menus::{self, Command, MenuState};
 use crate::ops_ui::{self, RunningOp};
 use crate::selection::{Selection, TypeAhead};
 use crate::sidebar::{self, SidebarAction};
 use crate::theme::{self, Theme};
 use crate::thispc::{self, TileAction};
+use crate::toolbar::{self, ToolbarAction, ToolbarState, ViewMode};
 use crate::zoom;
 
 /// How often to check whether the open folder changed (PLAN.md D9).
@@ -91,6 +93,9 @@ pub struct App {
     scroll_to: Option<usize>,
 
     sort: SortOrder,
+    view: ViewMode,
+    /// How the arrow keys move in the current view, from the last frame.
+    key_steps: KeySteps,
 
     /// The folder's modified time when it was last listed.
     dir_mtime: Option<SystemTime>,
@@ -157,6 +162,11 @@ impl App {
             sort: SortOrder {
                 column: SortColumn::Name,
                 ascending: true,
+            },
+            view: ViewMode::Details,
+            key_steps: KeySteps {
+                vertical: 1,
+                horizontal: 0,
             },
             dir_mtime: None,
             mtime_check_running: false,
@@ -409,6 +419,30 @@ impl App {
             self.sort.ascending = true;
         }
         self.sort_and_filter();
+    }
+
+    /// The toolbar's Sort menu sets column and direction directly.
+    fn set_sort_order(&mut self, sort: SortOrder) {
+        self.sort = sort;
+        self.sort_and_filter();
+    }
+
+    /// The command row under the address bar.
+    fn command_row(&mut self, ui: &mut egui::Ui) {
+        let state = ToolbarState {
+            selected: self.selection.count(),
+            can_paste: self.clipboard.is_some(),
+            this_pc: self.this_pc,
+            view: self.view,
+            sort: self.sort,
+            show_hidden: self.show_hidden,
+        };
+        match toolbar::show(ui, &state) {
+            Some(ToolbarAction::Command(command)) => self.run_command(command),
+            Some(ToolbarAction::SetView(view)) => self.view = view,
+            Some(ToolbarAction::SetSort(sort)) => self.set_sort_order(sort),
+            None => {}
+        }
     }
 
     fn toggle_hidden(&mut self) {
@@ -816,15 +850,24 @@ impl App {
             toggle_hidden = input.consume_key(Modifiers::COMMAND, Key::H);
             refresh = input.consume_key(Modifiers::NONE, Key::F5);
 
+            // Up/Down and Left/Right step by what the view's layout says,
+            // e.g. a whole row in the icon grid. Alt+Left/Right (back and
+            // forward) were consumed above, so they don't reach here.
+            let steps = self.key_steps;
             let moves = [
-                (Key::ArrowDown, 1),
-                (Key::ArrowUp, -1),
-                (Key::PageDown, PAGE_ROWS),
-                (Key::PageUp, -PAGE_ROWS),
+                (Key::ArrowDown, steps.vertical),
+                (Key::ArrowUp, -steps.vertical),
+                (Key::ArrowRight, steps.horizontal),
+                (Key::ArrowLeft, -steps.horizontal),
+                (Key::PageDown, PAGE_ROWS * steps.vertical),
+                (Key::PageUp, -PAGE_ROWS * steps.vertical),
                 (Key::End, all_rows),
                 (Key::Home, -all_rows),
             ];
             for (key, delta) in moves {
+                if delta == 0 {
+                    continue;
+                }
                 if input.consume_key(Modifiers::SHIFT, key) {
                     cursor_move = Some((delta, true));
                 } else if input.consume_key(Modifiers::NONE, key) {
@@ -1013,12 +1056,6 @@ impl App {
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 zoom::controls_right_to_left(ui);
-                ui.add_space(theme::GAP_LARGE);
-                let mut show_hidden = self.show_hidden;
-                let checkbox = ui.checkbox(&mut show_hidden, "Hidden files");
-                if checkbox.on_hover_text("Ctrl+H").changed() {
-                    self.toggle_hidden();
-                }
             });
         });
     }
@@ -1043,9 +1080,11 @@ impl eframe::App for App {
             .fill(self.theme.surface_container_1)
             .inner_margin(theme::GAP as i8);
 
-        egui::Panel::top("toolbar")
-            .frame(bar_frame)
-            .show(ui, |ui| self.toolbar(ui));
+        egui::Panel::top("toolbar").frame(bar_frame).show(ui, |ui| {
+            self.toolbar(ui);
+            ui.add_space(theme::GAP_SMALL);
+            self.command_row(ui);
+        });
         egui::Panel::bottom("status")
             .frame(bar_frame)
             .show(ui, |ui| self.status_bar(ui));
@@ -1121,7 +1160,29 @@ impl eframe::App for App {
                 cut,
                 menu: &menu,
             };
-            let action = details::show(ui, &input, &mut self.rename, self.scroll_to.take());
+            let scroll_to = self.scroll_to.take();
+            let action = match self.view {
+                ViewMode::Details => {
+                    self.key_steps = KeySteps {
+                        vertical: 1,
+                        horizontal: 0,
+                    };
+                    details::show(ui, &input, &mut self.rename, scroll_to)
+                }
+                ViewMode::List => {
+                    let (action, steps) =
+                        iconview::show_list(ui, &input, &mut self.rename, scroll_to);
+                    self.key_steps = steps;
+                    action
+                }
+                ViewMode::MediumIcons | ViewMode::LargeIcons | ViewMode::ExtraLargeIcons => {
+                    let icon = self.view.icon_size();
+                    let (action, steps) =
+                        iconview::show_icons(ui, &input, &mut self.rename, scroll_to, icon);
+                    self.key_steps = steps;
+                    action
+                }
+            };
 
             // The empty space below the rows: click to deselect, right-click
             // for the folder menu.
@@ -1142,6 +1203,7 @@ impl eframe::App for App {
                 Some(TableAction::RightClick(row)) => self.right_click_row(row),
                 Some(TableAction::Command(command)) => self.run_command(command),
                 Some(TableAction::RenameDone { commit }) => self.finish_rename(commit),
+                Some(TableAction::ClearSelection) => self.selection.clear(),
                 None => {}
             }
             if let Some(command) = background_command {

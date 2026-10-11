@@ -224,6 +224,8 @@ Features the developer may want to switch on or off. Each one lives in its own m
 | Setting | Default | Feature | Where it hooks in |
 |---|---|---|---|
 | `breadcrumb_dropdowns` | off | Explorer's arrow between crumbs opens a menu of that folder's subfolders (task P4.6b) | The `separator()` call in `address.rs`: when on, the arrow becomes a button that opens the menu |
+| `auto_refresh_folder` | on | Re-list the open folder when its modified time changes, checked every 2 s on a worker while the window is focused (D9) | Early return at the top of `App::check_for_changes`; F5 still works when off |
+| `auto_refresh_drives` | on | Rescan places (drives, bookmarks, network) every 5 s while focused, and re-measure drive usage | Early return at the top of `App::check_places`; places are still scanned once at startup and when This PC opens |
 
 ### Theme (section 3 D13)
 
@@ -420,8 +422,8 @@ P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's 
 - [x] P4.5 "This PC" page with drive tiles and usage bars. Also shows the Quick access folders and network locations as tiles. Reached from the pane's "This PC" title, by typing "This PC" in the address bar, or with Up from `/`; it's a Back/Forward history entry.
 - [x] P4.6 Breadcrumb address bar (section 6). Starts with a "This PC" crumb; crumbs that don't fit fold into a "..." menu on the left. Explorer's per-crumb subfolder dropdowns are not done.
 - [ ] P4.6b Crumb subfolder dropdowns behind the `breadcrumb_dropdowns` setting (section 6 Optional features). Own module (e.g. `crumb_menu.rs`); lists the folder on a worker when the arrow is clicked (generation id, like listings), shows folders only, hidden ones only with hidden files on. Needs the config file (P2.10) for the setting.
-- [ ] P4.7 Toolbar: New folder (works in picker mode too), view selector, hidden toggle.
-- [ ] P4.8 List and icon views (thumbnails come in Phase 5; use large painted icons for now).
+- [x] P4.7 Toolbar: New folder (works in picker mode too), view selector, hidden toggle. Also Cut, Copy, Paste, Rename, Delete and a Sort menu, like the Windows 11 command bar (`toolbar.rs`). The view selector lists all five views; only Details is enabled until P4.8. The hidden toggle moved here from the status bar.
+- [x] P4.8 List and icon views (thumbnails come in Phase 5; use large painted icons for now). `iconview.rs`: List flows in 260 pt columns scrolling sideways; icon views are a grid of 48/96/192 pt painted icons with two-line names. Both draw only what's on screen. Arrow keys follow the layout (a row in the grid, a column in List).
 - [ ] P4.9 Search: recursive name match from the current folder on a worker, streamed results, cancelled via `AtomicBool`, entry and depth caps, shown as a results list with a Folder column.
 - [ ] P4.10 Persist layout settings.
 
