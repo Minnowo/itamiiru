@@ -1,3 +1,4 @@
+mod address;
 mod app;
 mod details;
 mod fonts;

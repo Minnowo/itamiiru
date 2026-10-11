@@ -13,6 +13,7 @@ use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg};
 use itamiiru_core::sort::{self, SortColumn, SortOrder};
 
+use crate::address::{AddressAction, AddressBar};
 use crate::details::{self, Rename, TableAction, TableInput};
 use crate::icons::{Arrow, arrow_button};
 use crate::menus::{self, Command, MenuState};
@@ -65,8 +66,7 @@ pub struct App {
     this_pc: bool,
     /// The selected tile on the This PC page.
     this_pc_selected: Option<PathBuf>,
-    /// The address bar's text while it's being edited.
-    address: String,
+    address: AddressBar,
 
     /// The current folder's entries, kept sorted, hidden ones included.
     entries: Vec<Entry>,
@@ -141,7 +141,7 @@ impl App {
             forward: Vec::new(),
             this_pc: false,
             this_pc_selected: None,
-            address: String::new(),
+            address: AddressBar::default(),
             entries: Vec::new(),
             visible: Vec::new(),
             show_hidden: false,
@@ -791,6 +791,7 @@ impl App {
         let mut typed = String::new();
         let mut now = 0.0;
         let mut commands = Vec::new();
+        let mut edit_address = false;
 
         ctx.input_mut(|input| {
             // egui ignores an extra Shift or Alt when matching a key, so the
@@ -844,8 +845,19 @@ impl App {
                 }
             }
             now = input.time;
+            edit_address = input.consume_key(Modifiers::COMMAND, Key::L)
+                || input.consume_key(Modifiers::ALT, Key::D)
+                || input.consume_key(Modifiers::NONE, Key::F4);
         });
 
+        if edit_address {
+            if self.this_pc {
+                self.address.start_editing(None);
+            } else {
+                self.address.start_editing(Some(&self.current));
+            }
+            return;
+        }
         if self.this_pc {
             // Only navigation makes sense on the This PC page.
             if back {
@@ -954,26 +966,23 @@ impl App {
                 self.go_up();
             }
 
-            let edit = egui::TextEdit::singleline(&mut self.address)
-                .desired_width(f32::INFINITY)
-                .hint_text("Address");
-            let response = ui.add(edit);
-            if response.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                if self.address.trim().eq_ignore_ascii_case("this pc") {
-                    self.show_this_pc();
-                } else {
-                    let path = self.parse_address(&self.address);
-                    self.navigate(path);
+            let current = if self.this_pc {
+                None
+            } else {
+                Some(self.current.clone())
+            };
+            match self.address.show(ui, current.as_deref(), &self.theme) {
+                Some(AddressAction::GoTo(path)) => self.navigate(path),
+                Some(AddressAction::ThisPc) => self.show_this_pc(),
+                Some(AddressAction::Typed(text)) => {
+                    if text.trim().eq_ignore_ascii_case("this pc") {
+                        self.show_this_pc();
+                    } else {
+                        let path = self.parse_address(&text);
+                        self.navigate(path);
+                    }
                 }
-            }
-            if !response.has_focus() {
-                // Not being edited: show where we are. This also undoes
-                // unfinished edits when the field loses focus or Escape is hit.
-                if self.this_pc {
-                    self.address = "This PC".to_string();
-                } else {
-                    self.address = self.current.to_string_lossy().into_owned();
-                }
+                None => {}
             }
         });
     }

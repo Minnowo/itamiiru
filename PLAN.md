@@ -217,6 +217,14 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 
 View mode, sort column and direction, column widths, sidebar width, window size, zoom level, hidden-files toggle, and the last folder per `app_id`.
 
+### Optional features (settings)
+
+Features the developer may want to switch on or off. Each one lives in its own module, hooks into the rest of the UI at a single call site, and is checked against a `key=value` setting in the config file (section 6 Persistence). With the setting off, the hook is skipped and no other code changes behaviour.
+
+| Setting | Default | Feature | Where it hooks in |
+|---|---|---|---|
+| `breadcrumb_dropdowns` | off | Explorer's arrow between crumbs opens a menu of that folder's subfolders (task P4.6b) | The `separator()` call in `address.rs`: when on, the arrow becomes a button that opens the menu |
+
 ### Theme (section 3 D13)
 
 - egui's global style is set from the theme once at startup, so plain widgets already follow it: `ui.button` is ponkotsu's plain button, text edits are its inputs.
@@ -410,7 +418,8 @@ P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's 
 - [x] P4.3 User dirs and GTK bookmarks parsers, with tests.
 - [x] P4.4 Navigation pane: Quick access, Bookmarks, This PC, Network. Collapsible, resizable.
 - [x] P4.5 "This PC" page with drive tiles and usage bars. Also shows the Quick access folders and network locations as tiles. Reached from the pane's "This PC" title, by typing "This PC" in the address bar, or with Up from `/`; it's a Back/Forward history entry.
-- [ ] P4.6 Breadcrumb address bar (section 6).
+- [x] P4.6 Breadcrumb address bar (section 6). Starts with a "This PC" crumb; crumbs that don't fit fold into a "..." menu on the left. Explorer's per-crumb subfolder dropdowns are not done.
+- [ ] P4.6b Crumb subfolder dropdowns behind the `breadcrumb_dropdowns` setting (section 6 Optional features). Own module (e.g. `crumb_menu.rs`); lists the folder on a worker when the arrow is clicked (generation id, like listings), shows folders only, hidden ones only with hidden files on. Needs the config file (P2.10) for the setting.
 - [ ] P4.7 Toolbar: New folder (works in picker mode too), view selector, hidden toggle.
 - [ ] P4.8 List and icon views (thumbnails come in Phase 5; use large painted icons for now).
 - [ ] P4.9 Search: recursive name match from the current folder on a worker, streamed results, cancelled via `AtomicBool`, entry and depth caps, shown as a results list with a Folder column.
