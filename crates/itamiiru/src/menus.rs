@@ -28,6 +28,11 @@ pub enum Command {
     MoveToOtherPane,
     /// The settings page (Ctrl+Comma).
     OpenSettings,
+    /// A custom action (the `actions` file) on the selected items, by
+    /// its index in the file.
+    ActionOnSelection(usize),
+    /// A custom action on the folder itself (right-click on empty space).
+    ActionOnFolder(usize),
 }
 
 /// What the menus need to know to enable or label their items.
@@ -43,6 +48,10 @@ pub struct MenuState {
     pub other_pane: Option<String>,
     /// Both panes show the same folder: the items are greyed out.
     pub other_pane_same: bool,
+    /// Custom actions for the selection, and for empty space, as (index,
+    /// name). Only filled while a right-click menu may show.
+    pub actions_on_selection: Vec<(usize, String)>,
+    pub actions_on_folder: Vec<(usize, String)>,
 }
 
 /// The menu for right-clicking a file or folder (which is then selected).
@@ -57,6 +66,16 @@ pub fn item_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> {
             "Middle-click",
             true,
             Command::OpenInNewTab,
+        );
+    }
+    for (index, name) in &state.actions_on_selection {
+        item(
+            ui,
+            &mut command,
+            name,
+            "",
+            true,
+            Command::ActionOnSelection(*index),
         );
     }
     ui.separator();
@@ -141,6 +160,19 @@ pub fn background_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> 
         true,
         Command::NewFolder,
     );
+    if !state.actions_on_folder.is_empty() {
+        ui.separator();
+        for (index, name) in &state.actions_on_folder {
+            item(
+                ui,
+                &mut command,
+                name,
+                "",
+                true,
+                Command::ActionOnFolder(*index),
+            );
+        }
+    }
     ui.separator();
     item(
         ui,

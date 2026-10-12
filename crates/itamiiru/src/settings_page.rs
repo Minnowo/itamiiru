@@ -104,6 +104,10 @@ pub fn show(
                                 "Colors can be changed in {} (see the README)",
                                 theme_file.display()
                             ));
+                            ui.weak(format!(
+                                "Right-click actions are in {} (read at startup; see the README)",
+                                dir.join("actions").display()
+                            ));
                         }
                     });
                 }

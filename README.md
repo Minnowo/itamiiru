@@ -199,6 +199,29 @@ powers it off, and the status bar says when it's safe to unplug. This
 goes through UDisks2 (`udisks2` package), which every Linux desktop
 ships, so no password is needed for removable drives in your own session.
 
+## Custom right-click actions
+
+Add your own menu items, like "Open in terminal", in
+`~/.config/itamiiru/actions` (read when itamiiru starts).
+`data/actions.example` explains the format; a short version:
+
+```
+[Open in terminal]
+command = xfce4-terminal --working-directory=%d
+for = folders, background
+
+[Edit in VSCodium]
+command = codium %F
+for = files, folders
+```
+
+`for` takes `files`, `folders`, `background` (empty space) and patterns
+like `*.jpg`. In `command`, `%f` is the selected path (run once per item),
+`%F` all of them, `%d` the folder (a right-clicked folder, or the one on
+screen), `%n` the name. Commands are never run through a shell, so file
+names can't inject anything. Problems in the file are skipped and logged
+with `ITAMI_DEBUG=1`.
+
 ## Settings
 
 The **Settings** button at the right of the toolbar (or Ctrl+Comma) opens

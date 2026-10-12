@@ -1,0 +1,32 @@
+# itamiiru custom right-click actions.
+# Copy to ~/.config/itamiiru/actions and edit; read when itamiiru starts.
+#
+# Each [section] is one menu item:
+#   command = the program and its arguments. Split into words like a shell
+#             would ("quotes" and 'quotes' keep spaces), but never run
+#             through a shell, so odd file names can't run anything.
+#   for     = where it shows, comma-separated (default: files, folders):
+#             files, folders, background (right-click on empty space),
+#             or name patterns like *.jpg (upper/lower case don't matter).
+#             It shows when everything selected matches.
+#
+# Placeholders in the command:
+#   %f  the selected path; with several selected, the command runs once each
+#   %F  all selected paths, as separate arguments, run once
+#   %d  the folder: a right-clicked folder itself, otherwise the one on screen
+#   %n  the selected name
+#   %%  a percent sign
+# To use a shell anyway: command = sh -c 'some | pipeline "$1"' sh %f
+# (pass paths as arguments like this, never inside the quoted script).
+
+[Open in terminal]
+command = x-terminal-emulator --working-directory=%d
+for = folders, background
+
+# [Edit in VSCodium]
+# command = codium %F
+# for = files, folders
+
+# [Convert to PNG]
+# command = convert %f %f.png
+# for = *.jpg, *.jpeg, *.webp

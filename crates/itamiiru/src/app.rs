@@ -8,6 +8,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 use eframe::egui::{self, Key, Modifiers, Sense};
+use itamiiru_core::actions::{self, Action};
 use itamiiru_core::config::Config;
 use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
@@ -125,6 +126,9 @@ pub struct App {
     status_fields: Vec<StatusField>,
     /// The settings page is open.
     settings_open: bool,
+    /// Custom right-click actions, from the `actions` file next to the
+    /// config file (read at startup).
+    actions: Vec<Action>,
 
     /// Set in picker mode (`itami --pick`). The picker has one tab and no
     /// split view.
@@ -154,6 +158,7 @@ impl App {
         let settings = Settings::from_config(&config);
         let (places_tx, places_rx) = mpsc::channel();
         let thumbs = Thumbs::new(&ctx, settings.thumbnails);
+        let actions = load_actions(config_path.as_deref());
         let mut first = Pane::new(0, ctx.clone(), start, false);
         // Items from `--select` get selected when the first listing is done.
         first.after_listing.select = select;
@@ -198,6 +203,7 @@ impl App {
             preview: Preview::new(),
             status_fields: settings.status_fields.clone(),
             settings_open: false,
+            actions,
             picker,
         };
         app.scan_places();
@@ -517,8 +523,42 @@ impl App {
             }
             Command::ToggleSplit => self.toggle_split(),
             Command::OpenSettings => self.settings_open = true,
+            Command::ActionOnSelection(index) => self.run_action(index, false),
+            Command::ActionOnFolder(index) => self.run_action(index, true),
             Command::CopyToOtherPane => self.send_to_other_pane(false),
             Command::MoveToOtherPane => self.send_to_other_pane(true),
+        }
+    }
+
+    /// Runs custom action `index` on the selection, or on the folder on
+    /// screen (`on_folder`, from a right-click on empty space).
+    fn run_action(&mut self, index: usize, on_folder: bool) {
+        let Some(action) = self.actions.get(index) else {
+            return;
+        };
+        let pane = self.tabs[self.active_tab].pane();
+        let selected = if on_folder {
+            Vec::new()
+        } else {
+            pane.selected_entries()
+        };
+        let mut items = Vec::new();
+        for entry in &selected {
+            items.push(actions::Item {
+                path: &entry.path,
+                is_dir: entry.is_dir(),
+            });
+        }
+        let mut errors = Vec::new();
+        for line in action.command_lines(&items, &pane.current) {
+            if let Err(err) = actions::run(&line, &pane.current) {
+                let program = line.first().map(|p| p.to_string_lossy().into_owned());
+                let program = program.unwrap_or_default();
+                errors.push(format!("{}: can't run {program}: {err}", action.name));
+            }
+        }
+        for error in errors {
+            ops_ui::push_error(&mut self.op_errors, error);
         }
     }
 
@@ -1198,6 +1238,31 @@ impl App {
             show_error(ui, theme, &pane.current, error);
             return out;
         }
+        // Which custom actions apply is only worked out while a menu may
+        // show (a right-click, or one already open), not every frame.
+        let mut actions_on_selection = Vec::new();
+        let mut actions_on_folder = Vec::new();
+        let menu_may_show = ui
+            .input(|i| i.pointer.secondary_down() || i.pointer.secondary_released())
+            || egui::Popup::is_any_open(ui.ctx());
+        if menu_may_show && !self.actions.is_empty() {
+            let selected = pane.selected_entries();
+            let mut items = Vec::new();
+            for entry in &selected {
+                items.push(actions::Item {
+                    path: &entry.path,
+                    is_dir: entry.is_dir(),
+                });
+            }
+            for (index, action) in self.actions.iter().enumerate() {
+                if !items.is_empty() && action.applies_to(&items) {
+                    actions_on_selection.push((index, action.name.clone()));
+                }
+                if action.applies_to(&[]) {
+                    actions_on_folder.push((index, action.name.clone()));
+                }
+            }
+        }
         let menu = MenuState {
             selected: pane.selection.count(),
             can_paste: self.clipboard.is_some(),
@@ -1206,6 +1271,8 @@ impl App {
             open_in_new_tab: self.picker.is_none() && selected_is_one_folder(pane),
             other_pane: other_name,
             other_pane_same: other_same,
+            actions_on_selection,
+            actions_on_folder,
         };
         let cut = match &self.clipboard {
             Some(clipboard) if clipboard.cut => &clipboard.set,
@@ -1754,6 +1821,14 @@ pub fn selection_summary(selected: &[&Entry], fields: &[StatusField]) -> Option<
         "{count} selected, {} in {files} {noun}",
         format_size(total)
     ));
+}
+
+/// The custom actions from the `actions` file next to the config file.
+fn load_actions(config_path: Option<&Path>) -> Vec<Action> {
+    let Some(dir) = config_path.and_then(Path::parent) else {
+        return Vec::new();
+    };
+    return actions::load(&dir.join("actions"));
 }
 
 /// True when exactly one folder is selected.
@@ -2454,6 +2529,88 @@ mod tests {
             "the eject started"
         );
         settle_volumes(&mut app, &ctx);
+    }
+
+    /// Right-clicks at `at`, then clicks the menu item called `item`.
+    fn menu_click(app: &mut App, ctx: &egui::Context, at: Pos2, item: &str) {
+        let press = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(app, ctx, vec![Event::PointerMoved(at)]);
+        frame(app, ctx, vec![press(true)]);
+        frame(app, ctx, vec![press(false)]);
+        let texts = frame_texts(app, ctx, Vec::new());
+        let found = texts.iter().find(|(text, _)| text == item);
+        let names: Vec<&String> = texts.iter().map(|(t, _)| t).collect();
+        let rect = found
+            .unwrap_or_else(|| panic!("{item:?} in the menu: {names:?}"))
+            .1;
+        click(app, ctx, rect.center());
+    }
+
+    fn wait_for(path: &Path) -> bool {
+        for _ in 0..200 {
+            if path.exists() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        return false;
+    }
+
+    #[test]
+    fn custom_actions_in_the_right_click_menus() {
+        let folder = Folder::new("actions");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let (actions, problems) = actions::parse(
+            "[Mark here]\ncommand = touch %d/marker\nfor = folders, background\n\
+             [Only for jpg]\ncommand = true\nfor = *.jpg\n",
+        );
+        assert!(problems.is_empty(), "{problems:?}");
+        app.actions = actions;
+
+        // On a folder: %d is that folder.
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let alpha = texts
+            .iter()
+            .find(|(text, _)| text == "alpha")
+            .expect("alpha is listed")
+            .1;
+        menu_click(&mut app, &ctx, alpha.center(), "Mark here");
+        assert!(wait_for(&folder.0.join("alpha/marker")), "ran in alpha");
+
+        // The jpg action isn't offered for a folder.
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        assert!(!texts.iter().any(|(t, _)| t == "Only for jpg"));
+
+        // On empty space: %d is the folder on screen.
+        let empty = Pos2::new(900.0, 700.0);
+        menu_click(&mut app, &ctx, empty, "Mark here");
+        assert!(wait_for(&folder.0.join("marker")), "ran in the folder");
+    }
+
+    #[test]
+    fn a_missing_program_is_reported() {
+        let folder = Folder::new("badaction");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let (actions, _) =
+            actions::parse("[Nope]\ncommand = itamiiru-no-such-program %d\nfor = background\n");
+        app.actions = actions;
+        app.run_command(Command::ActionOnFolder(0));
+        assert!(
+            app.op_errors
+                .iter()
+                .any(|e| e.starts_with("Nope: can't run itamiiru-no-such-program")),
+            "{:?}",
+            app.op_errors
+        );
     }
 
     #[test]
