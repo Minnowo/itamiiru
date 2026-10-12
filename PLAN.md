@@ -80,6 +80,7 @@
 | D15 | Natural sort case | ASCII letters compare case-insensitively; other letters by raw bytes | Simple and allocation-free | Non-English names sort badly in practice |
 | D16 | UI scaling | egui's built-in zoom (Ctrl+Plus, Ctrl+Minus, Ctrl+0; 10% steps), plus `[-] 100% [+]` buttons in the status bar, the percentage resets | One knob scales text, icons and spacing together, like a browser; painted icons stay sharp at any size | - |
 | D18 | FileManager1 | Same binary as the portal backend, run as `--file-manager`: its own process and its own activation file | Reuses the D-Bus code; the two names stay independent (either can run without the other); no daemon to keep alive | Another file manager's daemon holding the name becomes a common complaint (could queue for the name instead of giving up) |
+| D19 | Tabs and split view | A `Pane` holds one folder view (history, listing, selection, search) with its own worker channels; a `Tab` holds one or two panes; the app keeps what's shared (toolbar, sidebar, clipboard, operations, thumbnails, settings). Actions from a pane are returned, then applied after it becomes the active one | Results can't reach the wrong pane, and the old single-folder code moved over almost unchanged | A third pane, or saving tabs between runs, is wanted |
 | D17 | File clipboard | In-app list of cut/copied paths; the paths also go on the system clipboard as text | egui's clipboard is text-only, and egui only reports Ctrl+V when the clipboard holds text, so putting the paths there makes Ctrl+V reach us and lets them paste into a terminal. No file interop with other file managers | Interop with other file managers is wanted (needs `text/uri-list` / `x-special/gnome-copied-files` clipboard targets) |
 
 ## 4. Threading model
@@ -149,10 +150,13 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 
 ```
 +----------------------------------------------------------------------------+
-| [<] [>] [^]   Home > me > Documents > Projects          [ Search Projects  ]|
-| [New folder]                                    [View: Details v] [Hidden] |
+|  _Projects_x_  Downloads x   [+]               (tabs; explorer mode only) |
+| [New folder]                    [View: Details v] [Hidden] [Split view]    |
 +-------------------+--------------------------------------------------------+
-| Quick access      | Name ^                 Date modified     Type      Size|
+| Quick access      | [<] [>] [^]  Home > me > Documents > Projects  [S] [F] |
+|                   | [ Search Projects                                    ] |
+|                   | [ Filter names, e.g. report or *.jpg                 ] |
+|                   | Name ^                 Date modified     Type      Size|
 |   Home            | [D] assets             2026-10-01 14:22  Folder        |
 |   Desktop         | [D] src                2026-10-09 11:03  Folder        |
 |   Documents       | [F] notes.txt          2026-10-10 18:03  TXT File  2 KB|
@@ -176,6 +180,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
   - *Bookmarks* come from `~/.config/gtk-3.0/bookmarks`, the same list GTK apps use.
   - *This PC* shows mounted drives with usage bars. Clicking the heading opens a drive-tiles page, like Windows.
   - *Network* shows gvfs mounts under `/run/user/$UID/gvfs`, plus network filesystems.
+- **Tabs and split view (P10):** explorer mode only; the picker has neither. Each tab holds one pane, or two side by side (split view, at most two). A pane has its own Back/Forward/Up, address bar, search and filter buttons and file list; the search row (recursive search, Ctrl+F) and the filter row (hides names in the listed folder as you type, Ctrl+Shift+F; plain text matches part of the name, `*`/`?` make it a glob; case ignored) appear under the address bar. A drag handle between split panes moves the split (each pane at least 200 points; double-click for halves); each tab keeps its own split. The tab strip is a darker band; the active tab has the toolbar's color and joins it. The toolbar, sidebar, preview pane, keys and status bar act on the active pane (clicked last; in split view its bar is one surface step lighter). View, sort and hidden files are shared by all panes. Tabs aren't saved between runs.
 - **Address bar:** clickable breadcrumb segments. Clicking empty space, Ctrl+L, Alt+D or F4 switches it to a text field. Enter navigates; `~` expands; Escape reverts.
 - **File list views:** Details (default), List, and Medium/Large/Extra-large icons, which show thumbnails. In Details, headers sort (click again to reverse), columns resize, and folders always come first. Sorting is natural.
 - **Type column:** Windows-style `"PNG File"` (uppercase extension + " File"), `"Folder"`, or `"File"` when there's no extension.
@@ -204,7 +209,12 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 | Backspace, Alt+Up | Up one folder (from `/`, to This PC) |
 | Alt+Left / Alt+Right | Back / forward |
 | Ctrl+L, Alt+D, F4 | Edit address bar |
-| Ctrl+F, F3 | Focus search |
+| Ctrl+F, F3 | Open and focus the search row |
+| Ctrl+Shift+F | Open and focus the filter row (Escape closes it and shows every name) |
+| Ctrl+T / Ctrl+W | New tab (same folder) / close tab (the last one stays) |
+| Ctrl+Tab / Ctrl+Shift+Tab | Next / previous tab |
+| Middle-click a folder | Open it in a new tab, behind the current one |
+| F6 | Split view: switch the active pane |
 | Ctrl+H | Toggle hidden files |
 | Alt+P | Toggle the preview pane |
 | Ctrl+Plus / Ctrl+Minus / Ctrl+0 | Zoom in / out / reset, 10% steps (section 3 D16) |
@@ -507,6 +517,20 @@ Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps c
 - [ ] P9.5 Startup time: under 150 ms to first frame on your machine. Measure and fix.
 - [ ] P9.6 Follow the system light/dark theme.
 - [ ] P9.7 Packaging (install script -> AUR/deb/rpm later).
+
+### Phase 10: Tabs and split view
+- [x] P10.1 `Pane` (`pane.rs`): the per-folder state moved out of `App`, with its own listing, search and change-check channels. A closed pane cancels its search (`Drop`).
+- [x] P10.2 Tabs (`tabs.rs`): tab bar above the command row (explorer mode only), close buttons, middle-click to close, "+" for a new tab in the same folder. Ctrl+T, Ctrl+W (the last tab stays), Ctrl+Tab, Ctrl+Shift+Tab. Folders: "Open in new tab" in the right-click menu, and middle-click opens one behind.
+- [x] P10.3 Per-pane navigation bar above the column headers: Back/Forward/Up, the address bar, and a search button that shows the search row under it (Ctrl+F, F3; Escape closes it). The search box left the top toolbar.
+- [x] P10.4 Split view: a "Split view" switch in the toolbar opens a second pane in the same folder (at most two); clicking a pane or F6 makes it active; turning it off keeps the active pane. After a file operation both panes refresh. Only the active pane's column widths are saved.
+- [x] P10.5 Headless UI tests (`app.rs`): real frames through `eframe::App::ui` with no window, covering tabs, split view, a click in the right pane, every view in split view, and the search row.
+
+- [x] P10.6 Drag handle between split panes (`App::split_handle`, `split_width` clamps each pane to `MIN_PANE_WIDTH`), stored per tab as `Tab::split_ratio`.
+- [x] P10.7 Filter button next to search: a per-pane filter row that hides non-matching names live (`NameFilter` in `pane.rs`, using the glob module for `*`/`?`). Stays while the row is open, across navigation; closing it clears it. "(filtered)" in the status bar.
+- [x] P10.8 Tabs restyled to read as tabs: own panel with a darker fill, active tab in the toolbar's color with only its top corners rounded, inactive tabs muted with a hover pill, close cross inside the tab.
+- [x] P10.9 Split view: "Copy to \"<folder>\"" and "Move to \"<folder>\"" in the right-click menu send the selection to the other pane's folder (greyed out when both panes show the same folder, hidden when either shows This PC). After any operation the new items are selected in every pane showing them.
+
+**Done when:** you browse two folders side by side and across tabs, and copy/move between them.
 
 ## 12. Testing recipes
 

@@ -72,6 +72,74 @@ pub fn arrow_button(ui: &mut egui::Ui, arrow: Arrow) -> egui::Response {
     return response;
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ButtonIcon {
+    /// A magnifying glass.
+    Search,
+    /// A plus, for a new tab.
+    Plus,
+    /// A funnel, for filtering names.
+    Filter,
+}
+
+/// A square button like `arrow_button`, with a painted icon. `selected`
+/// draws it pressed, for toggles like the search button.
+pub fn icon_button(ui: &mut egui::Ui, icon: ButtonIcon, selected: bool) -> egui::Response {
+    let side = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let visuals = ui.style().interact_selectable(&response, selected);
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            visuals.corner_radius,
+            visuals.weak_bg_fill,
+            visuals.bg_stroke,
+            StrokeKind::Inside,
+        );
+        let color = visuals.fg_stroke.color;
+        let area = rect.shrink(side * 0.3);
+        let stroke = Stroke::new(1.5, color);
+        match icon {
+            ButtonIcon::Search => {
+                // A ring at the top left, and a handle to the bottom right.
+                let radius = area.width() * 0.32;
+                let center = area.left_top() + egui::vec2(radius, radius);
+                painter.circle_stroke(center, radius, stroke);
+                let start = center + egui::vec2(radius, radius) * 0.7;
+                painter.line_segment([start, area.right_bottom()], stroke);
+            }
+            ButtonIcon::Plus => {
+                let c = area.center();
+                painter.line_segment(
+                    [Pos2::new(area.left(), c.y), Pos2::new(area.right(), c.y)],
+                    stroke,
+                );
+                painter.line_segment(
+                    [Pos2::new(c.x, area.top()), Pos2::new(c.x, area.bottom())],
+                    stroke,
+                );
+            }
+            ButtonIcon::Filter => {
+                // The funnel's outline: wide at the top, then a short stem.
+                let c = area.center().x;
+                let stem = area.width() * 0.12;
+                let neck = area.top() + area.height() * 0.5;
+                let points = vec![
+                    area.left_top(),
+                    area.right_top(),
+                    Pos2::new(c + stem, neck),
+                    Pos2::new(c + stem, area.bottom()),
+                    Pos2::new(c - stem, area.bottom() - area.height() * 0.15),
+                    Pos2::new(c - stem, neck),
+                ];
+                painter.add(Shape::closed_line(points, stroke));
+            }
+        }
+    }
+    return response;
+}
+
 /// Paints the icon for a file list entry in `rect` (square, any size).
 /// Colors come from the theme's categorical palette.
 pub fn paint_entry_icon(painter: &egui::Painter, rect: Rect, entry: &Entry, theme: &Theme) {

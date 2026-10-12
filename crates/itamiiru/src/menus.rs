@@ -20,6 +20,12 @@ pub enum Command {
     Refresh,
     ToggleHidden,
     TogglePreview,
+    /// Open the selected folder in a new tab (also middle-click).
+    OpenInNewTab,
+    ToggleSplit,
+    /// Split view: copy or move the selection to the other pane's folder.
+    CopyToOtherPane,
+    MoveToOtherPane,
 }
 
 /// What the menus need to know to enable or label their items.
@@ -28,12 +34,29 @@ pub struct MenuState {
     pub can_paste: bool,
     pub show_hidden: bool,
     pub trash_supported: bool,
+    /// One folder is selected and tabs are available (not in the picker).
+    pub open_in_new_tab: bool,
+    /// Split view: the other pane's folder name, for "Copy to" and "Move
+    /// to". None hides them (no split, or the other pane shows This PC).
+    pub other_pane: Option<String>,
+    /// Both panes show the same folder: the items are greyed out.
+    pub other_pane_same: bool,
 }
 
 /// The menu for right-clicking a file or folder (which is then selected).
 pub fn item_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> {
     let mut command = None;
     item(ui, &mut command, "Open", "Enter", true, Command::Open);
+    if state.open_in_new_tab {
+        item(
+            ui,
+            &mut command,
+            "Open in new tab",
+            "Middle-click",
+            true,
+            Command::OpenInNewTab,
+        );
+    }
     ui.separator();
     item(ui, &mut command, "Cut", "Ctrl+X", true, Command::Cut);
     item(ui, &mut command, "Copy", "Ctrl+C", true, Command::Copy);
@@ -46,6 +69,27 @@ pub fn item_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> {
         Command::Paste,
     );
     item(ui, &mut command, "Copy path", "", true, Command::CopyPath);
+    if let Some(name) = &state.other_pane {
+        let enabled = !state.other_pane_same;
+        let copy = format!("Copy to \"{name}\"");
+        item(
+            ui,
+            &mut command,
+            &copy,
+            "",
+            enabled,
+            Command::CopyToOtherPane,
+        );
+        let move_label = format!("Move to \"{name}\"");
+        item(
+            ui,
+            &mut command,
+            &move_label,
+            "",
+            enabled,
+            Command::MoveToOtherPane,
+        );
+    }
     ui.separator();
     item(
         ui,

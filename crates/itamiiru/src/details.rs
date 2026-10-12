@@ -28,6 +28,8 @@ pub enum TableAction {
     Open(usize),
     /// Right-click on a row: select it first if it isn't already.
     RightClick(usize),
+    /// Middle-click: a folder opens in a new tab.
+    MiddleClick(usize),
     /// A right-click menu item was chosen.
     Command(Command),
     /// The inline rename box closed; `commit` is false for Escape.
@@ -237,6 +239,8 @@ pub fn item_action(
         });
     } else if response.secondary_clicked() {
         *action = Some(TableAction::RightClick(row));
+    } else if response.middle_clicked() {
+        *action = Some(TableAction::MiddleClick(row));
     }
     response.context_menu(|ui| {
         if let Some(command) = menus::item_menu(ui, menu) {

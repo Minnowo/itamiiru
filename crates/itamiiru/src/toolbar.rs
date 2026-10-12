@@ -84,6 +84,8 @@ pub struct ToolbarState {
     pub sort: SortOrder,
     pub show_hidden: bool,
     pub preview_pane: bool,
+    /// Split view on or off; None hides the switch (the picker has no tabs).
+    pub split: Option<bool>,
 }
 
 pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
@@ -146,6 +148,16 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
 
         // Laid out from the right edge, so added in reverse order.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if let Some(split) = state.split {
+                let mut split = split;
+                let checkbox = ui.checkbox(&mut split, "Split view");
+                if checkbox
+                    .on_hover_text("Two folders side by side (F6 switches)")
+                    .changed()
+                {
+                    action = Some(ToolbarAction::Command(Command::ToggleSplit));
+                }
+            }
             let mut preview_pane = state.preview_pane;
             let checkbox = ui.checkbox(&mut preview_pane, "Preview pane");
             if checkbox.on_hover_text("Alt+P").changed() {
