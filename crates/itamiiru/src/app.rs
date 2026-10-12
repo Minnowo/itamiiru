@@ -9,10 +9,12 @@ use std::time::Duration;
 
 use eframe::egui::{self, Key, Modifiers, Sense};
 use itamiiru_core::config::Config;
+use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
+use itamiiru_core::format::{format_local_time, format_size};
 use itamiiru_core::listing;
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg};
-use itamiiru_core::sort::{SortColumn, SortOrder};
+use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
 use itamiiru_core::thumbcache::ThumbSize;
 
 use crate::details::{self, TableAction, TableInput};
@@ -22,7 +24,7 @@ use crate::ops_ui::{self, RunningOp};
 use crate::pane::{Filter, Pane};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::preview::Preview;
-use crate::settings::{ColumnWidths, Settings};
+use crate::settings::{ColumnWidths, Settings, StatusField};
 use crate::sidebar::{self, SidebarAction};
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
 use crate::theme::{self, Theme};
@@ -111,6 +113,8 @@ pub struct App {
     preview_pane: bool,
     preview_width: f32,
     preview: Preview,
+    /// What the status bar shows for one selected item.
+    status_fields: Vec<StatusField>,
 
     /// Set in picker mode (`itami --pick`). The picker has one tab and no
     /// split view.
@@ -180,6 +184,7 @@ impl App {
             preview_pane: settings.preview_pane,
             preview_width: settings.preview_width,
             preview: Preview::new(),
+            status_fields: settings.status_fields.clone(),
             picker,
         };
         app.scan_places();
@@ -884,45 +889,49 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let pane = self.tabs[self.active_tab].pane();
-        ui.horizontal(|ui| {
-            let mut count = pane.visible.len();
-            if pane.this_pc {
-                count = 0;
-                for drive in &self.places.drives {
-                    if self.show_hidden || !drive.hidden {
-                        count += 1;
+        // Zoom controls first, from the right edge, so a long selection
+        // summary is cut short instead of pushing them off the window.
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            zoom::controls_right_to_left(ui);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let mut count = pane.visible.len();
+                if pane.this_pc {
+                    count = 0;
+                    for drive in &self.places.drives {
+                        if self.show_hidden || !drive.hidden {
+                            count += 1;
+                        }
                     }
                 }
-            }
-            if let Some(active) = &pane.search {
-                let results = if count == 1 { "result" } else { "results" };
-                ui.label(format!("{count} {results} for \"{}\"", active.query));
-                if active.running {
+                if let Some(active) = &pane.search {
+                    let results = if count == 1 { "result" } else { "results" };
+                    ui.label(format!("{count} {results} for \"{}\"", active.query));
+                    if active.running {
+                        ui.spinner();
+                    }
+                    if active.truncated {
+                        ui.weak("(stopped early: too many results or folders too deep)");
+                    }
+                } else {
+                    let items = if count == 1 { "item" } else { "items" };
+                    ui.label(format!("{count} {items}"));
+                }
+                if pane.is_filtered() {
+                    ui.weak("(filtered)");
+                }
+                if pane.loading {
                     ui.spinner();
                 }
-                if active.truncated {
-                    ui.weak("(stopped early: too many results or folders too deep)");
+                if pane.skipped > 0 {
+                    ui.weak(format!("({} could not be read)", pane.skipped));
                 }
-            } else {
-                let items = if count == 1 { "item" } else { "items" };
-                ui.label(format!("{count} {items}"));
-            }
-            if pane.is_filtered() {
-                ui.weak("(filtered)");
-            }
-            let selected = pane.selection.count();
-            if selected > 0 {
-                ui.label(format!("{selected} selected"));
-            }
-            if pane.loading {
-                ui.spinner();
-            }
-            if pane.skipped > 0 {
-                ui.weak(format!("({} could not be read)", pane.skipped));
-            }
-
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                zoom::controls_right_to_left(ui);
+                if pane.selection.count() > 0
+                    && let Some(summary) =
+                        selection_summary(&pane.selected_entries(), &self.status_fields)
+                {
+                    ui.separator();
+                    ui.add(egui::Label::new(summary).truncate());
+                }
             });
         });
     }
@@ -1337,6 +1346,7 @@ impl App {
             thumbnails: self.thumbnails_enabled,
             preview_pane: self.preview_pane,
             preview_width: self.preview_width,
+            status_fields: self.status_fields.clone(),
         };
     }
 
@@ -1531,6 +1541,61 @@ fn split_width(usable: f32, ratio: f32) -> f32 {
         return usable / 2.0;
     }
     return width.clamp(MIN_PANE_WIDTH, usable - MIN_PANE_WIDTH);
+}
+
+/// The status bar's words about the selection. One item: the details in
+/// `fields` (the `status_fields` setting), like a row of the Details view.
+/// Several: how many, and the total size of the files among them (folder
+/// sizes aren't known without walking them).
+fn selection_summary(selected: &[&Entry], fields: &[StatusField]) -> Option<String> {
+    if selected.len() == 1 {
+        let entry = selected[0];
+        let mut parts = Vec::new();
+        for field in fields {
+            match field {
+                StatusField::Name => parts.push(entry.name.to_string_lossy().into_owned()),
+                StatusField::Type => parts.push(type_label(entry)),
+                StatusField::Size => {
+                    if !entry.is_dir() {
+                        parts.push(format_size(entry.size));
+                    }
+                }
+                StatusField::Modified => {
+                    if let Some(mtime) = entry.mtime {
+                        parts.push(format!("modified {}", format_local_time(mtime)));
+                    }
+                }
+                StatusField::Path => parts.push(entry.path.to_string_lossy().into_owned()),
+            }
+        }
+        if parts.is_empty() {
+            return Some("1 selected".to_string());
+        }
+        return Some(parts.join(", "));
+    }
+    if selected.is_empty() {
+        return None;
+    }
+    let mut files = 0;
+    let mut total: u64 = 0;
+    for entry in selected {
+        if !entry.is_dir() {
+            files += 1;
+            total = total.saturating_add(entry.size);
+        }
+    }
+    let count = selected.len();
+    if files == 0 {
+        return Some(format!("{count} selected"));
+    }
+    if files == count {
+        return Some(format!("{count} selected, {}", format_size(total)));
+    }
+    let noun = if files == 1 { "file" } else { "files" };
+    return Some(format!(
+        "{count} selected, {} in {files} {noun}",
+        format_size(total)
+    ));
 }
 
 /// True when exactly one folder is selected.
@@ -1781,6 +1846,52 @@ mod tests {
         let tab = &app.tabs[app.active_tab];
         assert_eq!(tab.panes.len(), 1);
         assert_eq!(tab.pane().current, folder.0);
+    }
+
+    fn entry(name: &str, kind: itamiiru_core::entry::EntryKind, size: u64) -> Entry {
+        return Entry {
+            name: name.into(),
+            path: PathBuf::from("/x").join(name),
+            kind,
+            size,
+            mtime: None,
+            hidden: false,
+            executable: false,
+        };
+    }
+
+    #[test]
+    fn selection_summary_text() {
+        use itamiiru_core::entry::EntryKind;
+        let photo = entry("photo.jpg", EntryKind::File, 3 * 1024 * 1024);
+        let notes = entry("notes.txt", EntryKind::File, 2048);
+        let src = entry("src", EntryKind::Dir, 0);
+        let default = Settings::default().status_fields;
+        let summary = |selected: &[&Entry]| selection_summary(selected, &default);
+        assert_eq!(summary(&[]), None);
+        // The default leaves the name out.
+        assert_eq!(summary(&[&photo]).as_deref(), Some("JPG File, 3.0 MB"));
+        assert_eq!(summary(&[&src]).as_deref(), Some("Folder"));
+        assert_eq!(
+            summary(&[&photo, &notes]).as_deref(),
+            Some("2 selected, 3.0 MB")
+        );
+        assert_eq!(
+            summary(&[&photo, &src]).as_deref(),
+            Some("2 selected, 3.0 MB in 1 file")
+        );
+        assert_eq!(summary(&[&src, &src]).as_deref(), Some("2 selected"));
+
+        // Fields in the order given.
+        let fields = [StatusField::Size, StatusField::Name, StatusField::Path];
+        assert_eq!(
+            selection_summary(&[&photo], &fields).as_deref(),
+            Some("3.0 MB, photo.jpg, /x/photo.jpg")
+        );
+        assert_eq!(
+            selection_summary(&[&photo], &[]).as_deref(),
+            Some("1 selected")
+        );
     }
 
     #[test]

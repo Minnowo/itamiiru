@@ -229,6 +229,8 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 
 View mode, sort column and direction, column widths, sidebar width, window size, zoom level, hidden-files toggle, and the last folder per `app_id`.
 
+`status_fields` sets what the status bar says about one selected item: a comma-separated list of `name`, `type`, `size` (files only), `modified`, `path`, shown in that order and joined with ", ". Default `type,size,modified` (no name: it's already highlighted in the list). Unknown names are skipped; an empty value shows just "1 selected". Several selected items always show the count and the files' total size. Edit by hand until there's a settings page.
+
 ### Optional features (settings)
 
 Features the developer may want to switch on or off. Each one lives in its own module, hooks into the rest of the UI at a single call site, and is checked against a `key=value` setting in the config file (section 6 Persistence). With the setting off, the hook is skipped and no other code changes behaviour. The two auto-refresh settings are already read from the config file (edit it by hand until there's a settings page); `breadcrumb_dropdowns` waits for P4.6b.
@@ -529,6 +531,7 @@ Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps c
 - [x] P10.7 Filter button next to search: a per-pane filter row that hides non-matching names live (`NameFilter` in `pane.rs`, using the glob module for `*`/`?`). Stays while the row is open, across navigation; closing it clears it. "(filtered)" in the status bar.
 - [x] P10.8 Tabs restyled to read as tabs: own panel with a darker fill, active tab in the toolbar's color with only its top corners rounded, inactive tabs muted with a hover pill, close cross inside the tab.
 - [x] P10.9 Split view: "Copy to \"<folder>\"" and "Move to \"<folder>\"" in the right-click menu send the selection to the other pane's folder (greyed out when both panes show the same folder, hidden when either shows This PC). After any operation the new items are selected in every pane showing them.
+- [x] P10.10 Status bar describes the selection (`selection_summary`): one item shows the `status_fields` setting's details (section 6 Persistence; default type, size for files, modified date, without the name); several show the count and the total size of the files among them (folders aren't walked). It's cut short before it can push the zoom controls off.
 
 **Done when:** you browse two folders side by side and across tabs, and copy/move between them.
 

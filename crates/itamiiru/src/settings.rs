@@ -16,6 +16,71 @@ pub struct ColumnWidths {
     pub kind: f32,
 }
 
+/// What the status bar says about a single selected item, in the order
+/// listed in `status_fields` (e.g. `status_fields=type,size,modified`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StatusField {
+    Name,
+    Type,
+    /// Files only; a folder's size isn't known without walking it.
+    Size,
+    Modified,
+    /// The full path.
+    Path,
+}
+
+impl StatusField {
+    pub const ALL: [StatusField; 5] = [
+        StatusField::Name,
+        StatusField::Type,
+        StatusField::Size,
+        StatusField::Modified,
+        StatusField::Path,
+    ];
+
+    /// The name used in the config file.
+    pub fn key(self) -> &'static str {
+        return match self {
+            StatusField::Name => "name",
+            StatusField::Type => "type",
+            StatusField::Size => "size",
+            StatusField::Modified => "modified",
+            StatusField::Path => "path",
+        };
+    }
+
+    pub fn from_key(key: &str) -> Option<StatusField> {
+        for field in StatusField::ALL {
+            if field.key() == key {
+                return Some(field);
+            }
+        }
+        return None;
+    }
+}
+
+/// Reads a comma-separated field list. Unknown names and repeats are
+/// skipped; an empty value means no details, just "1 selected".
+fn parse_status_fields(value: &str) -> Vec<StatusField> {
+    let mut fields = Vec::new();
+    for part in value.split(',') {
+        if let Some(field) = StatusField::from_key(part.trim())
+            && !fields.contains(&field)
+        {
+            fields.push(field);
+        }
+    }
+    return fields;
+}
+
+fn status_fields_value(fields: &[StatusField]) -> String {
+    let mut keys = Vec::new();
+    for field in fields {
+        keys.push(field.key());
+    }
+    return keys.join(",");
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub view: ViewMode,
@@ -35,6 +100,8 @@ pub struct Settings {
     /// The preview pane on the right (P5.9), and its width in points.
     pub preview_pane: bool,
     pub preview_width: f32,
+    /// The details the status bar shows for one selected item.
+    pub status_fields: Vec<StatusField>,
 }
 
 impl Default for Settings {
@@ -61,6 +128,7 @@ impl Default for Settings {
             thumbnails: true,
             preview_pane: false,
             preview_width: 300.0,
+            status_fields: vec![StatusField::Type, StatusField::Size, StatusField::Modified],
         };
     }
 }
@@ -118,6 +186,10 @@ impl Settings {
                 120.0,
                 4000.0,
             ),
+            status_fields: match config.get("status_fields") {
+                Some(value) => parse_status_fields(value),
+                None => d.status_fields,
+            },
         };
     }
 
@@ -141,6 +213,7 @@ impl Settings {
         config.set_bool("thumbnails", self.thumbnails);
         config.set_bool("preview_pane", self.preview_pane);
         config.set_f32("preview_width", self.preview_width.round());
+        config.set("status_fields", &status_fields_value(&self.status_fields));
     }
 }
 
@@ -193,6 +266,7 @@ mod tests {
             thumbnails: false,
             preview_pane: true,
             preview_width: 420.0,
+            status_fields: vec![StatusField::Path, StatusField::Name],
             // The rest keep their defaults.
             ..Settings::default()
         };
@@ -216,6 +290,21 @@ mod tests {
             Settings::from_config(&Config::default()),
             Settings::default()
         );
+    }
+
+    #[test]
+    fn status_fields() {
+        assert_eq!(
+            parse_status_fields(" name , size,bogus,name,path"),
+            vec![StatusField::Name, StatusField::Size, StatusField::Path]
+        );
+        assert_eq!(parse_status_fields(""), Vec::new());
+        // An empty value is kept, not replaced by the default.
+        let settings = Settings::from_config(&Config::parse("status_fields=\n"));
+        assert!(settings.status_fields.is_empty());
+        for field in StatusField::ALL {
+            assert_eq!(StatusField::from_key(field.key()), Some(field));
+        }
     }
 
     #[test]

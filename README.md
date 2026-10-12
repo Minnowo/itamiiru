@@ -187,7 +187,10 @@ other file managers.
 `~/.config/itamiiru/config` holds `key=value` lines, written as you use
 the app (view, sort, zoom, window size, ...). Optional features can be
 switched there: `thumbnails`, `preview_pane`, `auto_refresh_folder`,
-`auto_refresh_drives` (`true` or `false`). Colors can be changed with a
+`auto_refresh_drives` (`true` or `false`). `status_fields` picks what the
+status bar shows for one selected item, in order: any of `name`, `type`,
+`size`, `modified`, `path`, comma-separated (default
+`type,size,modified`). Colors can be changed with a
 theme file at `~/.config/itamiiru/theme` (see PLAN.md section 6).
 
 ## Development
