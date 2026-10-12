@@ -206,7 +206,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 | Key | Action |
 |---|---|
 | Enter | Open folder / accept |
-| Backspace, Alt+Up | Up one folder (from `/`, to This PC) |
+| Backspace, Alt+Up | Up one folder (from `/`, to This PC), selecting the folder you came from |
 | Alt+Left / Alt+Right | Back / forward |
 | Ctrl+L, Alt+D, F4 | Edit address bar |
 | Ctrl+F, F3 | Open and focus the search row |

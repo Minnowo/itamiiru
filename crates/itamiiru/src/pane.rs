@@ -293,16 +293,24 @@ impl Pane {
         }
     }
 
-    /// Up one folder. Up from the top of the filesystem goes to This PC,
-    /// like going up from C:\ in Explorer.
+    /// Up one folder, with the folder we came from selected once the
+    /// parent is listed, so the arrow keys carry on from there. Up from the
+    /// top of the filesystem goes to This PC, like going up from C:\ in
+    /// Explorer.
     pub fn go_up(&mut self) {
         if self.this_pc {
             return;
         }
-        match self.current.parent() {
-            Some(parent) => self.navigate(parent.to_path_buf()),
-            None => self.show_this_pc(),
-        }
+        let Some(parent) = self.current.parent() else {
+            self.show_this_pc();
+            return;
+        };
+        let parent = parent.to_path_buf();
+        let came_from = self.current.clone();
+        self.navigate(parent);
+        // Not there when hidden files are hidden, or it was just deleted;
+        // then nothing gets selected.
+        self.after_listing.select = vec![came_from];
     }
 
     /// Starts listing the current folder from scratch. Any older listing

@@ -2130,6 +2130,29 @@ mod tests {
     }
 
     #[test]
+    fn backspace_selects_the_folder_we_came_from() {
+        let folder = Folder::new("up");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        app.pane_mut().navigate(folder.0.join("beta"));
+        settle(&mut app, &ctx);
+
+        frame(&mut app, &ctx, key(Key::Backspace, Modifiers::NONE));
+        settle(&mut app, &ctx);
+        let pane = app.pane();
+        assert_eq!(pane.current, folder.0);
+        let beta = folder.0.join("beta");
+        assert!(pane.selection.is_selected(&beta));
+        assert_eq!(pane.selection.count(), 1);
+        assert_eq!(pane.selection.cursor(), Some(beta.as_path()));
+
+        // The arrow keys carry on from it: alpha is just above beta.
+        frame(&mut app, &ctx, key(Key::ArrowUp, Modifiers::NONE));
+        assert!(app.pane().selection.is_selected(&folder.0.join("alpha")));
+    }
+
+    #[test]
     fn search_row_opens_and_escape_closes_it() {
         let folder = Folder::new("search");
         let ctx = egui::Context::default();
