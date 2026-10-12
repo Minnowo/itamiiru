@@ -62,7 +62,10 @@ crates/
   itamiiru/                egui binary "itami": explorer mode (default) and picker mode (--pick)
   itamiiru-portal/         Linux-only binary "xdg-desktop-portal-itamiiru": the D-Bus backend
 data/                      .portal file, D-Bus service file, example configs
-scripts/install-dev.sh     builds and installs the portal for local testing
+scripts/install.sh         per-user install from source or a release tarball (--uninstall)
+scripts/install-dev.sh     install.sh without touching the session environment
+scripts/package.sh         release tarball for machines without Rust
+README.md                  user-facing install and troubleshooting
 tests/requests/            sample picker requests (protocol in PLAN.md)
 ```
 
@@ -80,6 +83,7 @@ cargo check -p itamiiru-core -p itamiiru --target x86_64-pc-windows-gnu
 cargo check -p itamiiru-core --target aarch64-apple-darwin  # macOS code in platform/
     # needs: rustup target add aarch64-apple-darwin
 ./scripts/install-dev.sh                                  # install portal backend locally
+./scripts/package.sh                                      # release tarball in target/
 ITAMI_DEBUG=1 cargo run -p itamiiru                          # debug logging to stderr
 ```
 

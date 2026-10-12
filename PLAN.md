@@ -330,7 +330,7 @@ per-pick thread: child stdout -> Event::PickDone(handle, output, status) +    (o
 - the D-Bus service file, installed to `~/.local/share/dbus-1/services/` for development
 - `portals.conf.example`
 
-`scripts/install-dev.sh` does all of this.
+`scripts/install.sh` does all of this for the current user, from a checkout or from a tarball made by `scripts/package.sh`; README.md lists the manual steps. `scripts/install-dev.sh` is `install.sh --no-env`.
 
 ## 10. Getting apps to use the portal
 
@@ -469,6 +469,7 @@ Checked 2026-10-11 without a display:
 ### Phase 6: Rollout on your own machine
 - [x] P6.1 Session environment file installed; activation environment verified (section 13). XFCE on Debian reads `~/.xsessionrc`, not `environment.d`; installed from `data/xsessionrc.example` (2026-10-11), and checked to source cleanly under `sh -e`. The systemd activation environment already had `DISPLAY` and `XDG_CURRENT_DESKTOP`, and now has `GTK_USE_PORTAL` and `GDK_DEBUG` too. Qt variable left out: no Qt apps that open files, and no xdgdesktopportal plugin installed.
 - [ ] P6.2 Test each app in section 10 and record results in `docs/app-compat.md`.
+- [x] P6.4 (added) Install for other machines: `scripts/install.sh` (per user; one sudo for the `.portal` file; `--no-env`, `--uninstall`; edits to files it doesn't own are marked and undone by `--uninstall`), `scripts/package.sh` (stripped binaries + data + installer, about 5 MB; needs the build machine's glibc, 2.39 on Debian 13), README.md with the manual steps. Tested in a throwaway HOME with sudo/systemctl/pkill stubbed: fresh, re-run, existing portals.conf, Wayland, from source and tarball, uninstall.
 - [x] P6.3 Tiling-WM float rule documented if needed. Not needed on XFCE (xfwm4 floats dialogs); the sway and Hyprland rule is in section 13.
 
 **Done when:** every app you use daily shows itamiiru, or is listed as impossible with the reason.
