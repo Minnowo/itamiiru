@@ -151,7 +151,7 @@ impl Pane {
         let (search_tx, search_rx) = mpsc::channel();
         let mut pane = Pane {
             id,
-            current: start,
+            current: itamiiru_core::pathnorm::normalize(&start),
             back: Vec::new(),
             forward: Vec::new(),
             this_pc: false,
@@ -222,8 +222,10 @@ impl Pane {
         return Location::Folder(self.current.clone());
     }
 
-    /// Goes to `path`, remembering where we were for Back.
+    /// Goes to `path`, remembering where we were for Back. `.` and `..` in
+    /// it are worked out first, wherever the path came from.
     pub fn navigate(&mut self, path: PathBuf) {
+        let path = itamiiru_core::pathnorm::normalize(&path);
         if self.search.is_some() {
             self.end_search();
             if !self.this_pc && path == self.current {
@@ -735,15 +737,17 @@ impl Pane {
     }
 
     /// Turns the address bar's text into a path: `~` is the home folder,
-    /// and relative paths are relative to the current folder.
+    /// relative paths are relative to the current folder, and `.` and `..`
+    /// are worked out (`..` is the parent folder).
     pub fn parse_address(&self, text: &str) -> PathBuf {
+        use itamiiru_core::pathnorm::normalize;
         let text = text.trim();
         if (text == "~" || text.starts_with("~/"))
             && let Some(home) = itamiiru_core::platform::home_dir()
         {
-            return home.join(text.trim_start_matches('~').trim_start_matches('/'));
+            return normalize(&home.join(text.trim_start_matches('~').trim_start_matches('/')));
         }
-        return self.current.join(text);
+        return normalize(&self.current.join(text));
     }
 
     /// Ctrl+L: edit the address as text.

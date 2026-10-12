@@ -224,20 +224,22 @@ fn parse_args(arguments: Vec<OsString>) -> Result<Args, String> {
 }
 
 /// A command-line path or `file://` URI (file managers and the .desktop
-/// file pass URIs) as an absolute path.
+/// file pass URIs) as an absolute path, without `.` and `..` parts
+/// (`itami ..` opens the parent folder, not `/home/me/Downloads/..`).
 fn arg_to_path(arg: OsString) -> PathBuf {
+    use itamiiru_core::pathnorm::normalize;
     if let Some(text) = arg.to_str()
         && text.starts_with("file://")
         && let Some(path) = itamiiru_core::percent::file_uri_to_path(text)
     {
-        return path;
+        return normalize(&path);
     }
     let path = PathBuf::from(arg);
     if path.is_absolute() {
-        return path;
+        return normalize(&path);
     }
     if let Ok(cwd) = std::env::current_dir() {
-        return cwd.join(path);
+        return normalize(&cwd.join(path));
     }
     return path;
 }
@@ -352,6 +354,25 @@ mod tests {
         assert_eq!(args.path, Some(cwd.join("sub")));
         // A trailing --select with nothing after it is ignored.
         assert!(args.select.is_empty());
+    }
+
+    #[test]
+    fn dots_are_expanded() {
+        let cwd = std::env::current_dir().expect("cwd");
+        let parent = cwd.parent().expect("a parent").to_path_buf();
+        assert_eq!(parse(&[".."]).path, Some(parent.clone()));
+        assert_eq!(parse(&["."]).path, Some(cwd.clone()));
+        assert_eq!(parse(&["./sub/../other"]).path, Some(cwd.join("other")));
+        assert_eq!(
+            parse(&["/home/me/Downloads/.."]).path,
+            Some(PathBuf::from("/home/me"))
+        );
+        assert_eq!(
+            parse(&["file:///tmp/a/./b/.."]).path,
+            Some(PathBuf::from("/tmp/a"))
+        );
+        let args = parse(&["--select", "/tmp/x/../y.txt"]);
+        assert_eq!(args.select, vec![PathBuf::from("/tmp/y.txt")]);
     }
 
     #[test]

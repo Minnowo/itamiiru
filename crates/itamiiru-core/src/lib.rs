@@ -15,6 +15,7 @@ pub mod md5;
 pub mod mime;
 pub mod names;
 pub mod natsort;
+pub mod pathnorm;
 pub mod percent;
 pub mod places;
 pub mod platform;

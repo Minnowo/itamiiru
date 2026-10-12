@@ -3150,6 +3150,41 @@ mod tests {
     }
 
     #[test]
+    fn dot_dot_opens_the_parent_with_a_proper_breadcrumb() {
+        let folder = Folder::new("dotdot");
+        let ctx = egui::Context::default();
+        // As `itami ..` from inside alpha would give it, before the fix.
+        let mut app = new_app(&ctx, &folder.0.join("alpha").join(".."));
+        settle(&mut app, &ctx);
+        assert_eq!(app.pane().current, folder.0);
+        assert_eq!(app.pane().visible.len(), 3);
+        // The last crumb is the folder's name, not the whole path again.
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let name = folder.0.file_name().and_then(|n| n.to_str()).expect("name");
+        assert!(
+            texts.iter().any(|(t, _)| t == name),
+            "the folder's name is a crumb"
+        );
+        let full = folder.0.to_string_lossy().into_owned();
+        assert!(
+            !texts.iter().any(|(t, _)| *t == full),
+            "no crumb with the full path"
+        );
+
+        // Typed into the address bar: ".." and "./alpha" too.
+        assert_eq!(
+            app.pane().parse_address(".."),
+            folder.0.parent().expect("parent")
+        );
+        assert_eq!(
+            app.pane().parse_address("./alpha/."),
+            folder.0.join("alpha")
+        );
+        app.pane_mut().navigate(folder.0.join("beta").join("."));
+        assert_eq!(app.pane().current, folder.0.join("beta"));
+    }
+
+    #[test]
     fn the_eject_mark_is_not_a_button() {
         let folder = Folder::new("ejectmark");
         let ctx = egui::Context::default();
