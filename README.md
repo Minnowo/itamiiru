@@ -78,6 +78,11 @@ Then:
 
 `docs/app-compat.md` lists which apps were tested and what each needs.
 
+**From a distro package** (for example the Arch package in the kutsubako
+repo): the package installs the program system-wide; then each user runs
+`itamiiru-setup` once (the same options as below; `--uninstall` before
+removing the package). That's `install.sh --packaged`.
+
 Options: `--no-env` leaves the session environment alone (set the
 variables yourself, see below); `--default-file-manager` makes itamiiru the
 app for folders and for "Show in folder" (next section); `--uninstall`

@@ -5,7 +5,7 @@
 # Works from a source checkout (builds with cargo) or from a release
 # tarball made by scripts/package.sh (uses its prebuilt bin/ folder).
 #
-# Usage: scripts/install.sh [--no-env] [--default-file-manager] [--vulkan] [--uninstall]
+# Usage: scripts/install.sh [--no-env] [--default-file-manager] [--vulkan] [--packaged] [--uninstall]
 #   --no-env     don't touch the session environment (~/.xsessionrc or
 #                ~/.config/environment.d); set GTK_USE_PORTAL yourself
 #   --default-file-manager
@@ -16,7 +16,12 @@
 #   --vulkan     (building from source) draw with wgpu/Vulkan instead of
 #                OpenGL: starts faster once the driver's cache is warm,
 #                about 37 more crates to build
-#   --uninstall  remove everything this script installed
+#   --packaged   itamiiru came from a distro package (in /usr/bin, with its
+#                D-Bus, .portal and menu files): only do the per-user part
+#                (portals.conf, session environment, default file manager).
+#                Packages run this as itamiiru-setup.
+#   --uninstall  remove everything this script installed (with --packaged:
+#                only the per-user part; the package's files are pacman's)
 #
 # Run as your normal user, not with sudo. It asks for your password once,
 # for the one file that must go in /usr/share.
@@ -27,13 +32,15 @@ USE_ENV=1
 UNINSTALL=0
 DEFAULT_FM=0
 RENDERER_FLAGS=()
+PACKAGED=0
 for arg in "$@"; do
   case "$arg" in
     --no-env) USE_ENV=0 ;;
     --uninstall) UNINSTALL=1 ;;
     --default-file-manager) DEFAULT_FM=1 ;;
     --vulkan) RENDERER_FLAGS=(--no-default-features --features wgpu) ;;
-    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+    --packaged) PACKAGED=1 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
@@ -45,6 +52,9 @@ if [ "$(id -u)" -eq 0 ]; then
 fi
 
 BIN_DIR="$HOME/.local/bin"
+if [ "$PACKAGED" -eq 1 ]; then
+  BIN_DIR=/usr/bin
+fi
 DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 SERVICE_DIR="$DATA_HOME/dbus-1/services"
@@ -165,7 +175,11 @@ if [ "$UNINSTALL" -eq 1 ]; then
     rm -f "$THUNAR_DAEMON_REMOVED"
     say "Thunar's daemon is back in XFCE's Failsafe session (from the next login)"
   fi
-  rm -f "$BIN_DIR/itami" "$BIN_DIR/xdg-desktop-portal-itamiiru" "$SERVICE_FILE" "$FM_SERVICE_FILE"
+  rm -f "$FM_SERVICE_FILE"
+  # A package's files are the package manager's to remove.
+  if [ "$PACKAGED" -eq 0 ]; then
+    rm -f "$BIN_DIR/itami" "$BIN_DIR/xdg-desktop-portal-itamiiru" "$SERVICE_FILE"
+  fi
   if [ -f "$MIMEAPPS" ] && grep -qx 'inode/directory=itamiiru.desktop;\{0,1\}' "$MIMEAPPS"; then
     previous="$(cat "$PREVIOUS_FOLDER_APP" 2> /dev/null || true)"
     if [ -n "$previous" ] && command -v xdg-mime > /dev/null; then
@@ -176,9 +190,12 @@ if [ "$UNINSTALL" -eq 1 ]; then
       say "Folders open with the system's default app again"
     fi
   fi
-  rm -f "$PREVIOUS_FOLDER_APP" "$DESKTOP_FILE"
-  if command -v update-desktop-database > /dev/null; then
-    update-desktop-database "$DESKTOP_DIR" 2> /dev/null || true
+  rm -f "$PREVIOUS_FOLDER_APP"
+  if [ "$PACKAGED" -eq 0 ]; then
+    rm -f "$DESKTOP_FILE"
+    if command -v update-desktop-database > /dev/null; then
+      update-desktop-database "$DESKTOP_DIR" 2> /dev/null || true
+    fi
   fi
   if [ -f "$PORTALS_CONF" ] && grep -q "^# Created by itamiiru's install.sh" "$PORTALS_CONF"; then
     rm -f "$PORTALS_CONF"
@@ -192,7 +209,7 @@ if [ "$UNINSTALL" -eq 1 ]; then
   if [ -f "$ENV_D_FILE" ] && grep -qF "$BEGIN_MARK" "$ENV_D_FILE"; then
     rm -f "$ENV_D_FILE"
   fi
-  if [ -f "$PORTAL_FILE" ]; then
+  if [ "$PACKAGED" -eq 0 ] && [ -f "$PORTAL_FILE" ]; then
     say "Removing $PORTAL_FILE (needs sudo)"
     sudo rm -f "$PORTAL_FILE" || say "NOTE: remove $PORTAL_FILE by hand."
   fi
@@ -202,24 +219,32 @@ if [ "$UNINSTALL" -eq 1 ]; then
   exit 0
 fi
 
-# --- Find or build the binaries ---------------------------------------------
-if [ -x "$ROOT/bin/itami" ] && [ -x "$ROOT/bin/xdg-desktop-portal-itamiiru" ]; then
-  BUILT="$ROOT/bin"
-elif [ -f "$ROOT/Cargo.toml" ]; then
-  # rustup's cargo lives in ~/.cargo/bin, which some shells don't add to PATH.
-  if ! command -v cargo > /dev/null && [ -f "$HOME/.cargo/env" ]; then
-    . "$HOME/.cargo/env"
+# A package installed the binaries, the D-Bus service, the .portal file and
+# the menu entry; only the per-user part below is ours then.
+if [ "$PACKAGED" -eq 1 ]; then
+  if [ ! -x "$BIN_DIR/itami" ]; then
+    say "WARNING: $BIN_DIR/itami isn't there; is the itamiiru package installed?"
   fi
-  if ! command -v cargo > /dev/null; then
-    say "cargo not found. Install Rust from https://rustup.rs, or use a release tarball." >&2
+else
+  # --- Find or build the binaries ---------------------------------------------
+  if [ -x "$ROOT/bin/itami" ] && [ -x "$ROOT/bin/xdg-desktop-portal-itamiiru" ]; then
+    BUILT="$ROOT/bin"
+  elif [ -f "$ROOT/Cargo.toml" ]; then
+    # rustup's cargo lives in ~/.cargo/bin, which some shells don't add to PATH.
+    if ! command -v cargo > /dev/null && [ -f "$HOME/.cargo/env" ]; then
+      . "$HOME/.cargo/env"
+    fi
+    if ! command -v cargo > /dev/null; then
+      say "cargo not found. Install Rust from https://rustup.rs, or use a release tarball." >&2
+      exit 1
+    fi
+    (cd "$ROOT" && cargo build --release -p itamiiru-portal \
+      && cargo build --release -p itamiiru "${RENDERER_FLAGS[@]}")
+    BUILT="$ROOT/target/release"
+  else
+    say "No bin/ folder and no Cargo.toml next to this script; nothing to install." >&2
     exit 1
   fi
-  (cd "$ROOT" && cargo build --release -p itamiiru-portal \
-    && cargo build --release -p itamiiru "${RENDERER_FLAGS[@]}")
-  BUILT="$ROOT/target/release"
-else
-  say "No bin/ folder and no Cargo.toml next to this script; nothing to install." >&2
-  exit 1
 fi
 
 # --- Check the portal frontend is there ---------------------------------------
@@ -237,24 +262,27 @@ if [ -z "$FRONTEND" ]; then
   say "Installing anyway; dialogs will use itamiiru once it's there."
 fi
 
-# --- Binaries and the D-Bus activation file ---------------------------------
-mkdir -p "$BIN_DIR" "$SERVICE_DIR"
-# The backend finds the picker next to its own executable.
-install -m755 "$BUILT/itami" "$BIN_DIR/itami"
-install -m755 "$BUILT/xdg-desktop-portal-itamiiru" "$BIN_DIR/xdg-desktop-portal-itamiiru"
-sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/org.freedesktop.impl.portal.desktop.itamiiru.service" \
-  > "$SERVICE_FILE"
-say "Installed itami and xdg-desktop-portal-itamiiru in $BIN_DIR"
+if [ "$PACKAGED" -eq 0 ]; then
+  # --- Binaries and the D-Bus activation file ---------------------------------
+  mkdir -p "$BIN_DIR" "$SERVICE_DIR"
+  # The backend finds the picker next to its own executable.
+  install -m755 "$BUILT/itami" "$BIN_DIR/itami"
+  install -m755 "$BUILT/xdg-desktop-portal-itamiiru" "$BIN_DIR/xdg-desktop-portal-itamiiru"
+  sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/org.freedesktop.impl.portal.desktop.itamiiru.service" \
+    > "$SERVICE_FILE"
+  say "Installed itami and xdg-desktop-portal-itamiiru in $BIN_DIR"
 
-# --- Menu entry (also lets other apps offer itamiiru for folders) ------------
-mkdir -p "$DESKTOP_DIR"
-sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/itamiiru.desktop" > "$DESKTOP_FILE"
-if command -v update-desktop-database > /dev/null; then
-  update-desktop-database "$DESKTOP_DIR" 2> /dev/null || true
+  # --- Menu entry (also lets other apps offer itamiiru for folders) ------------
+  mkdir -p "$DESKTOP_DIR"
+  sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/itamiiru.desktop" > "$DESKTOP_FILE"
+  if command -v update-desktop-database > /dev/null; then
+    update-desktop-database "$DESKTOP_DIR" 2> /dev/null || true
+  fi
 fi
 
 # --- Optional: the default file manager ----------------------------------------
 if [ "$DEFAULT_FM" -eq 1 ]; then
+  mkdir -p "$SERVICE_DIR"
   sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/org.freedesktop.FileManager1.service" > "$FM_SERVICE_FILE"
   if command -v xdg-mime > /dev/null; then
     # The user's own choice, if they made one: the first app listed.
@@ -266,6 +294,8 @@ if [ "$DEFAULT_FM" -eq 1 ]; then
       mkdir -p "$(dirname "$PREVIOUS_FOLDER_APP")"
       printf '%s\n' "$chosen" > "$PREVIOUS_FOLDER_APP"
     fi
+    # xdg-mime writes mimeapps.list there; a brand-new home may lack it.
+    mkdir -p "$CONFIG_HOME"
     xdg-mime default itamiiru.desktop inode/directory
     say "Folders now open with itamiiru"
   else
@@ -305,12 +335,14 @@ if [ "$DEFAULT_FM" -eq 1 ]; then
   fi
 fi
 
-# --- The .portal file: the frontend only reads its own system folder -----------
-if cmp -s "$ROOT/data/itamiiru.portal" "$PORTAL_FILE"; then
-  say "$PORTAL_FILE is already up to date"
-else
-  say "Installing $PORTAL_FILE (needs sudo)"
-  sudo install -Dm644 "$ROOT/data/itamiiru.portal" "$PORTAL_FILE"
+if [ "$PACKAGED" -eq 0 ]; then
+  # --- The .portal file: the frontend only reads its own system folder -----------
+  if cmp -s "$ROOT/data/itamiiru.portal" "$PORTAL_FILE"; then
+    say "$PORTAL_FILE is already up to date"
+  else
+    say "Installing $PORTAL_FILE (needs sudo)"
+    sudo install -Dm644 "$ROOT/data/itamiiru.portal" "$PORTAL_FILE"
+  fi
 fi
 
 # --- portals.conf: itamiiru for file dialogs, everything else unchanged -------
