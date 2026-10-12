@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Builds a folder of photo-sized JPEGs for checking Phase 5 thumbnails by
-# hand (PLAN.md section 11): scrolling stays smooth, on-screen thumbnails
+# Builds a folder of photo-sized JPEGs for checking thumbnails by
+# hand: scrolling stays smooth, on-screen thumbnails
 # fill in first, and a second visit comes from the cache.
 # Usage: scripts/make-test-photos.sh [COUNT] [DEST]
 #   (defaults: 2000 and /tmp/itamiiru-photos; about 300 KB per photo)

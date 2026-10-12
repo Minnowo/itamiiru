@@ -1,5 +1,5 @@
-//! The settings page: a dialog for the options in the config file (PLAN.md
-//! section 6), opened from the toolbar or with Ctrl+Comma. Changes apply
+//! The settings page: a dialog for the options in the config file,
+//! opened from the toolbar or with Ctrl+Comma. Changes apply
 //! right away and are saved like every other setting. It edits a copy of
 //! the options; the app compares and applies what changed.
 

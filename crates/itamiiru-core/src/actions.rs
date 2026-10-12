@@ -1,4 +1,4 @@
-//! Custom right-click actions (PLAN.md D23), from the `actions` file next
+//! Custom right-click actions, from the `actions` file next
 //! to the config file. Each action is a section with a command and what
 //! it applies to:
 //!

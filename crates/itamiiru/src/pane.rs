@@ -25,7 +25,7 @@ use crate::picker::Picker;
 use crate::selection::{Selection, TypeAhead};
 use crate::theme::{self, Theme};
 
-/// How often to check whether the open folder changed (PLAN.md D9).
+/// How often to check whether the open folder changed.
 pub const CHANGE_CHECK_INTERVAL: Duration = Duration::from_secs(2);
 /// Searching starts this long after the last key typed in the search box.
 const SEARCH_DELAY: f64 = 0.3;

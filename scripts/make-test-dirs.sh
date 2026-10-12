@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds folders for checking Phase 1 by hand (PLAN.md section 11).
+# Builds folders for checking listing by hand: big folders,
+# slow listings, odd file names.
 # Usage: scripts/make-test-dirs.sh [DEST]   (default: /tmp/itamiiru-test)
 # Then: cargo run -p itamiiru -- /tmp/itamiiru-test
 set -euo pipefail

@@ -1,4 +1,4 @@
-//! File operations on a worker thread (PLAN.md section 4): copy, move,
+//! File operations on a worker thread: copy, move,
 //! trash, delete, rename and new folder.
 //!
 //! Each operation gets its own thread and its own channels. The worker

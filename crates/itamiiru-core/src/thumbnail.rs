@@ -1,5 +1,4 @@
-//! Makes thumbnails on a small pool of worker threads (PLAN.md sections 4
-//! and 7).
+//! Makes thumbnails on a small pool of worker threads.
 //!
 //! The UI asks for the thumbnails of the items on screen. Jobs wait on a
 //! stack, newest on top, so whatever the user scrolled to most recently
@@ -154,7 +153,7 @@ fn worker(shared: &Shared, cache: Option<&ThumbCache>, tx: &Sender<Done>, wake: 
     }
 }
 
-/// The whole pipeline for one file (section 7): cache, failure list,
+/// The whole pipeline for one file: cache, failure list,
 /// sniff, size check, decode, save.
 pub fn make(cache: Option<&ThumbCache>, job: &Job) -> Option<RgbaImage> {
     let path = &job.path;

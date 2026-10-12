@@ -1,4 +1,4 @@
-//! Lists a folder on a background thread (PLAN.md section 4).
+//! Lists a folder on a background thread.
 //!
 //! Each listing gets its own thread, so a hung network mount only blocks
 //! that thread and never the next navigation. Results carry the `generation`
@@ -127,7 +127,7 @@ pub struct MtimeMsg {
 }
 
 /// Checks the folder's modified time on a new thread and sends it back with
-/// `generation`. Used to notice changes while a folder is open (PLAN.md D9).
+/// `generation`. Used to notice changes while a folder is open.
 pub fn start_mtime_check(dir: PathBuf, generation: u64, tx: Sender<MtimeMsg>, wake: Wake) {
     let spawned = std::thread::Builder::new()
         .name("mtime-check".to_string())

@@ -13,7 +13,7 @@ pub fn config_dir() -> Option<PathBuf> {
     return Some(dir);
 }
 
-/// Dotfiles are hidden. TODO(Phase 8): also the UF_HIDDEN flag in st_flags.
+/// Dotfiles are hidden. TODO: also the UF_HIDDEN flag in st_flags.
 pub fn is_hidden(name: &std::ffi::OsStr, _meta: &std::fs::Metadata) -> bool {
     return name.as_encoded_bytes().first() == Some(&b'.');
 }
@@ -108,7 +108,7 @@ pub fn copy_symlink(src: &std::path::Path, dst: &std::path::Path) -> std::io::Re
     return std::os::unix::fs::symlink(target, dst);
 }
 
-/// TODO(Phase 8, P8.3): decide between osascript and objc FFI.
+/// TODO: decide between osascript and objc FFI.
 pub fn trash(_path: &std::path::Path) -> std::io::Result<()> {
     return Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
@@ -154,7 +154,7 @@ pub fn network_places() -> Vec<crate::places::Place> {
     return Vec::new();
 }
 
-/// The startup disk, plus what's in /Volumes. TODO(Phase 8): labels, kinds.
+/// The startup disk, plus what's in /Volumes. TODO: labels, kinds.
 pub fn drives() -> Vec<crate::places::Drive> {
     use crate::places::{Drive, DriveKind};
     let mut drives = vec![Drive {
@@ -258,7 +258,7 @@ pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// Removable drives that aren't mounted yet: not done on this OS (Linux
-/// uses UDisks2, D21).
+/// uses UDisks2).
 pub fn removable_volumes() -> Vec<crate::places::Volume> {
     return Vec::new();
 }

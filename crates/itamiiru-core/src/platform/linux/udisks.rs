@@ -1,4 +1,4 @@
-//! Removable drives through UDisks2, on the system bus (PLAN.md D21): list
+//! Removable drives through UDisks2, on the system bus: list
 //! the filesystems on them, mount one, and eject a drive safely (unmount
 //! everything on it, then power it off). UDisks does the actual work as
 //! root once polkit allows it; this process never runs `mount` itself.

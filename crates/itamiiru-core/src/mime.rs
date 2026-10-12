@@ -1,4 +1,4 @@
-//! Turning `mime:` filters into globs (P2.8).
+//! Turning `mime:` filters into globs.
 //!
 //! On Linux the shared-mime-info `globs2` files list `weight:type:glob`;
 //! elsewhere (or if none are found) a small built-in table is used.

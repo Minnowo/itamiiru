@@ -1,4 +1,4 @@
-//! The shared thumbnail cache (freedesktop thumbnail spec, PLAN.md section 7).
+//! The shared thumbnail cache (freedesktop thumbnail spec).
 //!
 //! `<root>/{normal,large,x-large,xx-large}/<md5 of URI>.png`, where root is
 //! `~/.cache/thumbnails` on Linux. Nautilus, Dolphin and others use the same

@@ -1,4 +1,4 @@
-//! D-Bus messages (P3.3): the fixed header, header fields and body.
+//! D-Bus messages: the fixed header, header fields and body.
 
 use super::wire::{self, Reader, Type, Value, WireError, Writer};
 

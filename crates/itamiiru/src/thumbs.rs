@@ -1,5 +1,5 @@
-//! Thumbnails in the icon views (P5.8), an optional feature (`thumbnails`
-//! in the config, on by default; PLAN.md section 6).
+//! Thumbnails in the icon views, an optional feature (`thumbnails`
+//! in the config, on by default).
 //!
 //! The views draw whatever texture is ready and the app then calls `want`
 //! with the items on screen, which asks the worker pool for the missing

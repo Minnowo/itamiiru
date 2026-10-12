@@ -1,4 +1,4 @@
-//! The config file: `key=value` lines (PLAN.md section 6 Persistence).
+//! The config file: `key=value` lines.
 //!
 //! Lines that aren't `key=value` (comments, blanks) and keys we don't know
 //! are kept as they are, so hand edits survive a save. Typed getters fall

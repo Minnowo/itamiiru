@@ -1,5 +1,5 @@
 //! The navigation pane on the left: Quick access, Bookmarks, This PC and
-//! Network (PLAN.md section 6).
+//! Network.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};

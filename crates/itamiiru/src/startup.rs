@@ -1,4 +1,4 @@
-//! Startup timing (P9.5): with ITAMI_DEBUG=1, each stage of startup is
+//! Startup timing: with ITAMI_DEBUG=1, each stage of startup is
 //! logged with the milliseconds since `main` began, e.g.
 //! `startup:   41.2 ms  window ready`. Costs nothing otherwise.
 

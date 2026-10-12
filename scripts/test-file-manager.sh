@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end test of the FileManager1 service ("Show in folder", P7.5) on a
+# End-to-end test of the FileManager1 service ("Show in folder") on a
 # private bus, so it runs even while Thunar owns the name on the real one.
 # The service is started by D-Bus activation from data/'s service file, and
 # a fake itami records the windows it would open.

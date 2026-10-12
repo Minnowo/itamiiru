@@ -1,5 +1,5 @@
 //! Dragging files out of itamiiru into other apps on X11, with the XDND
-//! protocol (PLAN.md D24): https://freedesktop.org/wiki/Specifications/XDND/
+//! protocol: https://freedesktop.org/wiki/Specifications/XDND/
 //!
 //! The drag runs on its own X connection, in its own thread, from its own
 //! hidden window: drop targets answer the window named in our messages,

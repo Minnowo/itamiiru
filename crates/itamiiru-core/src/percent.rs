@@ -1,5 +1,5 @@
 //! Percent-encoding and `file://` URIs, working on raw bytes so non-UTF-8
-//! paths survive the round trip (PLAN.md section 5).
+//! paths survive the round trip.
 
 use std::path::{Path, PathBuf};
 

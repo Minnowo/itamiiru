@@ -7,16 +7,15 @@ itamiiru is a file picker and file explorer written in Rust with egui. It has tw
 
 The layout copies the Windows 10/11 file dialog.
 
-`PLAN.md` holds the architecture, decisions, protocol specs and the phased task list. **Work through PLAN.md one phase at a time. Tick off each task (`- [x]`) as it's done, and add notes to the decision log when a decision is made.**
+`PLAN.md` holds the architecture, decisions, protocol spec and the remaining tasks. **Remove a task from PLAN.md when it's done, and add a row to the decision log when a decision is made.**
 
 > **Naming:** the full name is **itamiiru**. Anything a user types uses the short form **itami**: the executable (`itami`, `itami --pick`) and environment variables (`ITAMI_DEBUG`, `ITAMI_THEME`, `ITAMI_BIN`). Everything else uses `itamiiru`: crates, window title, app_id, config folder, D-Bus names, file names in `data/`, the protocol header.
 
-## About the developer
+## Preferences
 
-- **New to Rust.** When you write or change code, briefly explain any Rust concept that isn't obvious. Examples: why something is borrowed vs. cloned, `Arc<Mutex<_>>`, trait bounds, lifetimes, `?`, pattern-matching tricks. Put short explanations in chat, not essays in code comments.
 - **"Keep it simple, stupid."** Prefer plain, explicit code. A `for` loop beats a clever iterator chain if it reads better. Avoid generics, trait hierarchies and macros unless they clearly make the code simpler.
 - **Prefers vendoring** small, well-understood code over adding a library.
-- Is a Golang developer, does not like complex code, simple is better. Rust is a very complex ugly language, so try to avoid fancy stuff when there is a more traditional alternative(assuming it doesn't have a performance impact).
+- Simple is better. Rust is a very complex ugly language, avoid fancy stuff when there is a more traditional alternative.
 
 ## Hard rules
 
@@ -37,7 +36,7 @@ The layout copies the Windows 10/11 file dialog.
 | `eframe` (default features off; wayland, x11, default_fonts, plus the renderer from the `itamiiru` crate's features: `glow` by default, or `wgpu`; **verify current feature names** in eframe's Cargo.toml) | itamiiru | Window + egui. glow (OpenGL) is the default because it pulls in far fewer crates; `--features wgpu` (Vulkan, about 37 more crates) is an opt-in build for release tarballs, see PLAN.md D25. |
 | `egui_extras` (default features off) | itamiiru | Only for `TableBuilder` in the details view. Same repo as egui. |
 | `png` | itamiiru-core | PNG decoding, and encoding for the thumbnail cache. |
-| `zune-jpeg` **or** `jpeg-decoder` | itamiiru-core | JPEG. Pick one in the Phase 5 spike. |
+| `jpeg-decoder` (default features off) | itamiiru-core | JPEG, with downscaled decoding (PLAN.md D12). |
 | `gif` | itamiiru-core | First frame of GIFs. |
 | `image-webp` | itamiiru-core | WebP. |
 | `libc` (unix targets only) | itamiiru-core, itamiiru-portal | `statvfs`, `getuid`, `kill`. Already a transitive dependency of winit. |
@@ -54,7 +53,7 @@ cargo tree -e normal --prefix none | sort -u | wc -l
 ```
 Cargo.toml                 workspace
 CLAUDE.md                  this file
-PLAN.md                    architecture + phased tasks
+PLAN.md                    architecture, decisions, remaining tasks
 crates/
   itamiiru-core/           library: no egui. Filesystem, workers, thumbnails, protocol, vendored helpers
     src/platform/            the only place for OS-specific code
@@ -104,7 +103,7 @@ Run `cargo test`, `cargo clippy` and the Windows `cargo check` before calling a 
 
 ## UI style
 
-The UI follows the ponkotsu design system (https://github.com/Minnowo/ponkotsu-css), translated to egui in `crates/itamiiru/src/theme.rs`. See PLAN.md section 6 Theme.
+The UI follows the ponkotsu design system (https://github.com/Minnowo/ponkotsu-css), translated to egui in `crates/itamiiru/src/theme.rs`. See PLAN.md's UI notes.
 
 - Never write a color literal in UI code. Use a `Theme` role. Text on fill `X` is `on_X`.
 - Depth comes from `theme.surface(n)` fills, not borders or shadows. Bump `n` for each nested box.

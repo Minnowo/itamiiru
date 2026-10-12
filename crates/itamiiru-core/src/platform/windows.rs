@@ -22,7 +22,7 @@ pub fn home_dir() -> Option<PathBuf> {
     return Some(PathBuf::from(home));
 }
 
-/// TODO(Phase 8): GetTimeZoneInformation. Until then Windows shows UTC.
+/// TODO: GetTimeZoneInformation. Until then Windows shows UTC.
 pub fn utc_offset_seconds(_unix_secs: i64) -> i64 {
     return 0;
 }
@@ -87,7 +87,7 @@ pub fn path_from_bytes(bytes: Vec<u8>) -> Option<PathBuf> {
     return Some(PathBuf::from(text));
 }
 
-/// Opens a file in its default app. TODO(Phase 8): ShellExecuteW.
+/// Opens a file in its default app. TODO: ShellExecuteW.
 pub fn open_with_default_app(path: &std::path::Path) -> std::io::Result<()> {
     use std::process::Stdio;
     let mut child = std::process::Command::new("explorer")
@@ -112,7 +112,7 @@ pub fn copy_symlink(src: &std::path::Path, dst: &std::path::Path) -> std::io::Re
     return std::os::windows::fs::symlink_file(target, dst);
 }
 
-/// TODO(Phase 8, P8.1): SHFileOperationW with FOF_ALLOWUNDO.
+/// TODO: SHFileOperationW with FOF_ALLOWUNDO.
 pub fn trash(_path: &std::path::Path) -> std::io::Result<()> {
     return Err(std::io::Error::new(
         std::io::ErrorKind::Unsupported,
@@ -158,12 +158,12 @@ pub fn network_places() -> Vec<crate::places::Place> {
     return Vec::new();
 }
 
-/// TODO(Phase 8, P8.1): GetLogicalDrives and friends.
+/// TODO: GetLogicalDrives and friends.
 pub fn drives() -> Vec<crate::places::Drive> {
     return Vec::new();
 }
 
-/// TODO(Phase 8, P8.1): GetDiskFreeSpaceExW.
+/// TODO: GetDiskFreeSpaceExW.
 pub fn disk_usage(_path: &std::path::Path) -> Option<crate::places::DiskUsage> {
     return None;
 }
@@ -178,7 +178,7 @@ pub fn mime_glob_files() -> Vec<PathBuf> {
     return Vec::new();
 }
 
-/// Whether `dir` exists and isn't read-only. TODO(Phase 8): check ACLs.
+/// Whether `dir` exists and isn't read-only. TODO: check ACLs.
 pub fn is_writable_dir(dir: &std::path::Path) -> bool {
     return match std::fs::metadata(dir) {
         Ok(meta) => meta.is_dir() && !meta.permissions().readonly(),
@@ -192,7 +192,7 @@ pub fn thumbnail_dir() -> Option<PathBuf> {
     return Some(local.join("itamiiru").join("thumbnails"));
 }
 
-/// Creates a new file. Fails if it exists. TODO(Phase 8): an ACL for this
+/// Creates a new file. Fails if it exists. TODO: an ACL for this
 /// user only; the default under %LOCALAPPDATA% is already private.
 pub fn create_private_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
     return std::fs::OpenOptions::new()
@@ -207,7 +207,7 @@ pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
 }
 
 /// Removable drives that aren't mounted yet: not done on this OS (Linux
-/// uses UDisks2, D21).
+/// uses UDisks2).
 pub fn removable_volumes() -> Vec<crate::places::Volume> {
     return Vec::new();
 }

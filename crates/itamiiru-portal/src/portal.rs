@@ -1,6 +1,6 @@
-//! The FileChooser backend (P3.4-P3.6): turns portal calls into picker
+//! The FileChooser backend: turns portal calls into picker
 //! requests, runs `itami --pick`, and turns its answer into the reply.
-//! Interface: org.freedesktop.impl.portal.FileChooser (see PLAN.md section 9).
+//! Interface: org.freedesktop.impl.portal.FileChooser.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};

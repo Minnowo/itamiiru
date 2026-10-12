@@ -1,9 +1,9 @@
 //! xdg-desktop-portal-itamiiru: the D-Bus FileChooser backend. Linux only.
 //!
 //! The portal frontend calls us on the session bus; for each call we run
-//! `itami --pick` and reply with its answer (PLAN.md section 9).
+//! `itami --pick` and reply with its answer.
 //! With `--file-manager` it serves org.freedesktop.FileManager1 instead
-//! ("Show in folder", P7.5), as a separate process.
+//! ("Show in folder"), as a separate process.
 
 #[cfg(target_os = "linux")]
 #[cfg(target_os = "linux")]

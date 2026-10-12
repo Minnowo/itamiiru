@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds release tarballs for installing on another machine without Rust,
-# one per renderer (PLAN.md D25):
+# one per renderer:
 #   target/itamiiru-<version>-<arch>-linux-opengl.tar.gz  (glow: OpenGL)
 #   target/itamiiru-<version>-<arch>-linux-vulkan.tar.gz  (wgpu: Vulkan,
 #       falling back to OpenGL; starts faster once the driver's cache is warm)

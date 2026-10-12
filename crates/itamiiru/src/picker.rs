@@ -1,4 +1,4 @@
-//! Picker mode (`itami --pick`, P2.3-P2.6, P2.9, P2.11): the request read
+//! Picker mode (`itami --pick`): the request read
 //! from stdin, the footer with the file name field, filters and choices,
 //! and the answer written to stdout.
 
@@ -17,7 +17,7 @@ use itamiiru_core::protocol::{Mode, Pattern, Request, Response};
 use crate::theme::{self, Accent, Theme};
 use crate::toolbar::dropdown;
 
-/// Exit codes (PLAN.md section 5).
+/// Exit codes of the picker protocol.
 pub const EXIT_OK: i32 = 0;
 pub const EXIT_CANCELLED: i32 = 1;
 pub const EXIT_ERROR: i32 = 2;

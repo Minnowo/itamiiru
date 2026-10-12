@@ -1,4 +1,4 @@
-//! The preview pane (P5.9), an optional feature: `preview_pane` in the
+//! The preview pane, an optional feature: `preview_pane` in the
 //! config, off by default; Alt+P or the toolbar checkbox toggles it.
 //!
 //! Shows the one selected item: a large thumbnail for images, the start of

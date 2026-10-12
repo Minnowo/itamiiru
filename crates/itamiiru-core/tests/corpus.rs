@@ -1,4 +1,4 @@
-//! The malformed-file corpus (PLAN.md section 7, P5.10).
+//! The malformed-file corpus.
 //!
 //! `tests/corpus/seeds/` holds small valid images of every format, made
 //! with ffmpeg. Each must decode. Then every seed is damaged in many ways

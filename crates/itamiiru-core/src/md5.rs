@@ -1,5 +1,5 @@
 //! MD5 (RFC 1321). The thumbnail cache names files by the MD5 of their URI
-//! (PLAN.md section 7). Not for security: MD5 is broken for that.
+//! Not for security: MD5 is broken for that.
 
 /// Per-round shift amounts.
 const SHIFTS: [u32; 64] = [

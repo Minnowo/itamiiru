@@ -1,4 +1,4 @@
-//! Box-filter downscaling (PLAN.md section 7, step 9).
+//! Box-filter downscaling.
 //!
 //! Every source pixel lands in exactly one destination pixel, which is the
 //! average of the pixels that landed in it. Rows are fed in one at a time,

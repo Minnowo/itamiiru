@@ -1,7 +1,7 @@
 # App compatibility
 
 Which apps show itamiiru as their file dialog, and what they need
-(PLAN.md section 10, task P6.2). Tested on Debian 13, XFCE on X11, with
+(PLAN.md, Getting apps to use the portal). Tested on Debian 13, XFCE on X11, with
 `~/.xsessionrc` setting `GTK_USE_PORTAL=1` and `portals.conf` choosing
 itamiiru for FileChooser.
 
@@ -12,7 +12,7 @@ Running `journalctl --user -f` alongside shows the portal's requests when
 
 | App | Version | Toolkit | Needs | Open | Save | Folder | Notes |
 |---|---|---|---|---|---|---|---|
-| zenity | | GTK | `GTK_USE_PORTAL=1` | yes | yes | yes | Tested in P3.7 |
+| zenity | | GTK | `GTK_USE_PORTAL=1` | yes | yes | yes | |
 | Firefox | 153.4.0esr | GTK + own portal code | `widget.use-xdg-desktop-portal.file-picker = 1` in about:config | | | | `firefox` and `firefox-esr` are the same program here; it has two profiles, so set it in the one you use (or both) |
 | VSCodium | 1.135 | Electron (Chromium) | maybe nothing; else `GTK_USE_PORTAL=1` | | | | |
 | LibreOffice | 25.2.3.2 | GTK VCL plugin | `GTK_USE_PORTAL=1` | | | | LibreOffice's own dialogs must be off: Tools > Options > General > "Use LibreOffice dialogs" unchecked |

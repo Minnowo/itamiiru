@@ -1,4 +1,4 @@
-//! The "This PC" page (P4.5): tiles for folders, drives and network places,
+//! The "This PC" page: tiles for folders, drives and network places,
 //! with usage bars, like Windows Explorer.
 
 use std::collections::{HashMap, HashSet};

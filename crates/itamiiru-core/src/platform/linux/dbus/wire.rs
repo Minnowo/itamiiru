@@ -1,4 +1,4 @@
-//! The D-Bus wire format (P3.2): types, signatures, and marshalling values
+//! The D-Bus wire format: types, signatures, and marshalling values
 //! to and from bytes. https://dbus.freedesktop.org/doc/dbus-specification.html
 //!
 //! Every value is aligned to its type's size from the start of the message.

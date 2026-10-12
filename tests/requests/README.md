@@ -1,4 +1,4 @@
-Sample picker requests (protocol v1, see PLAN.md section 5).
+Sample picker requests (protocol v1, see PLAN.md).
 
     cargo run -p itamiiru -- --pick < tests/requests/open-images.req; echo "exit: $?"
 

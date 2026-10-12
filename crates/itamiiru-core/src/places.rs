@@ -1,5 +1,5 @@
 //! The navigation pane's contents: quick access folders, bookmarks, drives
-//! and network places (PLAN.md section 6). Found on worker threads; the
+//! and network places. Found on worker threads; the
 //! OS-specific parts live in `platform`.
 
 use std::path::{Path, PathBuf};
@@ -41,7 +41,7 @@ pub struct Drive {
 
 /// A filesystem on a removable drive (a USB stick, an SD card), mounted
 /// or not. Found and mounted through the OS's disk service (UDisks2 on
-/// Linux, D21), so plugged-in drives show up before they're mounted.
+/// Linux), so plugged-in drives show up before they're mounted.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Volume {
     /// The disk service's name for it (a UDisks2 object path).

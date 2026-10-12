@@ -1,6 +1,5 @@
-//! Turns image file bytes into a small RGBA thumbnail (PLAN.md section 7,
-//! steps 3 to 9): sniff the format, check the size limits, decode, turn it
-//! the right way up, shrink.
+//! Turns image file bytes into a small RGBA thumbnail: sniff the format,
+//! check the size limits, decode, turn it the right way up, shrink.
 //!
 //! Image files are untrusted. The dimensions are checked against the
 //! limits before any pixel buffer is allocated, each decoder gets a memory

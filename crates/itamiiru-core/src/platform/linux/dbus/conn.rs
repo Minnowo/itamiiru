@@ -1,4 +1,4 @@
-//! Connecting to the session bus (P3.1) or the system bus (UDisks2, D21):
+//! Connecting to the session bus or the system bus (UDisks2):
 //! the address, the socket, SASL EXTERNAL authentication, Hello and
 //! RequestName.
 

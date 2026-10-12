@@ -1,4 +1,4 @@
-//! org.freedesktop.FileManager1 (P7.5): what apps call for "Show in
+//! org.freedesktop.FileManager1: what apps call for "Show in
 //! folder" (Firefox, Chromium, ...). Run with `--file-manager`, as its own
 //! process with its own D-Bus activation file. Each call opens an `itami`
 //! window and returns at once.

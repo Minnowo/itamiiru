@@ -1,4 +1,4 @@
-//! Reads the start of a file for the preview pane (P5.9), on a worker
+//! Reads the start of a file for the preview pane, on a worker
 //! thread. Only the first `MAX_BYTES` are read, and only UTF-8 text without
 //! NUL bytes counts as text; anything else gets no text preview.
 

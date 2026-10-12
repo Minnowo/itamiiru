@@ -1,5 +1,5 @@
-//! What the app remembers between runs (P4.10), and the optional features
-//! from PLAN.md section 6, mapped to and from the config file's keys.
+//! What the app remembers between runs, and the optional features,
+//! mapped to and from the config file's keys.
 
 use itamiiru_core::config::Config;
 use itamiiru_core::sort::{SortColumn, SortOrder};
@@ -125,12 +125,12 @@ pub struct Settings {
     pub window_size: [f32; 2],
     pub maximized: bool,
     pub columns: DetailsColumns,
-    /// Optional features (PLAN.md section 6).
+    /// Optional features.
     pub auto_refresh_folder: bool,
     pub auto_refresh_drives: bool,
-    /// Image previews in the icon views (P5.8).
+    /// Image previews in the icon views.
     pub thumbnails: bool,
-    /// The preview pane on the right (P5.9), and its width in points.
+    /// The preview pane on the right, and its width in points.
     pub preview_pane: bool,
     pub preview_width: f32,
     /// The details the status bar shows for one selected item.

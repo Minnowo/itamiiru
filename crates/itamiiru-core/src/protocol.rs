@@ -1,4 +1,4 @@
-//! The picker <-> portal protocol, v1 (PLAN.md section 5).
+//! The picker <-> portal protocol, v1 (spec in PLAN.md).
 //!
 //! One record per line: a keyword, then fields separated by single spaces.
 //! Every field is percent-encoded; the token `-` is the empty string.

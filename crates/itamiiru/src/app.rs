@@ -2005,7 +2005,7 @@ fn entry_name_text(path: &Path) -> String {
     };
 }
 
-/// Only Linux has a trash implementation so far (PLAN.md P8.1, P8.3).
+/// Only Linux has a trash implementation so far.
 fn trash_supported() -> bool {
     return cfg!(target_os = "linux");
 }
@@ -2022,7 +2022,7 @@ fn paths_as_text(paths: &[PathBuf]) -> String {
     return text;
 }
 
-/// An inline message in place of the list, never a popup (P1.11).
+/// An inline message in place of the list, never a popup.
 fn show_error(ui: &mut egui::Ui, theme: &Theme, folder: &Path, error: &str) {
     egui::Frame::new()
         .fill(theme.error_container)
@@ -3108,7 +3108,7 @@ mod tests {
         assert_eq!(app.sort.column, SortColumn::Name);
     }
 
-    /// Startup work that doesn't need a window, as the app does it (P9.5).
+    /// Startup work that doesn't need a window, as the app does it.
     /// `cargo test --release -p itamiiru startup_timing -- --ignored --nocapture`
     #[test]
     #[ignore]

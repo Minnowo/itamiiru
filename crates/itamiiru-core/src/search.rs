@@ -1,4 +1,4 @@
-//! Recursive name search on a worker thread (P4.9).
+//! Recursive name search on a worker thread.
 //!
 //! Walks breadth-first from a folder, so shallow matches come first, and
 //! streams matches in batches. Symlinked folders aren't followed (no

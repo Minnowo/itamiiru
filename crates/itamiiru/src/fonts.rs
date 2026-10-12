@@ -1,4 +1,4 @@
-//! The system's fonts (PLAN.md section 6, Fonts): the text fonts the OS
+//! The system's fonts: the text fonts the OS
 //! picks (fontconfig's sans-serif and monospace on Linux) become the main
 //! ones, and fonts covering CJK and other scripts are added as fallbacks.
 //! egui's built-in fonts stay last, for the emoji they include. egui draws
@@ -329,7 +329,7 @@ mod tests {
         output.textures_delta.clear();
     }
 
-    /// How long the font thread takes, as the window waits for it (P9.5).
+    /// How long the font thread takes, as the window waits for it.
     /// `cargo test --release -p itamiiru font_timing -- --ignored --nocapture`
     #[test]
     #[ignore]

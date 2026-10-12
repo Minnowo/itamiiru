@@ -1,4 +1,4 @@
-//! Filename globs for file-type filters: `*`, `?` and `[...]` (P2.7).
+//! Filename globs for file-type filters: `*`, `?` and `[...]`.
 //!
 //! `*` matches any run of characters (including none), `?` exactly one,
 //! `[abc]`, `[a-z]` and `[!a-z]` (or `[^a-z]`) one character from (or not

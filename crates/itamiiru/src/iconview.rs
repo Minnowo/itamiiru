@@ -1,4 +1,4 @@
-//! The List and icon views (P4.8). Both only lay out and draw the items on
+//! The List and icon views. Both only lay out and draw the items on
 //! screen, so big folders cost no more than small ones. Clicks, menus and
 //! rename work the same as in the Details view.
 

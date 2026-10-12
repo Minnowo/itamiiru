@@ -1,4 +1,4 @@
-//! The address bar (P4.6): clickable breadcrumbs, which turn into a text
+//! The address bar: clickable breadcrumbs, which turn into a text
 //! field on Ctrl+L, Alt+D, F4 or a click on the empty space beside them.
 
 use std::path::{Path, PathBuf};

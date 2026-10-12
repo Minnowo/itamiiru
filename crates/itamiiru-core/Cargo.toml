@@ -8,7 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
-# Thumbnails (PLAN.md section 7). jpeg-decoder without its default rayon feature.
+# Thumbnails. jpeg-decoder without its default rayon feature.
 png = "0.18"
 jpeg-decoder = { version = "0.3", default-features = false }
 gif = { version = "0.14", default-features = false, features = ["std"] }

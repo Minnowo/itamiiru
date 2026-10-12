@@ -1,5 +1,5 @@
 //! The two EXIF fields thumbnails need, read from a JPEG: the orientation
-//! and the embedded thumbnail (PLAN.md section 7, steps 6 and 8).
+//! and the embedded thumbnail.
 //!
 //! The file is untrusted, so every offset is checked against the data
 //! before it's used, and only IFD0 and IFD1 are read (no loops to follow).
