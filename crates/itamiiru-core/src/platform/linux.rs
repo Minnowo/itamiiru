@@ -3,8 +3,11 @@
 
 use std::path::PathBuf;
 
+pub mod dbus;
 mod places;
+mod udisks;
 pub use places::{bookmarks, disk_usage, drives, network_places, quick_access};
+pub use udisks::{eject_volume, mount_volume, removable_volumes, unmount_volume};
 
 /// `$XDG_CONFIG_HOME`, or `~/.config`.
 pub fn config_home() -> Option<PathBuf> {

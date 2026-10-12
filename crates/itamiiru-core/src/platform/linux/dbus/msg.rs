@@ -6,6 +6,9 @@ use super::wire::{self, Reader, Type, Value, WireError, Writer};
 pub const MAX_MESSAGE_SIZE: usize = 1024 * 1024;
 /// The caller doesn't want a reply.
 pub const NO_REPLY_EXPECTED: u8 = 0x1;
+/// The caller is happy to wait while polkit asks the user for a password.
+/// Without it, actions that need one fail straight away.
+pub const ALLOW_INTERACTIVE_AUTHORIZATION: u8 = 0x4;
 
 const FIELD_PATH: u8 = 1;
 const FIELD_INTERFACE: u8 = 2;

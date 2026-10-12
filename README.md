@@ -182,6 +182,15 @@ other file managers.
 - **Tiling window managers** tile the dialog; add a float rule for app id
   `itamiiru`, e.g. sway: `for_window [app_id="itamiiru"] floating enable`.
 
+## USB sticks and other removable drives
+
+Plugged-in drives show up under This PC (in the sidebar and on the This
+PC page) even before they're mounted. Click one to mount and open it;
+the Eject button next to a mounted one unmounts everything on it and
+powers it off, and the status bar says when it's safe to unplug. This
+goes through UDisks2 (`udisks2` package), which every Linux desktop
+ships, so no password is needed for removable drives in your own session.
+
 ## Settings
 
 The **Settings** button at the right of the toolbar (or Ctrl+Comma) opens

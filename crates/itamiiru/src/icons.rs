@@ -46,6 +46,27 @@ pub fn paint_arrow(painter: &egui::Painter, rect: Rect, arrow: Arrow, color: Col
     painter.add(Shape::convex_polygon(points, color, Stroke::NONE));
 }
 
+/// The eject symbol: a triangle pointing up over a bar, in `rect`.
+pub fn paint_eject(painter: &egui::Painter, rect: Rect, color: Color32) {
+    let w = rect.width().min(rect.height());
+    let c = rect.center();
+    let left = c.x - w / 2.0;
+    let right = c.x + w / 2.0;
+    let top = c.y - w / 2.0;
+    let triangle_bottom = top + w * 0.6;
+    let points = vec![
+        Pos2::new(c.x, top),
+        Pos2::new(right, triangle_bottom),
+        Pos2::new(left, triangle_bottom),
+    ];
+    painter.add(Shape::convex_polygon(points, color, Stroke::NONE));
+    let bar = Rect::from_min_max(
+        Pos2::new(left, top + w * 0.75),
+        Pos2::new(right, top + w * 0.9),
+    );
+    painter.rect_filled(bar, 0.0, color);
+}
+
 /// A square button, the height of a normal button, showing an arrow.
 /// Put it in `ui.add_enabled_ui(..)` to disable it; egui then fades it.
 pub fn arrow_button(ui: &mut egui::Ui, arrow: Arrow) -> egui::Response {

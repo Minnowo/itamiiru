@@ -13,7 +13,7 @@ use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::format::{format_local_time, format_size};
 use itamiiru_core::listing;
-use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg};
+use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg, Volume};
 use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
 use itamiiru_core::thumbcache::ThumbSize;
 
@@ -41,6 +41,8 @@ const PLACES_SCAN_INTERVAL: Duration = Duration::from_secs(5);
 const SAVE_DELAY: f64 = 1.0;
 /// How many rows Page Up / Page Down move.
 const PAGE_ROWS: isize = 20;
+/// How long a notice ("safe to remove") stays in the status bar, in seconds.
+const NOTICE_SECONDS: f64 = 8.0;
 
 /// Files cut or copied inside the app, waiting to be pasted.
 struct FileClipboard {
@@ -97,6 +99,10 @@ pub struct App {
     last_places_scan: f64,
     places_tx: Sender<PlacesMsg>,
     places_rx: Receiver<PlacesMsg>,
+    /// Removable volumes being mounted or ejected (their ids).
+    volumes_busy: HashSet<String>,
+    /// A short message for the status bar, and when it was shown.
+    notice: Option<(String, f64)>,
 
     /// The config file's contents, kept so unknown keys and comments survive.
     config: Config,
@@ -174,6 +180,8 @@ impl App {
             last_places_scan: 0.0,
             places_tx,
             places_rx,
+            volumes_busy: HashSet::new(),
+            notice: None,
             config,
             config_path,
             saved_settings: settings.clone(),
@@ -671,8 +679,99 @@ impl App {
                         None => self.usage.remove(&mount_point),
                     };
                 }
+                PlacesMsg::Mounted { volume, result } => {
+                    self.volumes_busy.remove(&volume.id);
+                    match result {
+                        Ok(point) => self.pane_mut().navigate(point),
+                        Err(error) => {
+                            let text = format!("{}: can't mount: {error}", volume.name);
+                            ops_ui::push_error(&mut self.op_errors, text);
+                        }
+                    }
+                    self.places_scan_running = false;
+                    self.scan_places();
+                }
+                PlacesMsg::Ejected {
+                    volume,
+                    power_off,
+                    result,
+                } => {
+                    self.volumes_busy.remove(&volume.id);
+                    let verb = if power_off { "eject" } else { "unmount" };
+                    match result {
+                        Ok(()) if power_off => {
+                            let text = format!("{} can be safely removed", volume.name);
+                            self.show_notice(text);
+                        }
+                        Ok(()) => {
+                            let text =
+                                format!("{} unmounted; click it to mount it again", volume.name);
+                            self.show_notice(text);
+                        }
+                        Err(error) => {
+                            let text = format!("{}: can't {verb}: {error}", volume.name);
+                            ops_ui::push_error(&mut self.op_errors, text);
+                        }
+                    }
+                    self.places_scan_running = false;
+                    self.scan_places();
+                }
             }
         }
+    }
+
+    /// Mounts a plugged-in drive on a worker, then opens it in the active
+    /// pane. One already mounted just opens.
+    fn mount_volume(&mut self, volume: Volume) {
+        if let Some(point) = volume.mount_point.clone() {
+            self.pane_mut().navigate(point);
+            return;
+        }
+        if !self.volumes_busy.insert(volume.id.clone()) {
+            return;
+        }
+        let ctx = self.ctx.clone();
+        let wake: listing::Wake = Box::new(move || ctx.request_repaint());
+        places::start_mount(volume, self.places_tx.clone(), wake);
+    }
+
+    /// Unmounts a removable drive's filesystem on a worker (`power_off`
+    /// false), or ejects the drive: unmounts everything on it and powers
+    /// it off. Panes showing a folder on it move to This PC first, so
+    /// nothing here is reading from it.
+    fn eject_volume(&mut self, volume: Volume, power_off: bool) {
+        if !self.volumes_busy.insert(volume.id.clone()) {
+            return;
+        }
+        // Ejecting unmounts every volume on the same drive, not just this one.
+        let mut points = Vec::new();
+        for other in &self.places.volumes {
+            let same_drive =
+                power_off && !volume.drive_id.is_empty() && other.drive_id == volume.drive_id;
+            if (same_drive || other.id == volume.id)
+                && let Some(point) = &other.mount_point
+            {
+                points.push(point.clone());
+            }
+        }
+        for tab in &mut self.tabs {
+            for pane in &mut tab.panes {
+                let inside = points.iter().any(|point| pane.current.starts_with(point));
+                if !pane.this_pc && inside {
+                    pane.show_this_pc();
+                }
+            }
+        }
+        let ctx = self.ctx.clone();
+        let wake: listing::Wake = Box::new(move || ctx.request_repaint());
+        places::start_eject(volume, power_off, self.places_tx.clone(), wake);
+    }
+
+    fn show_notice(&mut self, text: String) {
+        let now = self.ctx.input(|i| i.time);
+        self.notice = Some((text, now));
+        self.ctx
+            .request_repaint_after(Duration::from_secs_f64(NOTICE_SECONDS));
     }
 
     fn handle_keys(&mut self, ctx: &egui::Context) {
@@ -904,6 +1003,13 @@ impl App {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             zoom::controls_right_to_left(ui);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                let now = ui.input(|i| i.time);
+                if let Some((text, shown_at)) = &self.notice
+                    && now - shown_at < NOTICE_SECONDS
+                {
+                    ui.strong(text);
+                    ui.separator();
+                }
                 let mut count = pane.visible.len();
                 if pane.this_pc {
                     count = 0;
@@ -1081,6 +1187,7 @@ impl App {
                 ui,
                 &self.places,
                 &self.usage,
+                &self.volumes_busy,
                 self.show_hidden,
                 pane.this_pc_selected.as_deref(),
                 theme,
@@ -1177,6 +1284,9 @@ impl App {
             Some(TileAction::CopyPath(path)) => {
                 self.ctx.copy_text(path.to_string_lossy().into_owned());
             }
+            Some(TileAction::Mount(volume)) => self.mount_volume(volume),
+            Some(TileAction::Unmount(volume)) => self.eject_volume(volume, false),
+            Some(TileAction::Eject(volume)) => self.eject_volume(volume, true),
             None => {}
         }
         match output.action {
@@ -1478,8 +1588,10 @@ impl eframe::App for App {
                     ui,
                     &self.places,
                     &self.usage,
+                    &self.volumes_busy,
                     current,
                     self.show_hidden,
+                    self.picker.is_none(),
                     &self.theme,
                 );
             });
@@ -1487,6 +1599,13 @@ impl eframe::App for App {
         match sidebar_action {
             Some(SidebarAction::GoTo(path)) => self.pane_mut().navigate(path),
             Some(SidebarAction::ThisPc) => self.pane_mut().show_this_pc(),
+            Some(SidebarAction::Mount(volume)) => self.mount_volume(volume),
+            Some(SidebarAction::Unmount(volume)) => self.eject_volume(volume, false),
+            Some(SidebarAction::Eject(volume)) => self.eject_volume(volume, true),
+            Some(SidebarAction::OpenInNewTab(path)) => self.new_tab(Some(path), true),
+            Some(SidebarAction::CopyPath(path)) => {
+                self.ctx.copy_text(path.to_string_lossy().into_owned());
+            }
             None => {}
         }
 
@@ -2174,6 +2293,227 @@ mod tests {
         assert_eq!(app.pane().visible.len(), 1);
         assert_eq!(app.pane().widest_type, "JPEG File");
         frame(&mut app, &ctx, Vec::new());
+    }
+
+    /// Runs frames until no mount or eject is in progress.
+    fn settle_volumes(app: &mut App, ctx: &egui::Context) {
+        for _ in 0..500 {
+            frame(app, ctx, Vec::new());
+            if app.volumes_busy.is_empty() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("mount or eject didn't finish");
+    }
+
+    /// A volume UDisks doesn't have, so nothing real is touched.
+    fn fake_volume(mount_point: Option<PathBuf>) -> Volume {
+        return Volume {
+            id: "/org/freedesktop/UDisks2/block_devices/itamiiru_test_nonexistent".to_string(),
+            drive_id: String::new(),
+            name: "TESTSTICK".to_string(),
+            device: PathBuf::from("/dev/itamiiru-test"),
+            size: 1024,
+            fs_type: "vfat".to_string(),
+            mount_point,
+            can_power_off: false,
+        };
+    }
+
+    #[test]
+    fn ejecting_moves_panes_off_the_drive_and_reports_back() {
+        let folder = Folder::new("eject");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        // Pretend the test folder is a mounted stick, open in a second tab.
+        app.pane_mut().navigate(folder.0.join("alpha"));
+        settle(&mut app, &ctx);
+        app.new_tab(Some(folder.0.join("beta")), false);
+        let volume = fake_volume(Some(folder.0.clone()));
+        app.places.volumes = vec![volume.clone()];
+
+        app.eject_volume(volume.clone(), true);
+        assert!(app.volumes_busy.contains(&volume.id));
+        // Both panes inside it left for This PC before anything ran.
+        assert!(app.tabs[0].pane().this_pc);
+        assert!(app.tabs[1].pane().this_pc);
+        // A second click while it's busy does nothing.
+        app.eject_volume(volume.clone(), true);
+
+        settle_volumes(&mut app, &ctx);
+        // UDisks has nothing to unmount for this id, so it "succeeds"; on
+        // a machine without UDisks it's an error. Either way it's reported.
+        let noticed = app
+            .notice
+            .as_ref()
+            .is_some_and(|(t, _)| t.contains("TESTSTICK"));
+        let failed = app.op_errors.iter().any(|e| e.contains("TESTSTICK"));
+        assert!(
+            noticed || failed,
+            "notice {:?} errors {:?}",
+            app.notice,
+            app.op_errors
+        );
+    }
+
+    /// Runs one frame and returns where each piece of text was drawn.
+    fn frame_texts(app: &mut App, ctx: &egui::Context, events: Vec<Event>) -> Vec<(String, Rect)> {
+        let input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            events,
+            ..Default::default()
+        };
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut output = ctx.run_ui(input, |ui| eframe::App::ui(app, ui, &mut frame));
+        output.textures_delta.clear();
+        let mut texts = Vec::new();
+        for clipped in &output.shapes {
+            collect_texts(&clipped.shape, &mut texts);
+        }
+        return texts;
+    }
+
+    fn collect_texts(shape: &egui::Shape, out: &mut Vec<(String, Rect)>) {
+        match shape {
+            egui::Shape::Text(text) => {
+                out.push((text.galley.text().to_string(), text.visual_bounding_rect()));
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_texts(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn sidebar_drive_menu_ejects() {
+        let folder = Folder::new("sidebarmenu");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        // No rescans replacing the pretend drive below.
+        app.auto_refresh_drives = false;
+        frame(&mut app, &ctx, Vec::new());
+        let volume = fake_volume(Some(folder.0.clone()));
+        app.places = Places {
+            drives: vec![itamiiru_core::places::Drive {
+                name: "TESTSTICK".to_string(),
+                mount_point: folder.0.clone(),
+                fs_type: "vfat".to_string(),
+                kind: itamiiru_core::places::DriveKind::Removable,
+                hidden: false,
+            }],
+            volumes: vec![volume.clone()],
+            ..Places::default()
+        };
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let row = texts
+            .iter()
+            .find(|(text, _)| text == "TESTSTICK")
+            .expect("the drive is in the sidebar")
+            .1;
+
+        // Right-click it: the menu has Eject.
+        let press = |pos, button, pressed| Event::PointerButton {
+            pos,
+            button,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        let at = row.center();
+        frame(&mut app, &ctx, vec![Event::PointerMoved(at)]);
+        frame(
+            &mut app,
+            &ctx,
+            vec![press(at, PointerButton::Secondary, true)],
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![press(at, PointerButton::Secondary, false)],
+        );
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        for item in ["Open", "Open in new tab", "Copy path", "Unmount"] {
+            assert!(texts.iter().any(|(t, _)| t == item), "{item} in the menu");
+        }
+        let eject = texts
+            .iter()
+            .find(|(text, _)| text == "Eject")
+            .expect("Eject in the menu")
+            .1;
+
+        click(&mut app, &ctx, eject.center());
+        assert!(
+            app.volumes_busy.contains(&volume.id)
+                || app.notice.is_some()
+                || !app.op_errors.is_empty(),
+            "the eject started"
+        );
+        settle_volumes(&mut app, &ctx);
+    }
+
+    #[test]
+    fn the_eject_mark_is_not_a_button() {
+        let folder = Folder::new("ejectmark");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        app.auto_refresh_drives = false;
+        app.pane_mut().navigate(folder.0.join("alpha"));
+        settle(&mut app, &ctx);
+        app.places = Places {
+            drives: vec![itamiiru_core::places::Drive {
+                name: "TESTSTICK".to_string(),
+                mount_point: folder.0.clone(),
+                fs_type: "vfat".to_string(),
+                kind: itamiiru_core::places::DriveKind::Removable,
+                hidden: false,
+            }],
+            volumes: vec![fake_volume(Some(folder.0.clone()))],
+            ..Places::default()
+        };
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let row = texts
+            .iter()
+            .find(|(text, _)| text == "TESTSTICK")
+            .expect("the drive is in the sidebar")
+            .1;
+        // The mark sits at the right end of the row, inside the sidebar.
+        let mark = Pos2::new(app.sidebar_width - theme::GAP_LARGE, row.center().y + 4.0);
+        click(&mut app, &ctx, mark);
+        settle(&mut app, &ctx);
+        assert!(app.volumes_busy.is_empty(), "nothing was ejected");
+        assert!(app.notice.is_none());
+        // It's just part of the row: the click opened the drive.
+        assert_eq!(app.pane().current, folder.0);
+    }
+
+    #[test]
+    fn mounting_an_unknown_volume_shows_an_error() {
+        let folder = Folder::new("mount");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+
+        app.mount_volume(fake_volume(None));
+        settle_volumes(&mut app, &ctx);
+        assert!(
+            app.op_errors
+                .iter()
+                .any(|e| e.contains("TESTSTICK: can't mount")),
+            "{:?}",
+            app.op_errors
+        );
+        assert_eq!(app.pane().current, folder.0);
+
+        // An already mounted volume just opens.
+        app.mount_volume(fake_volume(Some(folder.0.join("beta"))));
+        assert!(app.volumes_busy.is_empty());
+        assert_eq!(app.pane().current, folder.0.join("beta"));
     }
 
     #[test]

@@ -8,10 +8,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Command;
 
-use crate::dbus::conn::Connection;
-use crate::dbus::msg::{Kind, Message};
-use crate::dbus::wire::Value;
 use crate::portal::{Event, picker_binary};
+use itamiiru_core::platform::dbus::conn::Connection;
+use itamiiru_core::platform::dbus::msg::{Kind, Message};
+use itamiiru_core::platform::dbus::wire::Value;
 
 pub const BUS_NAME: &str = "org.freedesktop.FileManager1";
 const OBJECT_PATH: &str = "/org/freedesktop/FileManager1";

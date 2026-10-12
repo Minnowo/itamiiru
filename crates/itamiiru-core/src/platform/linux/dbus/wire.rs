@@ -279,6 +279,13 @@ impl Value {
         return None;
     }
 
+    pub fn as_u64(&self) -> Option<u64> {
+        if let Value::U64(n) = self.unwrap_variant() {
+            return Some(*n);
+        }
+        return None;
+    }
+
     /// The elements of an array (inside a variant or not).
     pub fn as_array(&self) -> Option<&[Value]> {
         if let Value::Array(_, items) = self.unwrap_variant() {
@@ -320,7 +327,6 @@ impl Value {
     }
 
     /// An `ay` from bytes.
-    #[cfg(test)]
     pub fn bytes(data: &[u8]) -> Value {
         let mut items = Vec::with_capacity(data.len());
         for &b in data {

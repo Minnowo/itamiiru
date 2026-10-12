@@ -1,5 +1,6 @@
-//! Connecting to the session bus (P3.1): the address, the socket, SASL
-//! EXTERNAL authentication, Hello and RequestName.
+//! Connecting to the session bus (P3.1) or the system bus (UDisks2, D21):
+//! the address, the socket, SASL EXTERNAL authentication, Hello and
+//! RequestName.
 
 use std::io::{self, Read, Write};
 use std::os::unix::net::UnixStream;
@@ -28,7 +29,7 @@ pub fn parse_address(text: &str) -> Option<Address> {
             let Some((key, value)) = pair.split_once('=') else {
                 continue;
             };
-            let Ok(value) = itamiiru_core::percent::decode(value) else {
+            let Ok(value) = crate::percent::decode(value) else {
                 continue;
             };
             match key {
@@ -55,6 +56,16 @@ pub fn session_address() -> Option<Address> {
     }
     let runtime = std::env::var_os("XDG_RUNTIME_DIR")?;
     return Some(Address::Path(PathBuf::from(runtime).join("bus")));
+}
+
+/// The system bus: `$DBUS_SYSTEM_BUS_ADDRESS`, or the standard socket.
+pub fn system_address() -> Address {
+    if let Ok(text) = std::env::var("DBUS_SYSTEM_BUS_ADDRESS")
+        && let Some(address) = parse_address(&text)
+    {
+        return address;
+    }
+    return Address::Path(PathBuf::from("/run/dbus/system_bus_socket"));
 }
 
 /// The sending half of a bus connection. The receiving half is a cloned
@@ -119,28 +130,26 @@ impl Connection {
         }
     }
 
-    /// Hello, then RequestName with DO_NOT_QUEUE. Fails if someone else
-    /// already owns the name.
-    pub fn register(&mut self, reader: &mut UnixStream, name: &str) -> io::Result<()> {
-        let bus = |member: &str, body: Vec<Value>| {
-            Message::method_call(
-                "org.freedesktop.DBus",
-                "/org/freedesktop/DBus",
-                "org.freedesktop.DBus",
-                member,
-                body,
-            )
-        };
-        let hello = self.call(reader, &bus("Hello", Vec::new()))?;
+    /// Hello: every connection must say it first. Clients that don't
+    /// claim a name (like the UDisks2 code) need only this.
+    pub fn hello(&mut self, reader: &mut UnixStream) -> io::Result<()> {
+        let hello = self.call(reader, &bus_call("Hello", Vec::new()))?;
         self.unique_name = hello
             .body
             .first()
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_string();
+        return Ok(());
+    }
+
+    /// Hello, then RequestName with DO_NOT_QUEUE. Fails if someone else
+    /// already owns the name.
+    pub fn register(&mut self, reader: &mut UnixStream, name: &str) -> io::Result<()> {
+        self.hello(reader)?;
 
         const DO_NOT_QUEUE: u32 = 4;
-        let request = bus(
+        let request = bus_call(
             "RequestName",
             vec![Value::Str(name.to_string()), Value::U32(DO_NOT_QUEUE)],
         );
@@ -158,9 +167,20 @@ impl Connection {
     }
 }
 
+/// A call to the bus itself.
+fn bus_call(member: &str, body: Vec<Value>) -> Message {
+    return Message::method_call(
+        "org.freedesktop.DBus",
+        "/org/freedesktop/DBus",
+        "org.freedesktop.DBus",
+        member,
+        body,
+    );
+}
+
 /// SASL EXTERNAL: prove who we are with our user id, as the kernel sees it.
 fn authenticate(stream: &mut UnixStream) -> io::Result<()> {
-    let uid = itamiiru_core::platform::current_uid().to_string();
+    let uid = crate::platform::current_uid().to_string();
     let mut hex = String::new();
     for b in uid.bytes() {
         hex.push_str(&format!("{b:02x}"));

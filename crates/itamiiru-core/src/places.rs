@@ -39,6 +39,27 @@ pub struct Drive {
     pub hidden: bool,
 }
 
+/// A filesystem on a removable drive (a USB stick, an SD card), mounted
+/// or not. Found and mounted through the OS's disk service (UDisks2 on
+/// Linux, D21), so plugged-in drives show up before they're mounted.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Volume {
+    /// The disk service's name for it (a UDisks2 object path).
+    pub id: String,
+    /// The drive it's on; ejecting unmounts every volume on it. Empty for
+    /// volumes without a drive, like loop devices.
+    pub drive_id: String,
+    /// The label, or "<size> Volume" without one.
+    pub name: String,
+    pub device: PathBuf,
+    pub size: u64,
+    pub fs_type: String,
+    /// Where it's mounted, or None.
+    pub mount_point: Option<PathBuf>,
+    /// The drive can be powered off or its media ejected after unmounting.
+    pub can_power_off: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DiskUsage {
     pub total: u64,
@@ -63,6 +84,31 @@ pub struct Places {
     pub bookmarks: Vec<Place>,
     pub drives: Vec<Drive>,
     pub network: Vec<Place>,
+    /// Filesystems on removable drives, mounted or not.
+    pub volumes: Vec<Volume>,
+}
+
+impl Places {
+    /// The removable volume mounted at `mount_point`, for its Eject button.
+    pub fn volume_at(&self, mount_point: &Path) -> Option<&Volume> {
+        for volume in &self.volumes {
+            if volume.mount_point.as_deref() == Some(mount_point) {
+                return Some(volume);
+            }
+        }
+        return None;
+    }
+
+    /// Removable volumes that aren't mounted yet.
+    pub fn unmounted(&self) -> Vec<&Volume> {
+        let mut out = Vec::new();
+        for volume in &self.volumes {
+            if volume.mount_point.is_none() {
+                out.push(volume);
+            }
+        }
+        return out;
+    }
 }
 
 #[derive(Debug)]
@@ -71,6 +117,18 @@ pub enum PlacesMsg {
     Usage {
         mount_point: PathBuf,
         usage: Option<DiskUsage>,
+    },
+    /// A mount finished: where it's mounted, or why it failed.
+    Mounted {
+        volume: Volume,
+        result: Result<PathBuf, String>,
+    },
+    /// An unmount or eject finished. Ok means it's safe to unplug; after
+    /// an eject (`power_off`) the drive is gone from the list too.
+    Ejected {
+        volume: Volume,
+        power_off: bool,
+        result: Result<(), String>,
     },
 }
 
@@ -104,7 +162,50 @@ fn scan() -> Places {
         bookmarks: crate::platform::bookmarks(),
         drives: crate::platform::drives(),
         network: crate::platform::network_places(),
+        volumes: crate::platform::removable_volumes(),
     };
+}
+
+/// Mounts a volume on its own thread; the disk service may wait for a
+/// password prompt. Sends `PlacesMsg::Mounted`.
+pub fn start_mount(volume: Volume, tx: Sender<PlacesMsg>, wake: Wake) {
+    let spawned = std::thread::Builder::new()
+        .name("mount".to_string())
+        .spawn(move || {
+            let result = crate::platform::mount_volume(&volume);
+            if tx.send(PlacesMsg::Mounted { volume, result }).is_ok() {
+                wake();
+            }
+        });
+    if let Err(err) = spawned {
+        crate::debug!("places: could not start mount thread: {err}");
+    }
+}
+
+/// On its own thread: with `power_off`, ejects (unmounts every volume on
+/// the drive, then powers it off); without, unmounts just this volume and
+/// leaves the drive plugged in and listed. Sends `PlacesMsg::Ejected`.
+pub fn start_eject(volume: Volume, power_off: bool, tx: Sender<PlacesMsg>, wake: Wake) {
+    let spawned = std::thread::Builder::new()
+        .name("eject".to_string())
+        .spawn(move || {
+            let result = if power_off {
+                crate::platform::eject_volume(&volume)
+            } else {
+                crate::platform::unmount_volume(&volume)
+            };
+            let msg = PlacesMsg::Ejected {
+                volume,
+                power_off,
+                result,
+            };
+            if tx.send(msg).is_ok() {
+                wake();
+            }
+        });
+    if let Err(err) = spawned {
+        crate::debug!("places: could not start eject thread: {err}");
+    }
 }
 
 fn is_dir(path: &Path) -> bool {

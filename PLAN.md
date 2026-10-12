@@ -57,7 +57,7 @@
 | `resize.rs` | Box-filter downscaling of RGBA images | 40 |
 | `protocol.rs` | Picker <-> portal messages | 200 |
 | `platform/linux.rs` | mountinfo, statvfs, user-dirs, GTK bookmarks, MIME globs2, trash | 500 |
-| `itamiiru-portal/src/dbus/` | Connection, auth, marshalling, message loop | 1000-1500 |
+| `itamiiru-core/src/platform/linux/dbus/` (was `itamiiru-portal/src/dbus/`; moved so the explorer can reach UDisks2, D21) | Connection, auth, marshalling, message loop | 1000-1500 |
 
 ## 3. Decision log
 
@@ -82,6 +82,7 @@
 | D18 | FileManager1 | Same binary as the portal backend, run as `--file-manager`: its own process and its own activation file | Reuses the D-Bus code; the two names stay independent (either can run without the other); no daemon to keep alive | Another file manager's daemon holding the name becomes a common complaint (could queue for the name instead of giving up) |
 | D19 | Tabs and split view | A `Pane` holds one folder view (history, listing, selection, search) with its own worker channels; a `Tab` holds one or two panes; the app keeps what's shared (toolbar, sidebar, clipboard, operations, thumbnails, settings). Actions from a pane are returned, then applied after it becomes the active one | Results can't reach the wrong pane, and the old single-folder code moved over almost unchanged | A third pane, or saving tabs between runs, is wanted |
 | D20 | Details column widths | Name fills the leftover width; the other columns are sized to their content (measured text of the longest possible value, or the header) and can't be dragged; `details_columns` picks which show. Replaces resizable columns with saved widths (P4.10) | The fixed columns' content has a known longest shape, so measuring beats remembering drags; long names get all the space | A column whose content varies a lot is added (Folder already shares the leftover with Name) |
+| D21 | Removable drives | UDisks2 over the system bus with our own D-Bus client (moved into `itamiiru-core/src/platform/linux/dbus/`): GetManagedObjects lists filesystems, `Filesystem.Mount` mounts, eject = `Unmount` every filesystem on the drive then `Drive.PowerOff` (or `Eject`). polkit decides; the message carries ALLOW_INTERACTIVE_AUTHORIZATION so a password prompt can appear when needed. Shown: blocks with a filesystem that UDisks marks neither HintSystem nor HintIgnore, plus loop devices this user set up (detached on eject). A fresh connection per call, listing in the 5 s places scan | No crates, no root, no shelling out to `udisksctl`; UDisks is what every Linux desktop already uses, so mount points and permissions match other file managers | Encrypted (LUKS) volumes are wanted (needs an unlock dialog: `Encrypted.Unlock`), or polling proves too slow (subscribe to `InterfacesAdded`/`InterfacesRemoved` instead) |
 | D17 | File clipboard | In-app list of cut/copied paths; the paths also go on the system clipboard as text | egui's clipboard is text-only, and egui only reports Ctrl+V when the clipboard holds text, so putting the paths there makes Ctrl+V reach us and lets them paste into a terminal. No file interop with other file managers | Interop with other file managers is wanted (needs `text/uri-list` / `x-special/gnome-copied-files` clipboard targets) |
 
 ## 4. Threading model
@@ -284,6 +285,7 @@ egui's built-in fonts lack CJK and most emoji, so filenames in those scripts wou
 ## 8. Platform notes
 
 ### Linux
+- **Removable drives (D21):** plugged-in filesystems come from UDisks2, mounted or not. Unmounted ones show dimmed under This PC (sidebar and page); a click mounts through UDisks (under `/media/$USER/`) and opens it. Every sidebar row has a right-click menu (Open, Open in new tab, Copy path; Unmount and Eject on removable drives; Mount and open on unmounted ones); the same Unmount and Eject are in the This PC page's tile menu. Removable drives show the eject symbol at the right of their row as a marker only (it isn't a button). Unmount (`Filesystem.Unmount` on that volume) leaves the drive powered and listed as "Not mounted", ready to mount again. Eject: panes showing a folder on the drive move to This PC first, then every filesystem on the drive is unmounted and the drive powered off, and the status bar says it's safe to remove. Failures (busy, not allowed) go to the error banner.
 - **Drives:** parse `/proc/self/mountinfo`, which escapes spaces as `\040` and so on; decode them. Hide pseudo filesystems (proc, sysfs, cgroup*, devtmpfs, devpts, tmpfs, overlay, squashfs, autofs, bpf, tracefs, debugfs, securityfs, pstore, fusectl, configfs, mqueue, hugetlbfs, binfmt_misc, nsfs, ramfs, efivarfs) and bind-mount duplicates. Show `/`, `/home` if it's separate, `/boot*` only if hidden files are on, and everything under `/run/media/$USER`, `/media` and `/mnt`. Get labels by resolving the symlinks in `/dev/disk/by-label/` and matching mount sources. Get usage from `statvfs` (via libc).
 - **Places:** `~/.config/user-dirs.dirs` (lines like `XDG_DOWNLOAD_DIR="$HOME/Downloads"`) and `~/.config/gtk-3.0/bookmarks` (`file:///path optional label`).
 - **MIME filters:** turn `mime:` filters into globs with `/usr/share/mime/globs2` (`weight:type:glob`), also checking `$XDG_DATA_HOME` and `$XDG_DATA_DIRS`. Support wildcards like `image/*`.
@@ -307,7 +309,7 @@ egui's built-in fonts lack CJK and most emoji, so filenames in those scripts wou
 
 ## 9. Portal backend design (itamiiru-portal)
 
-**D-Bus client (hand-written, `src/dbus/`):**
+**D-Bus client (hand-written, `itamiiru-core/src/platform/linux/dbus/`, shared with the UDisks2 code):**
 - **Address:** `$DBUS_SESSION_BUS_ADDRESS`, handling `unix:path=` and `unix:abstract=` (std `UnixStream` with `SocketAddrExt` on Linux) and ignoring `,guid=`. Fall back to `$XDG_RUNTIME_DIR/bus`.
 - **Auth:** send `\0`, then `AUTH EXTERNAL <hex of uid as ASCII decimal>\r\n`, expect `OK <guid>`, then send `BEGIN\r\n`.
 - **Startup:** call `Hello`, then `RequestName("org.freedesktop.impl.portal.desktop.itamiiru", 4 /* DO_NOT_QUEUE */)`.
@@ -521,6 +523,7 @@ Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps c
 - [ ] P9.5 Startup time: under 150 ms to first frame on your machine. Measure and fix.
 - [ ] P9.6 Follow the system light/dark theme.
 - [ ] P9.7 Packaging (install script -> AUR/deb/rpm later).
+- [x] P9.10 Removable drives (D21): the D-Bus client moved to `itamiiru-core/src/platform/linux/dbus/` (system bus address, plain Hello, read timeouts, interactive-auth flag); `platform/linux/udisks.rs` lists, mounts and ejects; `places.rs` has `Volume`, `start_mount`, `start_eject`; sidebar rows and This PC tiles for unmounted volumes, eject buttons and menu items. Checked live with a loop-device image: found, mounted at `/media/minno/ITAMITEST` with no prompt, read, ejected (unmounted and detached). `live_udisks` and `live_mount_and_eject` are `#[ignore]` tests for doing it again. Not done: encrypted volumes, optical discs' tray, automatic mounting on plug-in.
 - [x] P9.9 Details columns: `details_columns` setting and a "Details view" section on the settings page; Name fills the rest, the others fit their content (D20). The old `column_*` width keys are no longer read or written.
 - [x] P9.8 Settings page (`settings_page.rs`): a dialog opened by the toolbar's Settings button or Ctrl+Comma, with hidden files, the two auto-refresh features, thumbnails, the preview pane, and the status bar fields (shown/hidden and their order, with an example line), plus Restore defaults and the config file's location. Changes apply at once (thumbnails restart the pool) and are saved like any setting. It edits a copy (`Options`); `App::apply_options` applies the difference. This unblocks P4.6b (`breadcrumb_dropdowns`).
 

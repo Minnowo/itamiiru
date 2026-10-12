@@ -10,9 +10,9 @@ use std::sync::mpsc::Sender;
 
 use itamiiru_core::protocol::{self, Choice, Filter, Mode, Pattern, Request};
 
-use crate::dbus::conn::Connection;
-use crate::dbus::msg::{Kind, Message};
-use crate::dbus::wire::{Type, Value};
+use itamiiru_core::platform::dbus::conn::Connection;
+use itamiiru_core::platform::dbus::msg::{Kind, Message};
+use itamiiru_core::platform::dbus::wire::{Type, Value};
 
 pub const BUS_NAME: &str = "org.freedesktop.impl.portal.desktop.itamiiru";
 pub const OBJECT_PATH: &str = "/org/freedesktop/portal/desktop";

@@ -6,7 +6,6 @@
 //! ("Show in folder", P7.5), as a separate process.
 
 #[cfg(target_os = "linux")]
-mod dbus;
 #[cfg(target_os = "linux")]
 mod filemanager;
 #[cfg(target_os = "linux")]
@@ -16,8 +15,8 @@ mod portal;
 fn main() {
     use std::sync::mpsc;
 
-    use dbus::conn::{self, Connection};
     use filemanager::FileManager;
+    use itamiiru_core::platform::dbus::conn::{self, Connection};
     use portal::{Event, Portal};
 
     let file_manager = std::env::args().skip(1).any(|arg| arg == "--file-manager");

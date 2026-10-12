@@ -1,14 +1,14 @@
 //! The navigation pane on the left: Quick access, Bookmarks, This PC and
 //! Network (PLAN.md section 6).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::format::format_size;
-use itamiiru_core::places::{DiskUsage, Drive, Place, Places};
+use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, Places, Volume};
 
-use crate::icons::{paint_drive_icon, paint_place_icon};
+use crate::icons::{paint_drive_icon, paint_eject, paint_place_icon};
 use crate::theme::{self, Theme};
 
 /// Height of a drive's usage bar, in points.
@@ -19,15 +19,29 @@ const NEARLY_FULL: f32 = 0.9;
 pub enum SidebarAction {
     GoTo(PathBuf),
     ThisPc,
+    /// Mount a plugged-in drive, then open it.
+    Mount(Volume),
+    /// Unmount a removable drive's filesystem, leaving it plugged in.
+    Unmount(Volume),
+    /// Unmount everything on a removable drive and power it off.
+    Eject(Volume),
+    /// From the right-click menu.
+    OpenInNewTab(PathBuf),
+    CopyPath(PathBuf),
 }
 
 /// Draws the pane. `current` is the folder on screen, or None on This PC.
+/// `busy` holds the volumes being mounted or ejected right now. `tabs` is
+/// false in the picker, which has no tabs to open a place in.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
     places: &Places,
     usage: &HashMap<PathBuf, DiskUsage>,
+    busy: &HashSet<String>,
     current: Option<&Path>,
     show_hidden: bool,
+    tabs: bool,
     theme: &Theme,
 ) -> Option<SidebarAction> {
     let mut action = None;
@@ -35,17 +49,21 @@ pub fn show(
     scroll.show(ui, |ui| {
         section(ui, "Quick access", |ui| {
             for place in &places.quick {
-                if place_row(ui, place, current, theme).clicked() {
+                let row = place_row(ui, place, current, theme);
+                if row.clicked() {
                     action = Some(SidebarAction::GoTo(place.path.clone()));
                 }
+                place_menu(&row, &place.path, None, busy, tabs, &mut action);
             }
         });
         if !places.bookmarks.is_empty() {
             section(ui, "Bookmarks", |ui| {
                 for place in &places.bookmarks {
-                    if place_row(ui, place, current, theme).clicked() {
+                    let row = place_row(ui, place, current, theme);
+                    if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
+                    place_menu(&row, &place.path, None, busy, tabs, &mut action);
                 }
             });
         }
@@ -75,23 +93,90 @@ pub fn show(
                         continue;
                     }
                     let drive_usage = usage.get(&drive.mount_point);
-                    if drive_row(ui, drive, drive_usage, current, theme).clicked() {
+                    let volume = places.volume_at(&drive.mount_point);
+                    let removable = volume.is_some();
+                    let row = drive_row(ui, drive, drive_usage, removable, current, theme);
+                    if row.clicked() {
                         action = Some(SidebarAction::GoTo(drive.mount_point.clone()));
                     }
+                    place_menu(&row, &drive.mount_point, volume, busy, tabs, &mut action);
+                }
+                // Plugged in, not mounted yet: a click mounts and opens it.
+                for volume in places.unmounted() {
+                    let working = busy.contains(&volume.id);
+                    let row = volume_row(ui, volume, working, theme);
+                    if row.clicked() && !working {
+                        action = Some(SidebarAction::Mount(volume.clone()));
+                    }
+                    row.context_menu(|ui| {
+                        let mount = egui::Button::new("Mount and open");
+                        if ui.add_enabled(!working, mount).clicked() {
+                            action = Some(SidebarAction::Mount(volume.clone()));
+                            ui.close();
+                        }
+                    });
                 }
             });
 
         if !places.network.is_empty() {
             section(ui, "Network", |ui| {
                 for place in &places.network {
-                    if place_row(ui, place, current, theme).clicked() {
+                    let row = place_row(ui, place, current, theme);
+                    if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
+                    place_menu(&row, &place.path, None, busy, tabs, &mut action);
                 }
             });
         }
     });
     return action;
+}
+
+/// The right-click menu of a folder, bookmark or drive row; removable
+/// drives (`eject`) also get Eject.
+fn place_menu(
+    row: &egui::Response,
+    path: &Path,
+    eject: Option<&Volume>,
+    busy: &HashSet<String>,
+    tabs: bool,
+    action: &mut Option<SidebarAction>,
+) {
+    row.context_menu(|ui| {
+        if ui.button("Open").clicked() {
+            *action = Some(SidebarAction::GoTo(path.to_path_buf()));
+            ui.close();
+        }
+        if tabs && ui.button("Open in new tab").clicked() {
+            *action = Some(SidebarAction::OpenInNewTab(path.to_path_buf()));
+            ui.close();
+        }
+        if ui.button("Copy path").clicked() {
+            *action = Some(SidebarAction::CopyPath(path.to_path_buf()));
+            ui.close();
+        }
+        if let Some(volume) = eject {
+            ui.separator();
+            let enabled = !busy.contains(&volume.id);
+            let unmount = ui.add_enabled(enabled, egui::Button::new("Unmount"));
+            if unmount
+                .on_hover_text("Stays plugged in; mount it again with a click")
+                .clicked()
+            {
+                *action = Some(SidebarAction::Unmount(volume.clone()));
+                ui.close();
+            }
+            let eject = ui.add_enabled(enabled, egui::Button::new("Eject"));
+            if eject
+                .on_hover_text("Unmounts it and powers it off, ready to unplug")
+                .clicked()
+            {
+                *action = Some(SidebarAction::Eject(volume.clone()));
+                ui.close();
+            }
+        }
+    });
 }
 
 /// A collapsible group with a heading, open by default.
@@ -118,10 +203,14 @@ fn place_row(
     return response.on_hover_text(place.path.to_string_lossy());
 }
 
+/// A mounted drive with its usage bar. Removable ones get the eject
+/// symbol at the right, as a marker; unmount and eject are in the
+/// right-click menu.
 fn drive_row(
     ui: &mut egui::Ui,
     drive: &Drive,
     usage: Option<&DiskUsage>,
+    removable: bool,
     current: Option<&Path>,
     theme: &Theme,
 ) -> egui::Response {
@@ -129,7 +218,27 @@ fn drive_row(
     let height = line + USAGE_BAR_HEIGHT + 2.0 * theme::GAP_SMALL;
     let selected = current == Some(drive.mount_point.as_path());
     let (response, icon_rect, text_left) = row(ui, height, selected, theme);
-    let rect = response.rect;
+    let mut rect = response.rect;
+
+    if removable {
+        let side = theme::ICON_SIZE + theme::GAP_SMALL;
+        let mark = Rect::from_center_size(
+            egui::pos2(
+                rect.right() - theme::GAP_SMALL - side / 2.0,
+                rect.center().y,
+            ),
+            egui::vec2(side, side),
+        );
+        let color = if selected {
+            theme.on_secondary_container
+        } else {
+            theme.on_surface_variant
+        };
+        paint_eject(ui.painter(), mark.shrink(side * 0.25), color);
+        // Name and bar stop before the mark.
+        rect.set_right(mark.left() - theme::GAP_SMALL);
+    }
+
     if ui.is_rect_visible(rect) {
         paint_drive_icon(ui.painter(), icon_rect, drive.kind, theme);
         let text_pos = egui::pos2(text_left, rect.top() + theme::GAP_SMALL + line / 2.0);
@@ -166,6 +275,46 @@ fn drive_row(
             format_size(usage.total)
         ));
     }
+    if removable {
+        tip.push_str("\nRemovable: right-click to unmount or eject");
+    }
+    return response.on_hover_text(tip);
+}
+
+/// A plugged-in drive that isn't mounted: dimmed, with "Not mounted" (or
+/// "Mounting...") where mounted drives show their usage bar.
+fn volume_row(ui: &mut egui::Ui, volume: &Volume, working: bool, theme: &Theme) -> egui::Response {
+    let line = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
+    let small = ui.text_style_height(&TextStyle::Small);
+    let height = line + small + 2.0 * theme::GAP_SMALL;
+    let (response, icon_rect, text_left) = row(ui, height, false, theme);
+    let rect = response.rect;
+    if ui.is_rect_visible(rect) {
+        let mut painter = ui.painter().clone();
+        painter.multiply_opacity(0.6);
+        paint_drive_icon(&painter, icon_rect, DriveKind::Removable, theme);
+        let name_pos = egui::pos2(text_left, rect.top() + theme::GAP_SMALL + line / 2.0);
+        row_text(ui, rect, name_pos, &volume.name, false, theme);
+        let status = if working {
+            "Mounting..."
+        } else {
+            "Not mounted"
+        };
+        let font = TextStyle::Small.resolve(ui.style());
+        let status_pos = egui::pos2(
+            text_left,
+            rect.top() + theme::GAP_SMALL + line + small / 2.0,
+        );
+        ui.painter().with_clip_rect(rect).text(
+            status_pos,
+            Align2::LEFT_CENTER,
+            status,
+            font,
+            theme.on_surface_variant,
+        );
+    }
+    let mut tip = format!("{} ({})", volume.device.to_string_lossy(), volume.fs_type);
+    tip.push_str("\nClick to mount and open it");
     return response.on_hover_text(tip);
 }
 

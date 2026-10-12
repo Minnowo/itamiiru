@@ -241,3 +241,21 @@ pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
         .mode(0o700)
         .create(path);
 }
+
+/// Removable drives that aren't mounted yet: not done on this OS (Linux
+/// uses UDisks2, D21).
+pub fn removable_volumes() -> Vec<crate::places::Volume> {
+    return Vec::new();
+}
+
+pub fn mount_volume(_volume: &crate::places::Volume) -> Result<std::path::PathBuf, String> {
+    return Err("mounting drives isn't supported on this system yet".to_string());
+}
+
+pub fn unmount_volume(_volume: &crate::places::Volume) -> Result<(), String> {
+    return Err("unmounting drives isn't supported on this system yet".to_string());
+}
+
+pub fn eject_volume(_volume: &crate::places::Volume) -> Result<(), String> {
+    return Err("ejecting drives isn't supported on this system yet".to_string());
+}
