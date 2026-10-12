@@ -189,7 +189,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 
 ### Behaviour of the bottom row (picker mode, matching Windows)
 
-- The **filename field** follows the selection. With several items selected it shows `"a.txt" "b.txt"`.
+- The **filename field** follows the selection. With several items selected it shows `"a.txt" "b.txt"`. A name copied from the selection is cleared again when the selection goes away (a click on empty space, or opening a folder), except in save mode; a typed name stays. Otherwise a folder picker would return the folder clicked earlier, or look for it inside the folder just opened.
 - Typing a **path** (absolute, or relative to the current folder) and pressing Enter either navigates there (folder) or selects it (file).
 - Typing a **glob** such as `*.log` and pressing Enter applies it as a temporary filter.
 - **Save mode:**

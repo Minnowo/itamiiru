@@ -66,6 +66,10 @@ pub struct Picker {
     probe_rx: Receiver<ProbeResult>,
     /// The selection the name field last followed: (count, cursor).
     followed_selection: (usize, Option<PathBuf>),
+    /// The name field holds a name copied from the selection, not typed.
+    /// Such a name is cleared when the selection goes away, so it can't
+    /// be picked by mistake (or looked for inside a folder just opened).
+    name_from_selection: bool,
     exit_code: Arc<AtomicI32>,
 }
 
@@ -125,6 +129,7 @@ impl Picker {
             probe_tx,
             probe_rx,
             followed_selection: (0, None),
+            name_from_selection: false,
             exit_code,
         };
     }
@@ -216,7 +221,16 @@ impl Picker {
         self.followed_selection = signature;
         if let Some(text) = name_for_selection(self.request.mode, selected) {
             self.name = text;
+            self.name_from_selection = true;
             self.error = None;
+            return;
+        }
+        // Nothing to copy any more (deselected, or another folder opened):
+        // drop the old copied name. Save mode keeps it; that field holds
+        // the name to save under, which a click elsewhere shouldn't erase.
+        if self.name_from_selection && self.request.mode != Mode::Save {
+            self.name.clear();
+            self.name_from_selection = false;
         }
     }
 
@@ -391,6 +405,7 @@ impl Picker {
                 }
                 if response.changed() {
                     self.error = None;
+                    self.name_from_selection = false;
                 }
                 if response.lost_focus() {
                     if ui.input(|i| i.key_pressed(Key::Enter)) {
@@ -715,6 +730,48 @@ mod tests {
         });
         let db = MimeDb::built_in();
         return Picker::new(request, Some(&db), Arc::new(AtomicI32::new(EXIT_CANCELLED)));
+    }
+
+    #[test]
+    fn copied_name_goes_away_with_the_selection() {
+        let ctx = egui::Context::default();
+        let resolve = |text: &str| PathBuf::from("/d").join(text);
+        let photos = entry("photos", EntryKind::Dir);
+
+        // Folder picker: click a folder, then click off it.
+        let mut folders = picker(Mode::Folder);
+        folders.follow_selection(&[&photos], Some(Path::new("/d/photos")));
+        assert_eq!(folders.name, "photos");
+        folders.follow_selection(&[], None);
+        assert_eq!(folders.name, "");
+        // Accept now picks the folder on screen, not the old click.
+        let outcome = folders.accept(Path::new("/d"), &[], &ctx, &resolve);
+        assert!(
+            matches!(outcome, Some(ProbeOutcome::Finish(paths)) if paths == vec![PathBuf::from("/d")])
+        );
+
+        // Click a folder, then open it: the new folder's empty selection
+        // clears the name, so Accept picks the opened folder.
+        folders.follow_selection(&[&photos], Some(Path::new("/d/photos")));
+        folders.follow_selection(&[], None);
+        let outcome = folders.accept(Path::new("/d/photos"), &[], &ctx, &resolve);
+        assert!(
+            matches!(outcome, Some(ProbeOutcome::Finish(paths)) if paths == vec![PathBuf::from("/d/photos")])
+        );
+
+        // A typed name stays when the selection changes to nothing.
+        folders.name = "typed".to_string();
+        folders.name_from_selection = false;
+        folders.follow_selection(&[], Some(Path::new("/d/x")));
+        assert_eq!(folders.name, "typed");
+
+        // Save mode keeps the name to save under.
+        let mut save = picker(Mode::Save);
+        let notes = entry("notes.txt", EntryKind::File);
+        save.follow_selection(&[&notes], Some(Path::new("/d/notes.txt")));
+        assert_eq!(save.name, "notes.txt");
+        save.follow_selection(&[], None);
+        assert_eq!(save.name, "notes.txt");
     }
 
     #[test]
