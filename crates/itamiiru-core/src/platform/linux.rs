@@ -361,6 +361,38 @@ pub fn is_writable_dir(dir: &std::path::Path) -> bool {
     return result == 0;
 }
 
+/// The shared thumbnail cache: `$XDG_CACHE_HOME/thumbnails`, or
+/// `~/.cache/thumbnails` (freedesktop thumbnail spec).
+pub fn thumbnail_dir() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("XDG_CACHE_HOME") {
+        let dir = PathBuf::from(dir);
+        // Relative paths are invalid, as for XDG_CONFIG_HOME.
+        if dir.is_absolute() {
+            return Some(dir.join("thumbnails"));
+        }
+    }
+    return Some(home_dir()?.join(".cache").join("thumbnails"));
+}
+
+/// Creates a new file only this user can read (0600). Fails if it exists.
+pub fn create_private_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    return std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path);
+}
+
+/// Creates a folder and any missing parents, only this user can open (0700).
+pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    return std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

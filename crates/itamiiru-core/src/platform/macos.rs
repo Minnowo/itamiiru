@@ -212,3 +212,32 @@ pub fn is_writable_dir(dir: &std::path::Path) -> bool {
     let result = unsafe { libc::access(c_path.as_ptr(), libc::W_OK) };
     return result == 0;
 }
+
+/// Thumbnails, in the freedesktop layout: `~/Library/Caches/itamiiru/thumbnails`.
+pub fn thumbnail_dir() -> Option<PathBuf> {
+    let dir = home_dir()?
+        .join("Library")
+        .join("Caches")
+        .join("itamiiru")
+        .join("thumbnails");
+    return Some(dir);
+}
+
+/// Creates a new file only this user can read (0600). Fails if it exists.
+pub fn create_private_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    return std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path);
+}
+
+/// Creates a folder and any missing parents, only this user can open (0700).
+pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    return std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(path);
+}

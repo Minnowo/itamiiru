@@ -1,12 +1,16 @@
 //! itamiiru-core: everything that isn't UI. No egui in here.
 
+pub mod bmp;
 pub mod config;
 pub mod entry;
+pub mod exif;
 pub mod filekind;
 pub mod fileops;
 pub mod format;
 pub mod glob;
+pub mod imagefile;
 pub mod listing;
+pub mod md5;
 pub mod mime;
 pub mod names;
 pub mod natsort;
@@ -15,8 +19,12 @@ pub mod places;
 pub mod platform;
 pub mod probe;
 pub mod protocol;
+pub mod resize;
+pub mod rgba;
 pub mod search;
 pub mod sort;
+pub mod thumbcache;
+pub mod thumbnail;
 
 #[cfg(test)]
 mod test_dir;

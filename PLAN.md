@@ -74,7 +74,7 @@
 | D9 | Live directory updates | Poll the directory's mtime every 2 s while focused, plus F5 | No crate, works everywhere | inotify via libc, in Phase 9 |
 | D10 | Accessibility (AccessKit) | Off at first | On Linux it pulls in zbus and atspi, a large dependency cost | Decide before any public release. A system-wide picker that screen readers can't use is a real problem. |
 | D11 | Details table | `egui_extras::TableBuilder` | Virtualized rows and resizable columns; same repo as egui | Replace with hand-written code if it's limiting |
-| D12 | JPEG crate | *TBD in the P5.1 spike* | Pick whichever supports fast downscaled (1/2, 1/4, 1/8) decoding | - |
+| D12 | JPEG crate | `jpeg-decoder` 0.3 (default features off: no rayon). Spike 2026-10-11 on 12 MP photo-like JPEGs: full decode about the same speed as zune-jpeg 0.5 (50 ms), but its `scale()` decodes at 1/8 in 35 ms into a 0.5 MB buffer instead of 36 MB; zune-jpeg has no downscaled decode. No dependencies of its own | Downscaled decoding is what thumbnails need, and the memory saving matters with 4 pool threads | jpeg-decoder is in maintenance mode; switch if it stops building or a security issue goes unfixed |
 | D13 | Look and colors | ponkotsu design system (simplified Material 3, https://github.com/Minnowo/ponkotsu-css) in `crates/itamiiru/src/theme.rs`. All ~90 color roles; built-in default is ponkotsu's dark palette. A theme file (`$ITAMI_THEME` or `<config dir>/theme`) overrides any role, as `role = #hex` lines or pasted ponkotsu CSS (`--color-c-role: #hex;`) | One consistent design system; themes are just data | egui can't express something the design needs |
 | D14 | Text sizes | ponkotsu's web sizes scaled from a 16 px to a 14 px body (heading 19, small 12) | A file manager is denser than a web form | Text feels too small or too large in use |
 | D15 | Natural sort case | ASCII letters compare case-insensitively; other letters by raw bytes | Simple and allocation-free | Non-English names sort badly in practice |
@@ -96,7 +96,7 @@ UI thread --Job--> [listing worker]      --Done--> UI thread (try_recv each fram
 - **Generation ids:** every navigation increments `current_gen`. Jobs carry `gen`, and the UI ignores results whose `gen` doesn't match. We can't kill a thread stuck in a hung `read_dir`, but we can make its result harmless.
 - **One listing worker per request.** Spawn a thread per navigation rather than using one long-lived worker, so a hung mount blocks only its own thread and never the next navigation. Threads stuck in the kernel are leaked until the call returns. That's acceptable.
 - **Streaming:** listings arrive in batches of about 500 entries (`Done::Batch`, then `Done::Finished`).
-- **Thumbnail pool:** N threads (N = min(4, cores - 1), at least 1) share a **LIFO stack** (`Mutex<Vec<Job>>` + `Condvar`). The most recently requested thumbnail, which is what's on screen, gets handled first. Keep an in-flight set to avoid duplicates, and clear the stack on navigation.
+- **Thumbnail pool:** N threads (N = min(4, cores - 1), at least 1) share a **LIFO stack** (`Mutex<Vec<Job>>` + `Condvar`). The most recently requested thumbnail, which is what's on screen, gets handled first. The UI remembers what it asked for (no duplicates), and the stack is cleared on navigation.
 - **Cancellation** of long jobs (search, copy) uses an `Arc<AtomicBool>` checked inside the loop.
 - **Panics:** each thumbnail decode is wrapped in `std::panic::catch_unwind`, so one bad file doesn't kill a pool thread.
 - **Drive scanning** (`statvfs`) also runs on a worker, one thread per mount. `statvfs` on a dead network mount can block.
@@ -261,7 +261,7 @@ egui's built-in fonts lack CJK and most emoji, so filenames in those scripts wou
 
 **UI side:** request thumbnails only for visible items. Upload with `egui::ColorImage::from_rgba_unmultiplied` and `ctx.load_texture`. Keep an LRU of about 512 `TextureHandle`s to bound GPU memory.
 
-**Malformed-file corpus:** maintain `tests/corpus/` (truncated files, files whose headers claim enormous dimensions, random bytes behind valid magic numbers, zero-byte files). A test decodes every file and asserts there are no panics and no allocations above the limits.
+**Malformed-file corpus:** `tests/corpus/seeds/` holds small valid images of each format (made with ffmpeg). The test derives truncated files, files whose headers claim enormous dimensions, flipped bytes, random bytes behind valid magic numbers and zero-byte files from them, and asserts every one returns a result. Damaged files found in the wild go directly in `tests/corpus/`.
 
 ## 8. Platform notes
 
@@ -438,16 +438,16 @@ P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's 
 **Done when:** placed side by side with a screenshot of the Windows dialog, the structure and behaviour clearly match.
 
 ### Phase 5: Thumbnails
-- [ ] P5.1 **Spike:** compare `zune-jpeg` and `jpeg-decoder` on downscaled decoding and speed with real photos. Record the result in D12.
-- [ ] P5.2 Magic-byte sniffing and the decoder dispatch with limits (section 7 steps 3-5, 7).
-- [ ] P5.3 `exif.rs`: orientation and embedded thumbnail, with tests on sample files.
-- [ ] P5.4 `resize.rs` (box filter) with tests.
-- [ ] P5.5 `md5.rs` with RFC 1321 test vectors.
-- [ ] P5.6 Cache read/write per the spec, including atomic writes, 0600 permissions and the fail directory.
-- [ ] P5.7 Thumbnail pool: LIFO stack, dedup, cleared on navigation, `catch_unwind`.
+- [x] P5.1 **Spike:** compare `zune-jpeg` and `jpeg-decoder` on downscaled decoding and speed with real photos. Record the result in D12.
+- [x] P5.2 Magic-byte sniffing and the decoder dispatch with limits (section 7 steps 3-5, 7). `imagefile.rs`; BMP is vendored in `bmp.rs` (uncompressed 1/4/8/16/24/32 bit, bit masks; no RLE). PNG rows are shrunk as they arrive, so only one row is in memory.
+- [x] P5.3 `exif.rs`: orientation and embedded thumbnail, with tests on sample files.
+- [x] P5.4 `resize.rs` (box filter, alpha-weighted, fed row by row) with tests. `rgba.rs` holds the image type and the eight orientations.
+- [x] P5.5 `md5.rs` with RFC 1321 test vectors.
+- [x] P5.6 Cache read/write per the spec, including atomic writes, 0600 permissions and the fail directory. `thumbcache.rs`. URIs are escaped exactly as GLib does (checked against `gio info`), so the MD5 names match Nautilus. A cached file counts only when `Thumb::URI` and `Thumb::MTime` match; GLib's fractional `Thumb::MTime` (`1756380786.000000`) is compared by seconds. A smaller request is served from a bigger cached size, shrunk (Nautilus often only writes `large`). Failures are recorded only for files that sniffed as an image.
+- [x] P5.7 Thumbnail pool: LIFO stack, dedup, cleared on navigation, `catch_unwind`. `thumbnail.rs`. Dedup lives in the UI (it remembers what it asked for), so the pool is just the stack.
 - [ ] P5.8 UI integration: icon views request visible items only; texture LRU.
 - [ ] P5.9 Preview pane.
-- [ ] P5.10 Malformed-file corpus and test (section 7).
+- [x] P5.10 Malformed-file corpus and test (section 7). `crates/itamiiru-core/tests/corpus.rs` over ffmpeg-made seeds in `tests/corpus/seeds/`: each damaged about 6,000 ways. No decoder panicked. The "no allocations above the limits" half is covered by checking header dimensions before decoding and giving every decoder a memory cap; a counting allocator would need `unsafe` outside `platform/`, so it was left out.
 
 **Done when:**
 - A folder of 2,000 photos scrolls smoothly, with on-screen thumbnails filling in first.
@@ -542,6 +542,7 @@ journalctl --user -f | grep -i itamiiru
 
 | Date | After | `cargo tree` unique crates | Notes |
 |---|---|---|---|
+| 2026-10-11 | P5.1 | 180 | + png, jpeg-decoder (no default features), gif (std only), image-webp |
 | 2026-10-11 | P1.6 | 174 | + egui_extras (no default features), libc |
 | 2026-10-11 | P0.4 baseline | 168 | eframe 0.36.2 (glow, wayland, x11, default_fonts). Release `itami` binary: 13 MB unstripped |
 

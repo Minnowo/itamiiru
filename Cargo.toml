@@ -15,3 +15,5 @@ unsafe_code = "deny"
 needless_return = "allow"
 # House style: a plain for loop is fine where clippy would suggest .find().
 manual_find = "allow"
+# House style: `chunks_exact(4)` reads plainer than `as_chunks::<4>()`.
+chunks_exact_to_as_chunks = "allow"

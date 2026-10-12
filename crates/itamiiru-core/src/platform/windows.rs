@@ -166,3 +166,23 @@ pub fn is_writable_dir(dir: &std::path::Path) -> bool {
         Err(_) => false,
     };
 }
+
+/// Thumbnails, in the freedesktop layout: `%LOCALAPPDATA%\itamiiru\thumbnails`.
+pub fn thumbnail_dir() -> Option<PathBuf> {
+    let local = PathBuf::from(std::env::var_os("LOCALAPPDATA")?);
+    return Some(local.join("itamiiru").join("thumbnails"));
+}
+
+/// Creates a new file. Fails if it exists. TODO(Phase 8): an ACL for this
+/// user only; the default under %LOCALAPPDATA% is already private.
+pub fn create_private_file(path: &std::path::Path) -> std::io::Result<std::fs::File> {
+    return std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path);
+}
+
+/// Creates a folder and any missing parents.
+pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
+    return std::fs::create_dir_all(path);
+}
