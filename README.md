@@ -179,6 +179,11 @@ other file managers.
   environment may lack the display variables. Add
   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP`
   to your session startup.
+- **Characters show as boxes:** run `itami --font-info` and include its
+  output in a bug report. It lists the fonts fontconfig picks, whether
+  itamiiru could read each one, and which scripts would show. "no" for
+  Japanese usually means no Japanese font is installed (Arch:
+  `sudo pacman -S noto-fonts-cjk`; Debian: `sudo apt install fonts-noto-cjk`).
 - **Tiling window managers** tile the dialog; add a float rule for app id
   `itamiiru`, e.g. sway: `for_window [app_id="itamiiru"] floating enable`.
 

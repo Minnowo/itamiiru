@@ -63,45 +63,158 @@ pub fn is_executable(_name: &std::ffi::OsStr, meta: &std::fs::Metadata) -> bool 
     return meta.is_file() && meta.permissions().mode() & 0o111 != 0;
 }
 
-/// Font files that cover scripts egui's built-in fonts lack (CJK, Thai,
-/// Hebrew, Arabic, Devanagari), as (file, face index in a collection).
-/// Asks fontconfig, so it runs `fc-match` once per script: call it on a
-/// worker thread. Duplicates are removed; files may still not exist.
-pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
+/// The system's own text fonts, as fontconfig chooses them (the same
+/// choice GTK apps get): (sans-serif, monospace), each as (file, face
+/// index). Runs `fc-match`: call it on a worker thread.
+pub fn main_font_files() -> super::MainFonts {
+    return super::MainFonts {
+        sans: fc_match("sans-serif"),
+        mono: fc_match("monospace"),
+    };
+}
+
+/// The languages fallback fonts are found for: Japanese, Simplified and
+/// Traditional Chinese, Korean, Thai, Hebrew, Arabic and Hindi.
+const FALLBACK_LANGS: [&str; 8] = ["ja", "zh-cn", "zh-tw", "ko", "th", "he", "ar", "hi"];
+
+/// How many covering fonts to keep per language, best first, in case
+/// egui can't read the first.
+const CANDIDATES_PER_LANG: usize = 5;
+
+/// Fonts for scripts the main fonts may lack: for each language with one
+/// installed, (language, covering fonts best first), each as (file, face
+/// index in a collection). Asks fontconfig, so it runs `fc-match` once per
+/// language: call it on a worker thread. Files may still not exist.
+pub fn fallback_font_files() -> Vec<(String, Vec<super::FontFile>)> {
+    let mut out = Vec::new();
+    for lang in FALLBACK_LANGS {
+        let fonts = fonts_for_lang(lang);
+        if !fonts.is_empty() {
+            out.push((lang.to_string(), fonts));
+        }
+    }
+    return out;
+}
+
+/// The fonts in fontconfig's ranked fallback list for `lang` that really
+/// cover it, best first. Plain `fc-match :lang=ja` isn't enough: it can
+/// answer with the preferred family even when that has no Japanese (Arch
+/// with Noto Sans first, though Noto Sans CJK is installed).
+fn fonts_for_lang(lang: &str) -> Vec<super::FontFile> {
+    let output = std::process::Command::new("fc-match")
+        .args([
+            "-s",
+            "-f",
+            "%{file}\t%{index}\t%{lang}\n",
+            &format!("sans-serif:lang={lang}"),
+        ])
+        .output();
+    return match output {
+        Ok(output) if output.status.success() => {
+            covering_fonts(&output.stdout, lang, CANDIDATES_PER_LANG)
+        }
+        _ => Vec::new(),
+    };
+}
+
+/// From `fc-match -s` output (file, index and the languages it covers,
+/// tab-separated, one font per line), the first `limit` fonts whose
+/// languages include `lang`. Each file appears once.
+pub fn covering_fonts(listing: &[u8], lang: &str, limit: usize) -> Vec<super::FontFile> {
     use std::os::unix::ffi::OsStrExt;
-    let scripts = [
-        ":lang=ja",
-        ":lang=zh-cn",
-        ":lang=zh-tw",
-        ":lang=ko",
-        ":lang=th",
-        ":lang=he",
-        ":lang=ar",
-        ":lang=hi",
-    ];
-    let mut fonts: Vec<(PathBuf, u32)> = Vec::new();
-    for script in scripts {
-        let output = std::process::Command::new("fc-match")
-            .args(["-f", "%{file}|%{index}", script])
-            .output();
-        let output = match output {
-            Ok(output) if output.status.success() => output,
-            _ => continue,
-        };
-        // "path|index"; the path is raw bytes, the index after the last '|'.
-        let text = output.stdout;
-        let Some(bar) = text.iter().rposition(|&b| b == b'|') else {
+    let mut out: Vec<super::FontFile> = Vec::new();
+    for line in listing.split(|&b| b == b'\n') {
+        if out.len() >= limit {
+            break;
+        }
+        let mut fields = line.split(|&b| b == b'\t');
+        let (Some(file), Some(index), Some(langs)) = (fields.next(), fields.next(), fields.next())
+        else {
             continue;
         };
-        let path = PathBuf::from(std::ffi::OsStr::from_bytes(&text[..bar]));
-        let index_text = String::from_utf8_lossy(&text[bar + 1..]);
-        let index: u32 = index_text.trim().parse().unwrap_or(0);
-        if path.as_os_str().is_empty() || fonts.contains(&(path.clone(), index)) {
+        let langs = String::from_utf8_lossy(langs);
+        if file.is_empty() || !langs.split('|').any(|l| l == lang) {
             continue;
         }
-        fonts.push((path, index));
+        let path = PathBuf::from(std::ffi::OsStr::from_bytes(file));
+        if out.iter().any(|(seen, _)| *seen == path) {
+            continue;
+        }
+        let index: u32 = String::from_utf8_lossy(index).trim().parse().unwrap_or(0);
+        out.push((path, index));
     }
-    return fonts;
+    return out;
+}
+
+/// What fontconfig says about the fonts itamiiru asks for, for
+/// `itami --font-info`: its version, the match for each pattern with its
+/// format, and which installed fonts cover Japanese.
+pub fn font_report() -> Vec<String> {
+    let run = |args: &[&str]| -> String {
+        return match std::process::Command::new(args[0])
+            .args(&args[1..])
+            .output()
+        {
+            // Some versions print --version to stderr.
+            Ok(output) => {
+                let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+                text.push_str(&String::from_utf8_lossy(&output.stderr));
+                text.trim().to_string()
+            }
+            Err(err) => format!("(can't run {}: {err})", args[0]),
+        };
+    };
+    let mut lines = vec![format!("fontconfig: {}", run(&["fc-match", "--version"]))];
+    let format = "%{file} | index %{index} | %{family[0]} | %{fontformat} | variable=%{variable}";
+    for pattern in ["sans-serif", "monospace"] {
+        lines.push(format!(
+            "{pattern} -> {}",
+            run(&["fc-match", "-f", format, pattern])
+        ));
+    }
+    for lang in FALLBACK_LANGS {
+        let chosen = match fonts_for_lang(lang).first() {
+            Some((path, index)) => format!("{} (face {index})", path.display()),
+            None => "none installed".to_string(),
+        };
+        let plain = run(&["fc-match", "-f", "%{file}", &format!(":lang={lang}")]);
+        lines.push(format!(
+            "{lang}: covering font {chosen}; plain fc-match says {plain}"
+        ));
+    }
+    let japanese = run(&["fc-list", ":lang=ja", "file"]);
+    let files: Vec<&str> = japanese.lines().collect();
+    lines.push(format!(
+        "fonts covering Japanese (fc-list :lang=ja): {}",
+        files.len()
+    ));
+    for file in files.iter().take(8) {
+        lines.push(format!("  {file}"));
+    }
+    return lines;
+}
+
+/// The font file fontconfig picks for `pattern`, e.g. "sans-serif" or
+/// ":lang=ja", as (file, face index).
+fn fc_match(pattern: &str) -> Option<(PathBuf, u32)> {
+    use std::os::unix::ffi::OsStrExt;
+    let output = std::process::Command::new("fc-match")
+        .args(["-f", "%{file}|%{index}", pattern])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    // "path|index"; the path is raw bytes, the index after the last '|'.
+    let text = output.stdout;
+    let bar = text.iter().rposition(|&b| b == b'|')?;
+    let path = PathBuf::from(std::ffi::OsStr::from_bytes(&text[..bar]));
+    let index_text = String::from_utf8_lossy(&text[bar + 1..]);
+    let index: u32 = index_text.trim().parse().unwrap_or(0);
+    if path.as_os_str().is_empty() {
+        return None;
+    }
+    return Some((path, index));
 }
 
 /// Raw bytes (e.g. a decoded file URI) to a path. Unix paths are bytes.
@@ -409,6 +522,29 @@ mod tests {
     }
 
     #[test]
+    fn covering_fonts_come_from_the_ranked_list() {
+        // Shaped like Arch's: the preferred family comes first but has no
+        // Japanese; the CJK collection and IPA further down do.
+        let listing = b"/usr/share/fonts/noto/NotoSans-Regular.ttf\t0\taa|af|en|fr\n\
+/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc\t0\tja|ko|zh-cn|zh-tw\n\
+/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc\t2\tja|ko|zh-cn|zh-tw\n\
+/usr/share/fonts/OTF/ipagp.ttf\t0\tja\n";
+        let cjk = PathBuf::from("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc");
+        let ipa = PathBuf::from("/usr/share/fonts/OTF/ipagp.ttf");
+        // Best first, each file once.
+        assert_eq!(
+            covering_fonts(listing, "ja", 5),
+            vec![(cjk.clone(), 0), (ipa, 0)]
+        );
+        assert_eq!(covering_fonts(listing, "ja", 1), vec![(cjk, 0)]);
+        // "zh" alone isn't "zh-cn"; nothing covers Thai.
+        assert!(covering_fonts(b"/a.ttf\t2\tzh\n", "zh-cn", 5).is_empty());
+        assert!(covering_fonts(listing, "th", 5).is_empty());
+        assert_eq!(covering_fonts(b"/b.ttc\t3\tko\n", "ko", 5)[0].1, 3);
+        assert!(covering_fonts(b"garbage", "ja", 5).is_empty());
+    }
+
+    #[test]
     fn trash_file_writes_info() {
         let dir = test_dir("file");
         let trash = dir.join("Trash");
@@ -476,12 +612,14 @@ mod tests {
     }
 
     #[test]
-    fn fallback_fonts_are_unique() {
+    fn fallback_fonts_are_sane() {
         // Depends on the machine's fonts; only checks the parsing is sane.
-        let fonts = fallback_font_files();
-        for (i, font) in fonts.iter().enumerate() {
-            assert!(!font.0.as_os_str().is_empty());
-            assert!(!fonts[i + 1..].contains(font), "duplicate {font:?}");
+        for (lang, fonts) in fallback_font_files() {
+            assert!(!fonts.is_empty(), "{lang}");
+            for (i, font) in fonts.iter().enumerate() {
+                assert!(!font.0.as_os_str().is_empty());
+                assert!(!fonts[i + 1..].contains(font), "duplicate {font:?}");
+            }
         }
     }
 

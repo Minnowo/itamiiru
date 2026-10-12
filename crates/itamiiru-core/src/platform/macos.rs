@@ -50,9 +50,24 @@ pub fn is_executable(_name: &std::ffi::OsStr, meta: &std::fs::Metadata) -> bool 
     return meta.is_file() && meta.permissions().mode() & 0o111 != 0;
 }
 
-/// Known system fonts covering CJK and other scripts egui lacks.
+/// macOS's UI font (San Francisco) is a variable font egui can't use
+/// well, so egui's own fonts stay the main ones there.
+pub fn main_font_files() -> super::MainFonts {
+    return super::MainFonts {
+        sans: None,
+        mono: None,
+    };
+}
+
+/// For `itami --font-info`: there's no fontconfig to ask here.
+pub fn font_report() -> Vec<String> {
+    return vec!["(fonts come from fixed paths on this system)".to_string()];
+}
+
+/// Known system fonts covering CJK and other scripts egui lacks, each
+/// as its own entry (name, [file]).
 /// The files may not exist on every macOS version.
-pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
+pub fn fallback_font_files() -> Vec<(String, Vec<super::FontFile>)> {
     let files = [
         "/System/Library/Fonts/Hiragino Sans GB.ttc",
         "/System/Library/Fonts/PingFang.ttc",
@@ -61,7 +76,7 @@ pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
     ];
     let mut fonts = Vec::new();
     for file in files {
-        fonts.push((PathBuf::from(file), 0));
+        fonts.push((file.to_string(), vec![(PathBuf::from(file), 0)]));
     }
     return fonts;
 }

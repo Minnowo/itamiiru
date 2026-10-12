@@ -34,10 +34,17 @@ use picker::Picker;
 use settings::Settings;
 use theme::Theme;
 
-/// The command line: `itami [FOLDER] [--select ITEM]...` or `itami --pick`.
-/// FOLDER and ITEM may be paths or `file://` URIs.
+/// How to call it, for `--help` and mistakes.
+const USAGE: &str = "usage: itami [FOLDER] [--select ITEM]...
+       itami --pick < request      (file dialog, used by the portal)
+       itami --font-info           (which fonts are used, for bug reports)";
+
+/// The command line: `itami [FOLDER] [--select ITEM]...`, `itami --pick`,
+/// or `itami --font-info`. FOLDER and ITEM may be paths or `file://` URIs.
 struct Args {
     pick: bool,
+    /// Print the font report and exit.
+    font_info: bool,
     path: Option<PathBuf>,
     /// Items to select once the folder is listed ("Show in folder").
     select: Vec<PathBuf>,
@@ -45,7 +52,18 @@ struct Args {
 
 fn main() {
     // args_os keeps non-UTF-8 paths intact.
-    let args = parse_args(std::env::args_os().skip(1).collect());
+    let args = match parse_args(std::env::args_os().skip(1).collect()) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("itami: {message}");
+            eprintln!("{USAGE}");
+            std::process::exit(2);
+        }
+    };
+    if args.font_info {
+        fonts::print_report();
+        return;
+    }
 
     // Startup is the one time the UI thread may read small files: the
     // request, the config, the theme, the MIME globs if a filter needs them,
@@ -103,13 +121,15 @@ fn main() {
         ..Default::default()
     };
     let is_picker = picker.is_some();
+    // Fonts are found while the window opens.
+    let font_rx = fonts::start();
     let result = eframe::run_native(
         "itamiiru",
         options,
         Box::new(|cc| {
             theme.install(&cc.egui_ctx);
             cc.egui_ctx.set_zoom_factor(settings.zoom);
-            fonts::load_in_background(cc.egui_ctx.clone());
+            fonts::install(&cc.egui_ctx, font_rx);
             let ctx = cc.egui_ctx.clone();
             let app = app::App::new(ctx, theme, start, select, config, config_path, picker);
             return Ok(Box::new(app));
@@ -124,10 +144,13 @@ fn main() {
     }
 }
 
-/// `arguments` is the command line without the program name.
-fn parse_args(arguments: Vec<OsString>) -> Args {
+/// `arguments` is the command line without the program name. An unknown
+/// `--option` is an error, not a folder to open. `--help` prints the usage
+/// and exits.
+fn parse_args(arguments: Vec<OsString>) -> Result<Args, String> {
     let mut args = Args {
         pick: false,
+        font_info: false,
         path: None,
         select: Vec::new(),
     };
@@ -135,15 +158,22 @@ fn parse_args(arguments: Vec<OsString>) -> Args {
     while let Some(arg) = items.next() {
         if arg == "--pick" {
             args.pick = true;
+        } else if arg == "--font-info" {
+            args.font_info = true;
         } else if arg == "--select" {
             if let Some(item) = items.next() {
                 args.select.push(arg_to_path(item));
             }
+        } else if arg == "--help" || arg == "-h" {
+            println!("{USAGE}");
+            std::process::exit(0);
+        } else if arg.as_encoded_bytes().starts_with(b"--") {
+            return Err(format!("unknown option {}", arg.to_string_lossy()));
         } else if args.path.is_none() {
             args.path = Some(arg_to_path(arg));
         }
     }
-    return args;
+    return Ok(args);
 }
 
 /// A command-line path or `file://` URI (file managers and the .desktop
@@ -232,7 +262,7 @@ mod tests {
         for item in items {
             arguments.push(OsString::from(item));
         }
-        return parse_args(arguments);
+        return parse_args(arguments).expect("valid arguments");
     }
 
     #[test]
@@ -278,7 +308,19 @@ mod tests {
     }
 
     #[test]
-    fn pick_flag() {
+    fn flags() {
         assert!(parse(&["--pick"]).pick);
+        assert!(parse(&["--font-info"]).font_info);
+        assert!(!parse(&["/tmp"]).font_info);
+    }
+
+    #[test]
+    fn unknown_options_are_errors_not_folders() {
+        let arguments = vec![OsString::from("--font-infoo")];
+        let error = parse_args(arguments).err().expect("an error");
+        assert!(error.contains("--font-infoo"), "{error}");
+        // A folder whose name starts with one dash still opens.
+        let args = parse(&["-notes"]);
+        assert!(args.path.is_some_and(|p| p.ends_with("-notes")));
     }
 }

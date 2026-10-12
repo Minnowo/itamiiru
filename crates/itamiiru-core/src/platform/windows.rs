@@ -39,8 +39,27 @@ pub fn is_executable(name: &std::ffi::OsStr, meta: &std::fs::Metadata) -> bool {
     return ["exe", "com", "bat", "cmd", "msi", "ps1"].contains(&ext.as_str());
 }
 
-/// Known system fonts covering CJK and other scripts egui lacks.
-pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
+/// Windows' UI fonts: Segoe UI and Consolas.
+pub fn main_font_files() -> super::MainFonts {
+    let windir = match std::env::var_os("WINDIR") {
+        Some(dir) => PathBuf::from(dir),
+        None => PathBuf::from("C:\\Windows"),
+    };
+    let fonts_dir = windir.join("Fonts");
+    return super::MainFonts {
+        sans: Some((fonts_dir.join("segoeui.ttf"), 0)),
+        mono: Some((fonts_dir.join("consola.ttf"), 0)),
+    };
+}
+
+/// For `itami --font-info`: there's no fontconfig to ask here.
+pub fn font_report() -> Vec<String> {
+    return vec!["(fonts come from fixed paths on this system)".to_string()];
+}
+
+/// Known system fonts covering CJK and other scripts egui lacks, each
+/// as its own entry (name, [file]).
+pub fn fallback_font_files() -> Vec<(String, Vec<super::FontFile>)> {
     let windir = match std::env::var_os("WINDIR") {
         Some(dir) => PathBuf::from(dir),
         None => PathBuf::from("C:\\Windows"),
@@ -57,7 +76,7 @@ pub fn fallback_font_files() -> Vec<(PathBuf, u32)> {
     ];
     let mut fonts = Vec::new();
     for file in files {
-        fonts.push((fonts_dir.join(file), 0));
+        fonts.push((file.to_string(), vec![(fonts_dir.join(file), 0)]));
     }
     return fonts;
 }
