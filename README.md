@@ -1,265 +1,240 @@
 # itamiiru
 
-A file picker and file explorer laid out like the Windows 10/11 file
-dialog, written in Rust with egui.
+A file picker and file explorer with a similar feel to the Windows 10/11 file
+dialog.
 
-- **One file dialog for every Linux app.** itamiiru is a backend for
-  xdg-desktop-portal's FileChooser, so GTK, Firefox, Chromium, Electron and
-  Flatpak apps all open the same dialog.
-- **A file explorer** with the same UI: Details, List and icon views with
-  thumbnails, a preview pane, search, cut/copy/paste, trash, rename.
-
-The command is `itami` (`itami [FOLDER]` opens the explorer). Started
-from a terminal it moves to the background, so the prompt comes back and
-closing the terminal doesn't close the window; `itami --foreground` (or
-`ITAMI_DEBUG=1`) keeps it attached. `itami --help` lists the options. Linux only
-for now; Windows and macOS are planned.
-
-## Requirements
-
-- Linux on x86_64 or aarch64, with X11 or Wayland and OpenGL (any normal
-  desktop has these).
-- `xdg-desktop-portal` (the frontend) and your desktop's usual backend,
-  e.g. `xdg-desktop-portal-gtk`:
-  - Debian/Ubuntu: `sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk`
-  - Fedora: `sudo dnf install xdg-desktop-portal xdg-desktop-portal-gtk`
-  - Arch: `sudo pacman -S xdg-desktop-portal xdg-desktop-portal-gtk`
-- Prebuilt binaries need glibc as new as the machine they were built on
-  (`package.sh` prints the version; check yours with `ldd --version`).
-  Built on Debian 13 that's glibc 2.39: Debian 13, Ubuntu 24.04, Fedora 40
-  or newer. On older systems, build from source.
-- Building from source: Rust from https://rustup.rs and a C toolchain
-  (`build-essential` on Debian/Ubuntu).
+- [x] xdg-desktop-portal backend (can be used as Save As, Open File, Choose Folder dialogs, etc)
+- [x] tabs and split view
+- [x] filter filenames in the current folder
+- [x] search folder and sub folders
+- [x] add custom right-click menu actions
+- [x] image thumbnails (jpg, png, gif, bmp, webp)
+- [x] sends items to trash (optional)
+- [x] detect, mount and eject USB drives
 
 ## Install
 
-The script installs for your user only (`~/.local/bin`) and asks for sudo
-once, for the one file that must live in `/usr/share`. Run it as your
-normal user, not with sudo.
+You install three things: the two programs, a menu entry, and two small
+files that register itamiiru as a file dialog backend. Everything goes in
+your home folder except one file that needs `sudo`.
 
-**From a release tarball** (no Rust needed). On a machine with Rust, make
-the tarballs:
+- **Release tarball:** unpack it; the programs are in `bin/`. There's an
+  `opengl` and a `vulkan` tarball.
+- **From source** (Rust from https://rustup.rs):
+  `cargo build --release` (add `--no-default-features --features wgpu` for
+  the Vulkan build); the programs are in `target/release/`.
 
-```
-scripts/package.sh        # -> target/itamiiru-<version>-<arch>-linux-opengl.tar.gz
-                          #    target/itamiiru-<version>-<arch>-linux-vulkan.tar.gz
-```
+Run the commands below from the unpacked tarball or the source folder. They
+use `bin/`; from source, use `target/release/` instead.
 
-Both work the same; they differ in how they draw. `opengl` (glow) is the
-default. `vulkan` (wgpu) starts faster once the graphics driver has cached
-its shaders (the first run after a driver update is slower), and falls back
-to OpenGL on machines without a Vulkan driver. From source, `install.sh
---vulkan` builds the Vulkan one.
-
-Copy it over, then:
+**1. The programs.** Put both in the same folder: the backend starts `itami`
+from next to itself.
 
 ```
-tar xf itamiiru-*-linux.tar.gz
-cd itamiiru-*-linux
-./install.sh
+mkdir -p ~/.local/bin
+install -m755 bin/itami bin/xdg-desktop-portal-itamiiru ~/.local/bin/
 ```
 
-**From source:**
+To run `itami` from a terminal, `~/.local/bin` must be on your `PATH` (it
+is on most distros).
+
+**2. The menu entry.** The desktop file puts itamiiru in your app menu and
+lets other apps offer it for opening folders.
 
 ```
-git clone <this repo> itamiiru && cd itamiiru
-scripts/install.sh
+mkdir -p ~/.local/share/applications
+sed "s|@BINDIR@|$HOME/.local/bin|" data/itamiiru.desktop \
+  > ~/.local/share/applications/itamiiru.desktop
 ```
 
-Then:
+**3. The file dialog backend.** Two files tell the system that itamiiru can
+show file dialogs:
 
-1. **Log out and back in**, so apps pick up `GTK_USE_PORTAL=1`.
-2. **Firefox:** `about:config`, set
-   `widget.use-xdg-desktop-portal.file-picker` to `1` (in each profile you
-   use).
-3. **LibreOffice:** Tools > Options > General, untick "Use LibreOffice
-   dialogs".
-4. Try it: `GTK_USE_PORTAL=1 zenity --file-selection`
+```
+# The D-Bus service: starts the backend when an app needs a dialog.
+mkdir -p ~/.local/share/dbus-1/services
+sed "s|@BINDIR@|$HOME/.local/bin|" data/org.freedesktop.impl.portal.desktop.itamiiru.service \
+  > ~/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.itamiiru.service
 
-`docs/app-compat.md` lists which apps were tested and what each needs.
+# The .portal file: describes the backend to xdg-desktop-portal, which only
+# looks for these in a system folder.
+sudo install -Dm644 data/itamiiru.portal /usr/share/xdg-desktop-portal/portals/itamiiru.portal
+```
 
-**From a distro package** (for example the Arch package in the kutsubako
-repo): the package installs the program system-wide; then each user runs
-`itamiiru-setup` once (the same options as below; `--uninstall` before
-removing the package). That's `install.sh --packaged`.
+## Set up file dialogs
 
-Options: `--no-env` leaves the session environment alone (set the
-variables yourself, see below); `--default-file-manager` makes itamiiru the
-app for folders and for "Show in folder" (next section); `--uninstall`
-removes everything.
+Apps don't draw their file dialogs themselves: they ask
+**xdg-desktop-portal**, which hands the request to a **backend**. These
+steps tell the portal to use itamiiru for file dialogs (everything else
+stays on your desktop's usual backend), and tell GTK apps to go through
+the portal.
 
-## Default file manager
+**1. Install the portal and your desktop's usual backend:**
 
-`scripts/install.sh --default-file-manager` also:
+| Distro | Command |
+|---|---|
+| Arch | `sudo pacman -S xdg-desktop-portal xdg-desktop-portal-gtk` |
+| Debian, Ubuntu | `sudo apt install xdg-desktop-portal xdg-desktop-portal-gtk` |
+| Fedora | `sudo dnf install xdg-desktop-portal xdg-desktop-portal-gtk` |
 
-- makes itamiiru open folders (`xdg-mime default itamiiru.desktop
-  inode/directory`), so double-clicking a folder elsewhere or `xdg-open
-  ~/Downloads` opens itamiiru;
-- answers `org.freedesktop.FileManager1`, which Firefox, Chromium and
-  others call for "Show in folder": itamiiru opens the folder with the file
-  selected.
+On GNOME use `xdg-desktop-portal-gnome`, on KDE `xdg-desktop-portal-kde`.
 
-On XFCE it does two more things:
+**2. Choose itamiiru for file dialogs:**
 
-- `xdg-open` there runs `exo-open`, which ignores the folder default above
-  and uses Settings > Preferred Applications > File Manager. The script
-  adds itamiiru to that list and selects it (`~/.config/xfce4/helpers.rc`).
-- Only one program can own `org.freedesktop.FileManager1`, and XFCE starts
-  `Thunar --daemon` at every login, which holds it. Unless you saved a
-  session, XFCE starts its built-in "Failsafe" session, so changing Thunar's
-  restart style in Session and Startup does nothing. The script takes
-  Thunar's daemon out of your copy of that session, from the next login
-  (or run `thunar -q` now; it closes Thunar's windows). Thunar opened by
-  hand still takes the name while it runs.
+```
+mkdir -p ~/.config/xdg-desktop-portal
+cp data/portals.conf.example ~/.config/xdg-desktop-portal/portals.conf
+```
 
-The same applies to other file managers running as a background daemon;
-the installer says when one holds the name.
+The file reads:
 
-`--uninstall` puts back the folder app you had chosen before (or the
-system's default if you hadn't chosen one), XFCE's previous file manager,
-and Thunar's daemon in the Failsafe session.
+```
+[preferred]
+default=gtk
+org.freedesktop.impl.portal.FileChooser=itamiiru
+```
 
-By hand: `itami [FOLDER] [--select ITEM]...` (paths or `file://` URIs);
-copy `data/itamiiru.desktop` to `~/.local/share/applications/` and
-`data/org.freedesktop.FileManager1.service` to
-`~/.local/share/dbus-1/services/`, replacing `@BINDIR@` in both, then run
-`xdg-mime default itamiiru.desktop inode/directory`.
+Change `default=` to the backend from step 1: `gtk`, `gnome` or `kde`. (With
+the Arch package, write the file by hand; the example isn't installed.)
 
-## What the script does (to install by hand)
+**3. Make GTK apps use the portal.** GTK 3 reads `GTK_USE_PORTAL`, GTK 4
+reads `GDK_DEBUG`.
 
-1. **Binaries.** Copy `itami` and `xdg-desktop-portal-itamiiru` (from
-   `bin/` in the tarball, or `target/release/` after
-   `cargo build --release`) into `~/.local/bin`. They must sit in the same
-   folder: the backend starts the picker from next to itself (or set
-   `ITAMI_BIN` to the picker's path).
+- **X11 sessions** (Xfce, MATE, Cinnamon, ...): add these lines to
+  `~/.xsessionrc` on Debian and Ubuntu, or to `~/.xprofile` on Arch and
+  most others:
 
-2. **D-Bus activation file.** Copy
-   `data/org.freedesktop.impl.portal.desktop.itamiiru.service` to
-   `~/.local/share/dbus-1/services/`, replacing `@BINDIR@` with the
-   folder from step 1, e.g. `/home/you/.local/bin`.
+  ```
+  export GTK_USE_PORTAL=1
+  export GDK_DEBUG=portals
+  # Apps started through D-Bus get these too.
+  dbus-update-activation-environment --systemd GTK_USE_PORTAL GDK_DEBUG || true
+  ```
 
-3. **Portal description.** As root, copy `data/itamiiru.portal` to
-   `/usr/share/xdg-desktop-portal/portals/`. The frontend only looks there.
+- **Wayland sessions** (GNOME, KDE, sway, ...): create
+  `~/.config/environment.d/60-itamiiru.conf` with:
 
-4. **Choose itamiiru for file dialogs.** Create
-   `~/.config/xdg-desktop-portal/portals.conf`:
+  ```
+  GTK_USE_PORTAL=1
+  GDK_DEBUG=portals
+  ```
 
-   ```
-   [preferred]
-   default=gtk
-   org.freedesktop.impl.portal.FileChooser=itamiiru
-   ```
+**4. Log out and back in,** so apps see the new settings.
 
-   Set `default=` to the backend you use now (`gtk`, `gnome`, `kde`, `wlr`,
-   ...; your desktop's `/usr/share/xdg-desktop-portal/*-portals.conf` says
-   which). Only file dialogs change.
+**5. Turn it on in apps that have their own switch:**
 
-5. **Session environment**, so GTK apps use the portal at all:
-   - X sessions started by `/etc/X11/Xsession` (XFCE, MATE, Cinnamon on
-     Debian/Ubuntu): append `data/xsessionrc.example` to `~/.xsessionrc`.
-     That file runs with `set -e`, so a failing line stops the login; the
-     example guards every command.
-   - Wayland and systemd-based sessions (GNOME, KDE, sway, ...): copy the
-     GTK lines of `data/itamiiru-env.conf.example` to
-     `~/.config/environment.d/60-itamiiru.conf`.
-   - Qt apps also need `QT_QPA_PLATFORMTHEME=xdgdesktopportal` and that
-     platform theme plugin; it replaces qt5ct/qt6ct.
+- **Firefox:** in `about:config`, set
+  `widget.use-xdg-desktop-portal.file-picker` to `1`.
+- **LibreOffice:** Tools > Options > General, untick "Use LibreOffice
+  dialogs".
 
-6. **Restart the frontend:** `systemctl --user restart xdg-desktop-portal`,
-   then log out and back in.
+**Test it:** `zenity --file-selection` should open itamiiru. If the old
+dialog shows up, see Troubleshooting. `docs/app-compat.md` lists the apps
+that were tested.
+
+## Use it as the default file manager (optional)
+
+**Open folders with itamiiru** (double-clicking a folder in another app,
+`xdg-open ~/Downloads`):
+
+```
+xdg-mime default itamiiru.desktop inode/directory
+```
+
+**"Show in folder"** in Firefox, Chromium and others:
+
+```
+sed "s|@BINDIR@|$HOME/.local/bin|" data/org.freedesktop.FileManager1.service \
+  > ~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service
+```
+
+**On Xfce,** two more things:
+
+- `xdg-open` follows Xfce's own setting there. Add itamiiru to it, then
+  pick it in Settings > Default Applications > Utilities > File Manager:
+
+  ```
+  mkdir -p ~/.local/share/xfce4/helpers
+  sed "s|@BINDIR@|$HOME/.local/bin|" data/itamiiru-xfce-helper.desktop \
+    > ~/.local/share/xfce4/helpers/itamiiru.desktop
+  ```
+
+- Thunar runs in the background and answers "Show in folder" first. In
+  Settings > Session and Startup > Session, set Thunar's restart style to
+  **Never** and click **Save Session**; for now, run `thunar -q`.
+
+## Using it
+
+- **Command line:** `itami [FOLDER] [--select ITEM]`. Started from a
+  terminal it moves to the background; `--foreground` keeps it attached.
+  `itami --help` lists the options.
+- **Settings:** the gear at the bottom of the side pane, or Ctrl+Comma.
+  They're saved in `~/.config/itamiiru/config`.
+- **Custom right-click actions:** add menu items like "Open in terminal" in
+  `~/.config/itamiiru/actions`:
+  ```
+  [Open in terminal]
+  command = xfce4-terminal --working-directory=%d
+  for = folders, background
+  ```
+  `data/actions.example` explains the placeholders (`%f`, `%F`, `%d`, `%n`)
+  and the `for` targets. The file is read at startup.
+- **USB drives** show up under This PC even before they're mounted: click
+  to mount, right-click to unmount or eject (needs `udisks2`).
+- **Drag files out** onto other apps (a browser upload box, a terminal, an
+  editor). X11 sessions only for now; Escape cancels.
+
+## Update
+
+Repeat step 1 of Install with the new programs, then restart the backend so
+the next file dialog uses them:
+
+```
+pkill -f xdg-desktop-portal-itamiiru
+```
 
 ## Uninstall
 
+Undo the steps above:
+
 ```
-scripts/install.sh --uninstall
+rm ~/.local/bin/itami ~/.local/bin/xdg-desktop-portal-itamiiru
+rm ~/.local/share/applications/itamiiru.desktop
+rm ~/.local/share/dbus-1/services/org.freedesktop.impl.portal.desktop.itamiiru.service
+rm -f ~/.local/share/dbus-1/services/org.freedesktop.FileManager1.service
+rm -f ~/.local/share/xfce4/helpers/itamiiru.desktop
+sudo rm /usr/share/xdg-desktop-portal/portals/itamiiru.portal
 ```
 
-It removes the binaries, the portal and FileManager1 files, the menu
-entry, the folder default and XFCE changes (see above), its line in
-`portals.conf` and its lines in `~/.xsessionrc` (or its environment.d
-file). Settings in `~/.config/itamiiru/` are kept; delete that folder too
-for a clean slate. Thumbnails stay in `~/.cache/thumbnails`, shared with
-other file managers.
+Then remove the `FileChooser=itamiiru` line from (or delete)
+`~/.config/xdg-desktop-portal/portals.conf`, remove the lines you added in
+step 3 of "Set up file dialogs", and pick another folder app if you made
+itamiiru the default (`xdg-mime default thunar.desktop inode/directory`).
+Do this before removing the Arch package too. Your settings in
+`~/.config/itamiiru/` are kept.
 
 ## Troubleshooting
 
-- **The old dialog still appears:** the app didn't get `GTK_USE_PORTAL=1`
-  (log out and in; check with `cat /proc/<pid>/environ | tr '\0' '\n'`),
-  or the app has its own setting (Firefox, LibreOffice above).
-- **Is the portal choosing itamiiru?** Watch `journalctl --user -f` while
-  opening a dialog. For more detail, run the backend by hand:
-  `pkill -f xdg-desktop-portal-itamiiru; ITAMI_DEBUG=1 ~/.local/bin/xdg-desktop-portal-itamiiru`
-  and open a dialog from another terminal.
-- **No window appears (Wayland, tiling WMs):** the D-Bus activation
-  environment may lack the display variables. Add
+- **The old dialog still appears:** log out and back in; check the app sees
+  `GTK_USE_PORTAL=1` with
+  `cat /proc/$(pidof -s APP)/environ | tr '\0' '\n' | grep GTK_USE_PORTAL`;
+  check the app's own switch (step 5).
+- **Is the portal using itamiiru?** Watch `journalctl --user -f` while
+  opening a dialog, or run the backend by hand to see its log:
+  `pkill -f xdg-desktop-portal-itamiiru; ITAMI_DEBUG=1 xdg-desktop-portal-itamiiru`.
+- **No window appears on Wayland or a tiling WM:** add
   `dbus-update-activation-environment --systemd WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP`
   to your session startup.
-- **Characters show as boxes:** run `itami --font-info` and include its
-  output in a bug report. It lists the fonts fontconfig picks, whether
-  itamiiru could read each one, and which scripts would show. "no" for
-  Japanese usually means no Japanese font is installed (Arch:
-  `sudo pacman -S noto-fonts-cjk`; Debian: `sudo apt install fonts-noto-cjk`).
-- **Tiling window managers** tile the dialog; add a float rule for app id
-  `itamiiru`, e.g. sway: `for_window [app_id="itamiiru"] floating enable`.
-
-## USB sticks and other removable drives
-
-Plugged-in drives show up under This PC (in the sidebar and on the This
-PC page) even before they're mounted. Click one to mount and open it;
-the Eject button next to a mounted one unmounts everything on it and
-powers it off, and the status bar says when it's safe to unplug. This
-goes through UDisks2 (`udisks2` package), which every Linux desktop
-ships, so no password is needed for removable drives in your own session.
-
-## Dragging files to other apps
-
-Drag files from itamiiru and drop them on another app: a browser's upload
-area, a terminal (it pastes the paths), an editor, another file manager.
-Works in X11 sessions (Xfce, MATE, Cinnamon, GNOME/KDE on X11); not under
-Wayland yet. The other app gets copies of the paths, so nothing is moved
-or deleted. The cursor shows whether the window under it takes the drop;
-Escape cancels.
-
-## Custom right-click actions
-
-Add your own menu items, like "Open in terminal", in
-`~/.config/itamiiru/actions` (read when itamiiru starts).
-`data/actions.example` explains the format; a short version:
-
-```
-[Open in terminal]
-command = xfce4-terminal --working-directory=%d
-for = folders, background
-
-[Edit in VSCodium]
-command = codium %F
-for = files, folders
-```
-
-`for` takes `files`, `folders`, `background` (empty space) and patterns
-like `*.jpg`. In `command`, `%f` is the selected path (run once per item),
-`%F` all of them, `%d` the folder (a right-clicked folder, or the one on
-screen), `%n` the name. Commands are never run through a shell, so file
-names can't inject anything. Problems in the file are skipped and logged
-with `ITAMI_DEBUG=1`.
-
-## Settings
-
-The gear at the bottom of the side pane (or Ctrl+Comma) opens the
-settings page; changes apply at once. Behind it is
-`~/.config/itamiiru/config`, `key=value` lines written as you use the app
-(view, sort, zoom, window size, ...), which can also be edited by hand
-while the app is closed. Optional features: `thumbnails`, `preview_pane`,
-`auto_refresh_folder`, `auto_refresh_drives`, `use_trash` (off: Delete
-deletes permanently, after asking), `drag_and_drop` (`true` or `false`). `status_fields` picks what the
-status bar shows for one selected item, in order: any of `name`, `type`,
-`size`, `modified`, `path`, comma-separated (default
-`type,size,modified`). `details_columns` picks the Details view's columns
-besides Name: any of `modified`, `type`, `size` (default all three). Colors can be changed with a
-theme file at `~/.config/itamiiru/theme` (see PLAN.md section 6).
+- **Tiling WMs** tile the dialog: add a float rule for app id `itamiiru`,
+  e.g. sway: `for_window [app_id="itamiiru"] floating enable`.
+- **Characters show as boxes:** install a font for that language (Arch:
+  `noto-fonts-cjk`; Debian: `fonts-noto-cjk`). `itami --font-info` shows
+  which fonts itamiiru found.
 
 ## Development
 
-See `CLAUDE.md` for the rules and commands and `PLAN.md` for the design
-and task list. `scripts/install-dev.sh` rebuilds and reinstalls from the
-checkout, leaving the session environment alone.
+`CLAUDE.md` has the rules and commands, `PLAN.md` the design and task list.
+`scripts/install-dev.sh` builds the checkout and puts the programs in
+`~/.local/bin` (after the one-time setup above). `scripts/package.sh` makes
+the release tarballs.
+

@@ -4,7 +4,7 @@
 #   target/itamiiru-<version>-<arch>-linux-opengl.tar.gz  (glow: OpenGL)
 #   target/itamiiru-<version>-<arch>-linux-vulkan.tar.gz  (wgpu: Vulkan,
 #       falling back to OpenGL; starts faster once the driver's cache is warm)
-# On the other machine: tar xf itamiiru-*.tar.gz && cd itamiiru-*/ && ./install.sh
+# On the other machine: unpack it and follow "Install" in its README.md.
 # The binaries need glibc as new as this machine's (check: ldd --version).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -23,20 +23,16 @@ package() {
   local name="itamiiru-$VERSION-$(uname -m)-linux-$renderer"
   local stage="target/package/$name"
   rm -rf "$stage"
-  mkdir -p "$stage/bin" "$stage/scripts" "$stage/data" "$stage/docs"
+  mkdir -p "$stage/bin" "$stage/data" "$stage/docs"
 
   cp target/release/itami target/release/xdg-desktop-portal-itamiiru "$stage/bin/"
   # Debug symbols make up most of the size and aren't needed to run.
   if command -v strip > /dev/null; then
     strip "$stage/bin/itami" "$stage/bin/xdg-desktop-portal-itamiiru"
   fi
-  cp scripts/install.sh "$stage/scripts/"
   cp data/* "$stage/data/"
   cp README.md "$stage/"
   cp docs/app-compat.md "$stage/docs/"
-  # A shortcut at the top, so the command is just ./install.sh.
-  printf '#!/bin/sh\nexec "$(dirname "$0")/scripts/install.sh" "$@"\n' > "$stage/install.sh"
-  chmod +x "$stage/install.sh"
 
   tar -C target/package -czf "target/$name.tar.gz" "$name"
   local glibc

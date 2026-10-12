@@ -62,8 +62,7 @@ crates/
   itamiiru/                egui binary "itami": explorer mode (default) and picker mode (--pick)
   itamiiru-portal/         Linux-only binary "xdg-desktop-portal-itamiiru": the D-Bus backend
 data/                      .portal file, D-Bus service file, example configs
-scripts/install.sh         per-user install from source or a release tarball (--uninstall)
-scripts/install-dev.sh     install.sh without touching the session environment
+scripts/install-dev.sh     build and copy the two programs to ~/.local/bin (setup is by hand, README)
 scripts/package.sh         release tarball for machines without Rust
 README.md                  user-facing install and troubleshooting
 tests/requests/            sample picker requests (protocol in PLAN.md)
@@ -84,7 +83,7 @@ cargo check -p itamiiru-core --target aarch64-apple-darwin  # macOS code in plat
 cargo clippy -p itamiiru --no-default-features --features wgpu -- -D warnings
     # the Vulkan (wgpu) renderer build; the default is glow (PLAN.md D25)
     # needs: rustup target add aarch64-apple-darwin
-./scripts/install-dev.sh                                  # install portal backend locally
+./scripts/install-dev.sh                                  # rebuild and update ~/.local/bin (--vulkan)
 ./scripts/package.sh                                      # release tarball in target/
 ./scripts/test-portal.sh, ./scripts/test-file-manager.sh  # D-Bus tests on a private bus
 ITAMI_DEBUG=1 cargo run -p itamiiru                          # debug logging to stderr

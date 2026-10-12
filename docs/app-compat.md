@@ -2,7 +2,7 @@
 
 Which apps show itamiiru as their file dialog, and what they need
 (PLAN.md section 10, task P6.2). Tested on Debian 13, XFCE on X11, with
-`~/.xsessionrc` from `data/xsessionrc.example` and `portals.conf` choosing
+`~/.xsessionrc` setting `GTK_USE_PORTAL=1` and `portals.conf` choosing
 itamiiru for FileChooser.
 
 Check each one with: Open, Save (does the suggested name appear, does the
