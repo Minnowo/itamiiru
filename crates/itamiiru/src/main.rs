@@ -7,11 +7,13 @@ mod iconview;
 mod menus;
 mod ops_ui;
 mod picker;
+mod preview;
 mod selection;
 mod settings;
 mod sidebar;
 mod theme;
 mod thispc;
+mod thumbs;
 mod toolbar;
 mod zoom;
 

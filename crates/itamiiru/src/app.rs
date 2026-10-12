@@ -16,19 +16,22 @@ use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg};
 use itamiiru_core::search::{self, SearchMsg};
 use itamiiru_core::sort::{self, SortColumn, SortOrder};
+use itamiiru_core::thumbcache::ThumbSize;
 
 use crate::address::{AddressAction, AddressBar};
 use crate::details::{self, Rename, TableAction, TableInput};
 use crate::icons::{Arrow, arrow_button};
-use crate::iconview::{self, KeySteps};
+use crate::iconview::{self, KeySteps, ThumbSource};
 use crate::menus::{self, Command, MenuState};
 use crate::ops_ui::{self, RunningOp};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
+use crate::preview::Preview;
 use crate::selection::{Selection, TypeAhead};
 use crate::settings::{ColumnWidths, Settings};
 use crate::sidebar::{self, SidebarAction};
 use crate::theme::{self, Theme};
 use crate::thispc::{self, TileAction};
+use crate::thumbs::Thumbs;
 use crate::toolbar::{self, ToolbarAction, ToolbarState, ViewMode};
 use crate::zoom;
 
@@ -176,6 +179,11 @@ pub struct App {
     column_widths: ColumnWidths,
     auto_refresh_folder: bool,
     auto_refresh_drives: bool,
+    thumbnails_enabled: bool,
+    thumbs: Thumbs,
+    preview_pane: bool,
+    preview_width: f32,
+    preview: Preview,
 
     /// Set in picker mode (`itami --pick`).
     picker: Option<Picker>,
@@ -195,6 +203,7 @@ impl App {
         let (mtime_tx, mtime_rx) = mpsc::channel();
         let (places_tx, places_rx) = mpsc::channel();
         let (search_tx, search_rx) = mpsc::channel();
+        let thumbs = Thumbs::new(&ctx, settings.thumbnails);
         let mut app = App {
             theme,
             current: start,
@@ -260,6 +269,11 @@ impl App {
             column_widths: settings.columns,
             auto_refresh_folder: settings.auto_refresh_folder,
             auto_refresh_drives: settings.auto_refresh_drives,
+            thumbnails_enabled: settings.thumbnails,
+            thumbs,
+            preview_pane: settings.preview_pane,
+            preview_width: settings.preview_width,
+            preview: Preview::new(),
             picker,
         };
         app.load();
@@ -357,6 +371,7 @@ impl App {
     /// Starts listing the current folder from scratch. Any older listing
     /// still running is left alone; its results carry an old generation.
     fn load(&mut self) {
+        self.thumbs.navigated();
         self.entries.clear();
         self.visible.clear();
         self.selection.clear();
@@ -527,6 +542,7 @@ impl App {
             view: self.view,
             sort: self.sort,
             show_hidden: self.show_hidden,
+            preview_pane: self.preview_pane,
         };
         match toolbar::show(ui, &state) {
             Some(ToolbarAction::Command(command)) => self.run_command(command),
@@ -555,6 +571,7 @@ impl App {
         }
         // A new generation also makes any running listing's results stale.
         self.generation += 1;
+        self.thumbs.navigated();
         self.entries.clear();
         self.visible.clear();
         self.selection.clear();
@@ -813,6 +830,7 @@ impl App {
             Command::SelectAll => self.select_all(),
             Command::Refresh => self.refresh(),
             Command::ToggleHidden => self.toggle_hidden(),
+            Command::TogglePreview => self.preview_pane = !self.preview_pane,
         }
     }
 
@@ -1105,6 +1123,9 @@ impl App {
                 commands.push(Command::Trash);
             }
             select_all = input.consume_key(Modifiers::COMMAND, Key::A);
+            if input.consume_key(Modifiers::ALT, Key::P) {
+                commands.push(Command::TogglePreview);
+            }
             toggle_hidden = input.consume_key(Modifiers::COMMAND, Key::H);
             refresh = input.consume_key(Modifiers::NONE, Key::F5);
 
@@ -1496,6 +1517,9 @@ impl App {
             columns: self.column_widths,
             auto_refresh_folder: self.auto_refresh_folder,
             auto_refresh_drives: self.auto_refresh_drives,
+            thumbnails: self.thumbnails_enabled,
+            preview_pane: self.preview_pane,
+            preview_width: self.preview_width,
         };
     }
 
@@ -1553,6 +1577,7 @@ impl eframe::App for App {
         self.receive_op();
         self.receive_places();
         self.receive_search();
+        self.thumbs.receive(ui.ctx());
         self.picker_frame(ui.ctx());
         self.handle_keys(ui.ctx());
         self.check_search_typing(ui.ctx());
@@ -1618,6 +1643,26 @@ impl eframe::App for App {
             Some(SidebarAction::GoTo(path)) => self.navigate(path),
             Some(SidebarAction::ThisPc) => self.show_this_pc(),
             None => {}
+        }
+
+        if self.preview_pane && !self.this_pc {
+            let pane = egui::Panel::right("preview")
+                .resizable(true)
+                .default_size(self.preview_width)
+                .frame(bar_frame)
+                .show(ui, |ui| {
+                    // Only a single selection is previewed.
+                    let mut selected = None;
+                    if self.selection.count() == 1
+                        && let Some(cursor) = self.selection.cursor()
+                        && self.selection.is_selected(cursor)
+                    {
+                        selected = Some(cursor);
+                    }
+                    self.preview
+                        .show(ui, &self.entries, selected, &mut self.thumbs, &self.theme);
+                });
+            self.preview_width = pane.response.rect.width();
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
@@ -1693,9 +1738,26 @@ impl eframe::App for App {
                 }
                 ViewMode::MediumIcons | ViewMode::LargeIcons | ViewMode::ExtraLargeIcons => {
                     let icon = self.view.icon_size();
-                    let (action, steps) =
-                        iconview::show_icons(ui, &input, &mut self.rename, scroll_to, icon);
+                    // In pixels, so zoom and HiDPI screens get sharp thumbnails.
+                    let size = ThumbSize::for_pixels(icon * ui.ctx().pixels_per_point());
+                    let source = ThumbSource {
+                        thumbs: &self.thumbs,
+                        size,
+                    };
+                    let (action, steps, on_screen) = iconview::show_icons(
+                        ui,
+                        &input,
+                        &mut self.rename,
+                        scroll_to,
+                        icon,
+                        Some(source),
+                    );
                     self.key_steps = steps;
+                    let mut wanted = Vec::new();
+                    for index in on_screen {
+                        wanted.push(&self.entries[self.visible[index]]);
+                    }
+                    self.thumbs.want(&wanted, size);
                     action
                 }
             };

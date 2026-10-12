@@ -213,6 +213,8 @@ fn encode_png(image: &RgbaImage, text: &[(&str, String)]) -> io::Result<Vec<u8>>
     let mut encoder = png::Encoder::new(&mut out, image.width, image.height);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
+    // Thumbnails are small; spend the time on the next one, not on bytes.
+    encoder.set_compression(png::Compression::Fast);
     for (key, value) in text {
         encoder
             .add_text_chunk(key.to_string(), value.clone())

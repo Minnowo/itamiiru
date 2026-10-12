@@ -23,6 +23,7 @@ pub mod resize;
 pub mod rgba;
 pub mod search;
 pub mod sort;
+pub mod textpreview;
 pub mod thumbcache;
 pub mod thumbnail;
 

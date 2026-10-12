@@ -205,6 +205,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 | Ctrl+L, Alt+D, F4 | Edit address bar |
 | Ctrl+F, F3 | Focus search |
 | Ctrl+H | Toggle hidden files |
+| Alt+P | Toggle the preview pane |
 | Ctrl+Plus / Ctrl+Minus / Ctrl+0 | Zoom in / out / reset, 10% steps (section 3 D16) |
 | Ctrl+Shift+N | New folder |
 | F5 | Refresh |
@@ -226,6 +227,8 @@ Features the developer may want to switch on or off. Each one lives in its own m
 | `breadcrumb_dropdowns` | off | Explorer's arrow between crumbs opens a menu of that folder's subfolders (task P4.6b) | The `separator()` call in `address.rs`: when on, the arrow becomes a button that opens the menu |
 | `auto_refresh_folder` | on | Re-list the open folder when its modified time changes, checked every 2 s on a worker while the window is focused (D9) | Early return at the top of `App::check_for_changes`; F5 still works when off |
 | `auto_refresh_drives` | on | Rescan places (drives, bookmarks, network) every 5 s while focused, and re-measure drive usage | Early return at the top of `App::check_places`; places are still scanned once at startup and when This PC opens |
+| `preview_pane` | off | The preview pane on the right (P5.9); its width is saved as `preview_width` | The `Panel::right("preview")` block in `App::ui`; Alt+P and the toolbar checkbox flip it |
+| `thumbnails` | on | Image previews in the icon views, from the shared thumbnail cache or made on the thumbnail pool (P5.8) | `Thumbs::new` in `thumbs.rs` starts no pool when off, so `want` and `get` do nothing |
 
 ### Theme (section 3 D13)
 
@@ -445,8 +448,8 @@ P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's 
 - [x] P5.5 `md5.rs` with RFC 1321 test vectors.
 - [x] P5.6 Cache read/write per the spec, including atomic writes, 0600 permissions and the fail directory. `thumbcache.rs`. URIs are escaped exactly as GLib does (checked against `gio info`), so the MD5 names match Nautilus. A cached file counts only when `Thumb::URI` and `Thumb::MTime` match; GLib's fractional `Thumb::MTime` (`1756380786.000000`) is compared by seconds. A smaller request is served from a bigger cached size, shrunk (Nautilus often only writes `large`). Failures are recorded only for files that sniffed as an image.
 - [x] P5.7 Thumbnail pool: LIFO stack, dedup, cleared on navigation, `catch_unwind`. `thumbnail.rs`. Dedup lives in the UI (it remembers what it asked for), so the pool is just the stack.
-- [ ] P5.8 UI integration: icon views request visible items only; texture LRU.
-- [ ] P5.9 Preview pane.
+- [x] P5.8 UI integration: icon views request visible items only; texture LRU. `thumbs.rs`: the icon views draw ready textures; the app then asks for what was on screen, top-left first. 512 textures at most, least recently shown dropped first. The size follows the icon size in pixels (zoom and HiDPI included). Setting `thumbnails` (on). Cached files are reused for any file type, so Nautilus's video and PDF thumbnails show too.
+- [x] P5.9 Preview pane. `preview.rs`, right of the list (Alt+P or the toolbar checkbox; setting `preview_pane`, off, and `preview_width`). The one selected item: a thumbnail up to x-large (512 px) for images, the first 16 KB for UTF-8 text (`textpreview.rs`, on a worker; NUL bytes or bad UTF-8 mean binary), otherwise a big icon; then name, type, size and date.
 - [x] P5.10 Malformed-file corpus and test (section 7). `crates/itamiiru-core/tests/corpus.rs` over ffmpeg-made seeds in `tests/corpus/seeds/`: each damaged about 6,000 ways. No decoder panicked. The "no allocations above the limits" half is covered by checking header dimensions before decoding and giving every decoder a memory cap; a counting allocator would need `unsafe` outside `platform/`, so it was left out.
 
 **Done when:**
@@ -454,6 +457,12 @@ P4.1-P4.4 (the navigation pane) were done early, after P7.4, at the developer's 
 - A second visit is instant, served from the cache.
 - Thumbnails written by Nautilus or Dolphin are reused.
 - The corpus test passes.
+
+Checked 2026-10-11 without a display:
+- Pool throughput on 2.7 MP JPEGs, 4 threads, "large" size: about 590 thumbnails/s first time, 3,700/s from the cache (about 1 ms each). A 12 MP photo takes about 57 ms, PNG write included.
+- GNOME's existing `large` thumbnails in `~/.cache/thumbnails` were served, including one for an SVG we can't decode, and a "normal" request was shrunk from them; nothing new was written.
+- The corpus test passes.
+- Still to check by hand: smooth scrolling in a 2,000-photo folder (`scripts/make-test-photos.sh` builds one in `/tmp/itamiiru-photos`), and the preview pane.
 
 ### Phase 6: Rollout on your own machine
 - [ ] P6.1 Session environment file installed; activation environment verified (section 13).

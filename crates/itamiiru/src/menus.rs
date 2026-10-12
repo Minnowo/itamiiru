@@ -19,6 +19,7 @@ pub enum Command {
     SelectAll,
     Refresh,
     ToggleHidden,
+    TogglePreview,
 }
 
 /// What the menus need to know to enable or label their items.

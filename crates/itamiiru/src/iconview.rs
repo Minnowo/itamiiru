@@ -2,14 +2,18 @@
 //! screen, so big folders cost no more than small ones. Clicks, menus and
 //! rename work the same as in the Details view.
 
+use std::ops::Range;
+
 use eframe::egui::text::LayoutJob;
 use eframe::egui::{self, Align, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::entry::Entry;
+use itamiiru_core::thumbcache::ThumbSize;
 
 use crate::details::{Rename, TableAction, TableInput, item_action, rename_box};
 use crate::icons::paint_entry_icon;
 use crate::menus;
 use crate::theme::{self, Theme};
+use crate::thumbs::Thumbs;
 
 /// Width of a column in the List view.
 const LIST_COLUMN_WIDTH: f32 = 260.0;
@@ -22,15 +26,26 @@ pub struct KeySteps {
     pub horizontal: isize,
 }
 
+/// Where the icon views find thumbnails, and which size to show.
+#[derive(Clone, Copy)]
+pub struct ThumbSource<'a> {
+    pub thumbs: &'a Thumbs,
+    pub size: ThumbSize,
+}
+
 /// Icons in a grid with names underneath. `icon` is the icon size in points.
+/// Also returns the range of `input.visible` that was on screen, so the
+/// app can ask for those thumbnails.
 pub fn show_icons(
     ui: &mut egui::Ui,
     input: &TableInput,
     rename: &mut Option<Rename>,
     scroll_to: Option<usize>,
     icon: f32,
-) -> (Option<TableAction>, KeySteps) {
+    thumbs: Option<ThumbSource>,
+) -> (Option<TableAction>, KeySteps, Range<usize>) {
     let mut action = None;
+    let mut on_screen = 0..0;
     let modifiers = ui.input(|i| i.modifiers);
     let line = ui.text_style_height(&TextStyle::Body);
     let cell = egui::vec2(
@@ -69,8 +84,13 @@ pub fn show_icons(
         };
         let (first_row, end_row) =
             visible_range(viewport.min.y, viewport.max.y, cell.y + spacing, rows);
-        for index in first_row * per_row..(end_row * per_row).min(count) {
+        on_screen = first_row * per_row..(end_row * per_row).min(count);
+        for index in on_screen.clone() {
             let entry = &input.entries[input.visible[index]];
+            let thumbnail = match thumbs {
+                Some(source) => source.thumbs.get(entry, source.size),
+                None => None,
+            };
             let response = icon_cell(
                 ui,
                 cell_rect(index),
@@ -79,6 +99,7 @@ pub fn show_icons(
                 input,
                 rename,
                 icon,
+                thumbnail,
                 &mut action,
             );
             item_action(&response, index, modifiers, input.menu, &mut action);
@@ -94,7 +115,7 @@ pub fn show_icons(
         vertical: per_row as isize,
         horizontal: 1,
     };
-    return (action, steps);
+    return (action, steps, on_screen);
 }
 
 /// Small icons and names in columns that flow top to bottom, then left to
@@ -229,6 +250,7 @@ fn icon_cell(
     input: &TableInput,
     rename: &mut Option<Rename>,
     icon: f32,
+    thumbnail: Option<&egui::TextureHandle>,
     action: &mut Option<TableAction>,
 ) -> egui::Response {
     let theme = input.theme;
@@ -243,7 +265,10 @@ fn icon_cell(
     }
     let icon_center = egui::pos2(rect.center().x, rect.top() + theme::GAP + icon / 2.0);
     let icon_rect = Rect::from_center_size(icon_center, egui::vec2(icon, icon));
-    paint_entry_icon(&painter, icon_rect, entry, theme);
+    match thumbnail {
+        Some(texture) => paint_thumbnail(&painter, icon_rect, texture, ui.ctx().pixels_per_point()),
+        None => paint_entry_icon(&painter, icon_rect, entry, theme),
+    }
 
     let name_rect = Rect::from_min_max(
         egui::pos2(
@@ -288,6 +313,24 @@ fn icon_cell(
         color,
     );
     return response.on_hover_text(entry.name.to_string_lossy());
+}
+
+/// Draws a thumbnail centered in the icon's square, keeping its shape.
+/// Small images aren't blown up past their own size.
+fn paint_thumbnail(
+    painter: &egui::Painter,
+    icon_rect: Rect,
+    texture: &egui::TextureHandle,
+    pixels_per_point: f32,
+) {
+    let [w, h] = texture.size();
+    let natural = egui::vec2(w as f32, h as f32) / pixels_per_point;
+    let scale = (icon_rect.width() / natural.x)
+        .min(icon_rect.height() / natural.y)
+        .min(1.0);
+    let rect = Rect::from_center_size(icon_rect.center(), natural * scale);
+    let uv = Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0));
+    painter.image(texture.id(), rect, uv, egui::Color32::WHITE);
 }
 
 fn list_cell(

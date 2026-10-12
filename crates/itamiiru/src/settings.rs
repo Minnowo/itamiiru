@@ -30,6 +30,11 @@ pub struct Settings {
     /// Optional features (PLAN.md section 6).
     pub auto_refresh_folder: bool,
     pub auto_refresh_drives: bool,
+    /// Image previews in the icon views (P5.8).
+    pub thumbnails: bool,
+    /// The preview pane on the right (P5.9), and its width in points.
+    pub preview_pane: bool,
+    pub preview_width: f32,
 }
 
 impl Default for Settings {
@@ -53,6 +58,9 @@ impl Default for Settings {
             },
             auto_refresh_folder: true,
             auto_refresh_drives: true,
+            thumbnails: true,
+            preview_pane: false,
+            preview_width: 300.0,
         };
     }
 }
@@ -103,6 +111,13 @@ impl Settings {
             },
             auto_refresh_folder: config.get_bool("auto_refresh_folder", d.auto_refresh_folder),
             auto_refresh_drives: config.get_bool("auto_refresh_drives", d.auto_refresh_drives),
+            thumbnails: config.get_bool("thumbnails", d.thumbnails),
+            preview_pane: config.get_bool("preview_pane", d.preview_pane),
+            preview_width: clamp(
+                config.get_f32("preview_width", d.preview_width),
+                120.0,
+                4000.0,
+            ),
         };
     }
 
@@ -123,6 +138,9 @@ impl Settings {
         config.set_f32("column_type", self.columns.kind.round());
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
+        config.set_bool("thumbnails", self.thumbnails);
+        config.set_bool("preview_pane", self.preview_pane);
+        config.set_f32("preview_width", self.preview_width.round());
     }
 }
 
@@ -172,6 +190,9 @@ mod tests {
             window_size: [1280.0, 800.0],
             columns,
             auto_refresh_drives: false,
+            thumbnails: false,
+            preview_pane: true,
+            preview_width: 420.0,
             // The rest keep their defaults.
             ..Settings::default()
         };

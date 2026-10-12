@@ -83,6 +83,7 @@ pub struct ToolbarState {
     pub view: ViewMode,
     pub sort: SortOrder,
     pub show_hidden: bool,
+    pub preview_pane: bool,
 }
 
 pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
@@ -145,6 +146,11 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
 
         // Laid out from the right edge, so added in reverse order.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mut preview_pane = state.preview_pane;
+            let checkbox = ui.checkbox(&mut preview_pane, "Preview pane");
+            if checkbox.on_hover_text("Alt+P").changed() {
+                action = Some(ToolbarAction::Command(Command::TogglePreview));
+            }
             let mut show_hidden = state.show_hidden;
             let checkbox = ui.checkbox(&mut show_hidden, "Hidden files");
             if checkbox.on_hover_text("Ctrl+H").changed() {
