@@ -26,6 +26,8 @@ pub enum Command {
     /// Split view: copy or move the selection to the other pane's folder.
     CopyToOtherPane,
     MoveToOtherPane,
+    /// The settings page (Ctrl+Comma).
+    OpenSettings,
 }
 
 /// What the menus need to know to enable or label their items.

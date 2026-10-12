@@ -25,6 +25,7 @@ use crate::pane::{Filter, Pane};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::preview::Preview;
 use crate::settings::{ColumnWidths, Settings, StatusField};
+use crate::settings_page::{self, Options};
 use crate::sidebar::{self, SidebarAction};
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
 use crate::theme::{self, Theme};
@@ -115,6 +116,8 @@ pub struct App {
     preview: Preview,
     /// What the status bar shows for one selected item.
     status_fields: Vec<StatusField>,
+    /// The settings page is open.
+    settings_open: bool,
 
     /// Set in picker mode (`itami --pick`). The picker has one tab and no
     /// split view.
@@ -185,6 +188,7 @@ impl App {
             preview_width: settings.preview_width,
             preview: Preview::new(),
             status_fields: settings.status_fields.clone(),
+            settings_open: false,
             picker,
         };
         app.scan_places();
@@ -503,6 +507,7 @@ impl App {
                 }
             }
             Command::ToggleSplit => self.toggle_split(),
+            Command::OpenSettings => self.settings_open = true,
             Command::CopyToOtherPane => self.send_to_other_pane(false),
             Command::MoveToOtherPane => self.send_to_other_pane(true),
         }
@@ -673,6 +678,7 @@ impl App {
         // Leave keys alone while the user is typing in a text field, or a
         // dialog is waiting for an answer.
         let dialog_open = self.confirm_delete.is_some()
+            || self.settings_open
             || self.running.as_ref().is_some_and(|op| op.has_conflict());
         if ctx.egui_wants_keyboard_input() || dialog_open {
             return;
@@ -722,6 +728,9 @@ impl App {
             select_all = input.consume_key(Modifiers::COMMAND, Key::A);
             if input.consume_key(Modifiers::ALT, Key::P) {
                 commands.push(Command::TogglePreview);
+            }
+            if input.consume_key(Modifiers::COMMAND, Key::Comma) {
+                commands.push(Command::OpenSettings);
             }
             toggle_hidden = input.consume_key(Modifiers::COMMAND, Key::H);
             refresh = input.consume_key(Modifiers::NONE, Key::F5);
@@ -1411,6 +1420,7 @@ impl eframe::App for App {
         // Uses the sidebar and column widths measured last frame.
         self.persist_settings(ui.ctx());
         self.dialogs(ui.ctx());
+        self.settings_page(ui.ctx());
 
         let bar_frame = egui::Frame::new()
             .fill(self.theme.surface_container_1)
@@ -1517,6 +1527,47 @@ impl eframe::App for App {
 }
 
 impl App {
+    /// The options the settings page shows, as they are now.
+    fn options(&self) -> Options {
+        return Options {
+            show_hidden: self.show_hidden,
+            auto_refresh_folder: self.auto_refresh_folder,
+            auto_refresh_drives: self.auto_refresh_drives,
+            thumbnails: self.thumbnails_enabled,
+            preview_pane: self.preview_pane,
+            status_fields: self.status_fields.clone(),
+        };
+    }
+
+    /// Applies what the settings page changed. The next frame saves it.
+    fn apply_options(&mut self, options: Options) {
+        if options.show_hidden != self.show_hidden {
+            self.toggle_hidden();
+        }
+        if options.thumbnails != self.thumbnails_enabled {
+            // Dropping the old pool stops its workers; textures go with it.
+            self.thumbnails_enabled = options.thumbnails;
+            self.thumbs = Thumbs::new(&self.ctx, options.thumbnails);
+        }
+        self.auto_refresh_folder = options.auto_refresh_folder;
+        self.auto_refresh_drives = options.auto_refresh_drives;
+        self.preview_pane = options.preview_pane;
+        self.status_fields = options.status_fields;
+    }
+
+    fn settings_page(&mut self, ctx: &egui::Context) {
+        if !self.settings_open {
+            return;
+        }
+        let before = self.options();
+        let mut options = before.clone();
+        self.settings_open =
+            settings_page::show(ctx, &self.theme, &mut options, self.config_path.as_deref());
+        if options != before {
+            self.apply_options(options);
+        }
+    }
+
     /// The conflict question and the delete confirmation, when needed.
     fn dialogs(&mut self, ctx: &egui::Context) {
         if let Some(running) = &mut self.running {
@@ -1547,7 +1598,7 @@ fn split_width(usable: f32, ratio: f32) -> f32 {
 /// `fields` (the `status_fields` setting), like a row of the Details view.
 /// Several: how many, and the total size of the files among them (folder
 /// sizes aren't known without walking them).
-fn selection_summary(selected: &[&Entry], fields: &[StatusField]) -> Option<String> {
+pub fn selection_summary(selected: &[&Entry], fields: &[StatusField]) -> Option<String> {
     if selected.len() == 1 {
         let entry = selected[0];
         let mut parts = Vec::new();
@@ -2042,6 +2093,40 @@ mod tests {
         let tab = &app.tabs[app.active_tab];
         assert_eq!(tab.panes[0].visible.len(), 2);
         assert_eq!(tab.panes[1].visible.len(), 2);
+    }
+
+    #[test]
+    fn settings_page_opens_applies_and_closes() {
+        let folder = Folder::new("settings");
+        std::fs::write(folder.0.join(".hidden"), b"").expect("hidden file");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        assert_eq!(app.pane().visible.len(), 3);
+
+        frame(&mut app, &ctx, key(Key::Comma, Modifiers::COMMAND));
+        assert!(app.settings_open);
+        frame(&mut app, &ctx, Vec::new());
+        // Keys don't reach the list while it's open.
+        frame(&mut app, &ctx, key(Key::A, Modifiers::COMMAND));
+        assert_eq!(app.pane().selection.count(), 0);
+
+        let mut options = app.options();
+        options.show_hidden = true;
+        options.thumbnails = true;
+        options.status_fields = vec![StatusField::Name];
+        app.apply_options(options.clone());
+        assert_eq!(app.options(), options);
+        // Hidden files show up at once.
+        assert_eq!(app.pane().visible.len(), 4);
+        // Restore defaults gives what a fresh install has.
+        app.apply_options(Options::defaults());
+        assert_eq!(app.options(), Options::defaults());
+        assert_eq!(app.pane().visible.len(), 3);
+
+        frame(&mut app, &ctx, key(Key::Escape, Modifiers::NONE));
+        frame(&mut app, &ctx, Vec::new());
+        assert!(!app.settings_open);
     }
 
     #[test]

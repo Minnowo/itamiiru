@@ -11,6 +11,7 @@ mod picker;
 mod preview;
 mod selection;
 mod settings;
+mod settings_page;
 mod sidebar;
 mod tabs;
 mod theme;

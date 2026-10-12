@@ -219,6 +219,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 | Alt+P | Toggle the preview pane |
 | Ctrl+Plus / Ctrl+Minus / Ctrl+0 | Zoom in / out / reset, 10% steps (section 3 D16) |
 | Ctrl+Shift+N | New folder |
+| Ctrl+Comma | Settings page |
 | F5 | Refresh |
 | Ctrl+A | Select all |
 | Typing letters in the list | Jump to the first matching name (type-ahead) |
@@ -229,11 +230,11 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 
 View mode, sort column and direction, column widths, sidebar width, window size, zoom level, hidden-files toggle, and the last folder per `app_id`.
 
-`status_fields` sets what the status bar says about one selected item: a comma-separated list of `name`, `type`, `size` (files only), `modified`, `path`, shown in that order and joined with ", ". Default `type,size,modified` (no name: it's already highlighted in the list). Unknown names are skipped; an empty value shows just "1 selected". Several selected items always show the count and the files' total size. Edit by hand until there's a settings page.
+`status_fields` sets what the status bar says about one selected item: a comma-separated list of `name`, `type`, `size` (files only), `modified`, `path`, shown in that order and joined with ", ". Default `type,size,modified` (no name: it's already highlighted in the list). Unknown names are skipped; an empty value shows just "1 selected". Several selected items always show the count and the files' total size. Set on the settings page or by hand.
 
 ### Optional features (settings)
 
-Features the developer may want to switch on or off. Each one lives in its own module, hooks into the rest of the UI at a single call site, and is checked against a `key=value` setting in the config file (section 6 Persistence). With the setting off, the hook is skipped and no other code changes behaviour. The two auto-refresh settings are already read from the config file (edit it by hand until there's a settings page); `breadcrumb_dropdowns` waits for P4.6b.
+Features the developer may want to switch on or off. Each one lives in its own module, hooks into the rest of the UI at a single call site, and is checked against a `key=value` setting in the config file (section 6 Persistence). With the setting off, the hook is skipped and no other code changes behaviour. All of them except `breadcrumb_dropdowns` (P4.6b) can be switched on the settings page (P9.8), or by hand in the config file.
 
 | Setting | Default | Feature | Where it hooks in |
 |---|---|---|---|
@@ -519,6 +520,7 @@ Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps c
 - [ ] P9.5 Startup time: under 150 ms to first frame on your machine. Measure and fix.
 - [ ] P9.6 Follow the system light/dark theme.
 - [ ] P9.7 Packaging (install script -> AUR/deb/rpm later).
+- [x] P9.8 Settings page (`settings_page.rs`): a dialog opened by the toolbar's Settings button or Ctrl+Comma, with hidden files, the two auto-refresh features, thumbnails, the preview pane, and the status bar fields (shown/hidden and their order, with an example line), plus Restore defaults and the config file's location. Changes apply at once (thumbnails restart the pool) and are saved like any setting. It edits a copy (`Options`); `App::apply_options` applies the difference. This unblocks P4.6b (`breadcrumb_dropdowns`).
 
 ### Phase 10: Tabs and split view
 - [x] P10.1 `Pane` (`pane.rs`): the per-folder state moved out of `App`, with its own listing, search and change-check channels. A closed pane cancels its search (`Drop`).

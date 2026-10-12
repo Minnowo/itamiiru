@@ -184,9 +184,11 @@ other file managers.
 
 ## Settings
 
-`~/.config/itamiiru/config` holds `key=value` lines, written as you use
-the app (view, sort, zoom, window size, ...). Optional features can be
-switched there: `thumbnails`, `preview_pane`, `auto_refresh_folder`,
+The **Settings** button at the right of the toolbar (or Ctrl+Comma) opens
+the settings page; changes apply at once. Behind it is
+`~/.config/itamiiru/config`, `key=value` lines written as you use the app
+(view, sort, zoom, window size, ...), which can also be edited by hand
+while the app is closed. Optional features: `thumbnails`, `preview_pane`, `auto_refresh_folder`,
 `auto_refresh_drives` (`true` or `false`). `status_fields` picks what the
 status bar shows for one selected item, in order: any of `name`, `type`,
 `size`, `modified`, `path`, comma-separated (default
