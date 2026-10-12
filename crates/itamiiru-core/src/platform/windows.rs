@@ -216,6 +216,11 @@ pub fn mount_volume(_volume: &crate::places::Volume) -> Result<std::path::PathBu
     return Err("mounting drives isn't supported on this system yet".to_string());
 }
 
+/// Dragging files out to other apps isn't done on this system yet.
+pub fn start_drag_out(_paths: Vec<std::path::PathBuf>) -> Result<super::DragOut, String> {
+    return Err("dragging out isn't supported on this system yet".to_string());
+}
+
 pub fn unmount_volume(_volume: &crate::places::Volume) -> Result<(), String> {
     return Err("unmounting drives isn't supported on this system yet".to_string());
 }

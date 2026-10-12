@@ -6,8 +6,16 @@ use std::path::PathBuf;
 pub mod dbus;
 mod places;
 mod udisks;
+mod xdnd;
 pub use places::{bookmarks, disk_usage, drives, network_places, quick_access};
 pub use udisks::{eject_volume, mount_volume, removable_volumes, unmount_volume};
+
+/// Drags `paths` out of the window into another app (XDND on X11). Call
+/// while the button is down and the pointer has left the window. The
+/// handle shows how it's going and can cancel it.
+pub fn start_drag_out(paths: Vec<PathBuf>) -> Result<super::DragOut, String> {
+    return xdnd::start(paths);
+}
 
 /// `$XDG_CONFIG_HOME`, or `~/.config`.
 pub fn config_home() -> Option<PathBuf> {

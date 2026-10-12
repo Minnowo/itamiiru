@@ -199,6 +199,15 @@ powers it off, and the status bar says when it's safe to unplug. This
 goes through UDisks2 (`udisks2` package), which every Linux desktop
 ships, so no password is needed for removable drives in your own session.
 
+## Dragging files to other apps
+
+Drag files from itamiiru and drop them on another app: a browser's upload
+area, a terminal (it pastes the paths), an editor, another file manager.
+Works in X11 sessions (Xfce, MATE, Cinnamon, GNOME/KDE on X11); not under
+Wayland yet. The other app gets copies of the paths, so nothing is moved
+or deleted. The cursor shows whether the window under it takes the drop;
+Escape cancels.
+
 ## Custom right-click actions
 
 Add your own menu items, like "Open in terminal", in

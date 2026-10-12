@@ -682,9 +682,9 @@ impl Pane {
         self.selection = selection;
     }
 
-    /// Right-click on a row: like Explorer, an unselected row becomes the
-    /// only selection; a selected one keeps the whole selection.
-    pub fn right_click_row(&mut self, row: usize) {
+    /// Right-click or drag on a row: like Explorer, an unselected row
+    /// becomes the only selection; a selected one keeps the whole selection.
+    pub fn select_row_if_unselected(&mut self, row: usize) {
         let Some(entry) = self.entry_at(row) else {
             return;
         };

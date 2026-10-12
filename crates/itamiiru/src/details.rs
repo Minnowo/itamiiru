@@ -30,6 +30,8 @@ pub enum TableAction {
     RightClick(usize),
     /// Middle-click: a folder opens in a new tab.
     MiddleClick(usize),
+    /// A drag started on an item (it's selected first if it isn't).
+    DragStart(usize),
     /// A right-click menu item was chosen.
     Command(Command),
     /// The inline rename box closed; `commit` is false for Escape.
@@ -107,7 +109,8 @@ pub fn show(
     let mut table = TableBuilder::new(ui)
         .id_salt(table_id)
         .striped(true)
-        .sense(Sense::click())
+        // Drag too, so items can be dragged out to other apps.
+        .sense(Sense::click_and_drag())
         // Shrink to the rows, so the empty space below can take clicks.
         .auto_shrink([false, true])
         .cell_layout(Layout::left_to_right(Align::Center))
@@ -277,6 +280,8 @@ pub fn item_action(
         *action = Some(TableAction::RightClick(row));
     } else if response.middle_clicked() {
         *action = Some(TableAction::MiddleClick(row));
+    } else if response.drag_started_by(egui::PointerButton::Primary) {
+        *action = Some(TableAction::DragStart(row));
     }
     response.context_menu(|ui| {
         if let Some(command) = menus::item_menu(ui, menu) {

@@ -16,3 +16,8 @@ image-webp = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Dragging files out to other apps (XDND, platform/linux/xdnd.rs). Already
+# compiled in through winit; the pure-Rust connection needs no features.
+[target.'cfg(target_os = "linux")'.dependencies]
+x11rb = { version = "0.13", default-features = false }

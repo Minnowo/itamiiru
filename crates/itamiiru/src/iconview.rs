@@ -254,7 +254,7 @@ fn icon_cell(
     action: &mut Option<TableAction>,
 ) -> egui::Response {
     let theme = input.theme;
-    let response = ui.interact(rect, ui.id().with(("item", index)), Sense::click());
+    let response = ui.interact(rect, ui.id().with(("item", index)), Sense::click_and_drag());
     let selected = input.selection.is_selected(&entry.path);
     item_background(ui, rect, &response, selected, theme);
 
@@ -343,7 +343,7 @@ fn list_cell(
     action: &mut Option<TableAction>,
 ) -> egui::Response {
     let theme = input.theme;
-    let response = ui.interact(rect, ui.id().with(("item", index)), Sense::click());
+    let response = ui.interact(rect, ui.id().with(("item", index)), Sense::click_and_drag());
     let selected = input.selection.is_selected(&entry.path);
     item_background(ui, rect, &response, selected, theme);
 

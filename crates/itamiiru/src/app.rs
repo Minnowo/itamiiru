@@ -15,6 +15,7 @@ use itamiiru_core::fileops::Op;
 use itamiiru_core::format::{format_local_time, format_size};
 use itamiiru_core::listing;
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg, Volume};
+use itamiiru_core::platform::{DragOut, DragState};
 use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
 use itamiiru_core::thumbcache::ThumbSize;
 
@@ -129,6 +130,14 @@ pub struct App {
     /// Custom right-click actions, from the `actions` file next to the
     /// config file (read at startup).
     actions: Vec<Action>,
+    /// Items being dragged; once the pointer leaves the window with the
+    /// button still down, they're dragged out to other apps.
+    drag_out: Option<Vec<PathBuf>>,
+    /// Starts that drag. A field so tests can watch it instead of
+    /// dragging on the real screen.
+    start_drag_out: fn(Vec<PathBuf>) -> Result<DragOut, String>,
+    /// The drag out in progress, for its cursor and Escape.
+    dragging_out: Option<DragOut>,
 
     /// Set in picker mode (`itami --pick`). The picker has one tab and no
     /// split view.
@@ -204,6 +213,9 @@ impl App {
             status_fields: settings.status_fields.clone(),
             settings_open: false,
             actions,
+            drag_out: None,
+            start_drag_out: itamiiru_core::platform::start_drag_out,
+            dragging_out: None,
             picker,
         };
         app.scan_places();
@@ -405,6 +417,67 @@ impl App {
             return;
         }
         self.open_file(&path);
+    }
+
+    /// A drag started on a row: like Explorer, an unselected row becomes
+    /// the selection; the selection is what gets dragged.
+    fn drag_start(&mut self, row: usize) {
+        self.pane_mut().select_row_if_unselected(row);
+        let paths = self.pane().selected_paths();
+        if !paths.is_empty() {
+            self.drag_out = Some(paths);
+        }
+    }
+
+    /// Hands a drag over to the system once the pointer leaves the window
+    /// with the button still down, so it can be dropped in another app.
+    /// While it goes on, the cursor shows whether the window under it
+    /// takes the drop, and Escape cancels. Runs before the other keys, so
+    /// that Escape does nothing else.
+    fn check_drag_out(&mut self, ctx: &egui::Context) {
+        if let Some(drag) = &self.dragging_out {
+            let state = drag.state();
+            if state == DragState::Ended {
+                self.dragging_out = None;
+                return;
+            }
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                drag.cancel();
+            }
+            let icon = match state {
+                DragState::Accepted => egui::CursorIcon::Copy,
+                _ => egui::CursorIcon::NoDrop,
+            };
+            ctx.set_cursor_icon(icon);
+            // The state changes on the drag thread; keep looking.
+            ctx.request_repaint_after(Duration::from_millis(30));
+            return;
+        }
+        if self.drag_out.is_none() {
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+            self.drag_out = None;
+            return;
+        }
+        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        let (down, pos) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos()));
+        if !down {
+            // Let go inside the window.
+            self.drag_out = None;
+            return;
+        }
+        let inside = pos.is_some_and(|pos| ctx.content_rect().contains(pos));
+        if inside {
+            return;
+        }
+        let Some(paths) = self.drag_out.take() else {
+            return;
+        };
+        match (self.start_drag_out)(paths) {
+            Ok(drag) => self.dragging_out = Some(drag),
+            Err(err) => itamiiru_core::debug!("drag out: {err}"),
+        }
     }
 
     /// Middle-click: a folder opens in a new tab, behind this one.
@@ -1363,8 +1436,9 @@ impl App {
                 self.pane_mut().click_row(row, ctrl, shift, single);
             }
             Some(TableAction::Open(row)) => self.open_row(row),
-            Some(TableAction::RightClick(row)) => self.pane_mut().right_click_row(row),
+            Some(TableAction::RightClick(row)) => self.pane_mut().select_row_if_unselected(row),
             Some(TableAction::MiddleClick(row)) => self.middle_click_row(row),
+            Some(TableAction::DragStart(row)) => self.drag_start(row),
             Some(TableAction::Command(command)) => self.run_command(command),
             Some(TableAction::RenameDone { commit }) => self.finish_rename(commit),
             Some(TableAction::ClearSelection) => self.pane_mut().selection.clear(),
@@ -1577,6 +1651,8 @@ impl eframe::App for App {
         self.receive_places();
         self.thumbs.receive(ui.ctx());
         self.picker_frame(ui.ctx());
+        // Before the keys: Escape during a drag only cancels the drag.
+        self.check_drag_out(ui.ctx());
         self.handle_keys(ui.ctx());
         self.check_for_changes(ui.ctx());
         self.check_places(ui.ctx());
@@ -2733,6 +2809,131 @@ mod tests {
             delete.right() > message.right() - 40.0,
             "delete {delete:?} message {message:?}"
         );
+    }
+
+    /// What the stand-in for the real drag received, and the handle it
+    /// gave back (so the test can play the drag thread).
+    static DRAGGED: std::sync::Mutex<Vec<Vec<PathBuf>>> = std::sync::Mutex::new(Vec::new());
+    static LAST_DRAG: std::sync::Mutex<Option<DragOut>> = std::sync::Mutex::new(None);
+
+    fn record_drag(paths: Vec<PathBuf>) -> Result<DragOut, String> {
+        let drag = DragOut::new();
+        if let Ok(mut dragged) = DRAGGED.lock() {
+            dragged.push(paths);
+        }
+        if let Ok(mut last) = LAST_DRAG.lock() {
+            *last = Some(drag.clone());
+        }
+        return Ok(drag);
+    }
+
+    fn button(pos: Pos2, pressed: bool) -> Event {
+        return Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+    }
+
+    /// Presses on `start` and drags `steps` times by `step`; returns the
+    /// cursor the last frame asked for.
+    fn drag_from(
+        app: &mut App,
+        ctx: &egui::Context,
+        start: Pos2,
+        step: egui::Vec2,
+        steps: usize,
+    ) -> egui::CursorIcon {
+        frame(app, ctx, vec![Event::PointerMoved(start)]);
+        frame(app, ctx, vec![button(start, true)]);
+        let mut cursor = egui::CursorIcon::Default;
+        for i in 1..=steps {
+            let pos = start + step * i as f32;
+            cursor = frame(app, ctx, vec![Event::PointerMoved(pos)]);
+        }
+        return cursor;
+    }
+
+    #[test]
+    fn dragging_a_file_out_of_the_window() {
+        let folder = Folder::new("dragout");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        app.start_drag_out = record_drag;
+        settle(&mut app, &ctx);
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let start = texts
+            .iter()
+            .find(|(text, _)| text == "file.txt")
+            .expect("file.txt is listed")
+            .1
+            .center();
+
+        // Let go inside the window: nothing is handed over. While it's
+        // inside, the cursor is a grabbing hand.
+        let cursor = drag_from(&mut app, &ctx, start, egui::vec2(0.0, 10.0), 5);
+        assert!(app.drag_out.is_some(), "the drag started");
+        frame(&mut app, &ctx, Vec::new());
+        assert_eq!(
+            frame(&mut app, &ctx, Vec::new()),
+            egui::CursorIcon::Grabbing,
+            "{cursor:?}"
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![button(start + egui::vec2(0.0, 50.0), false)],
+        );
+        frame(&mut app, &ctx, Vec::new());
+        assert!(app.drag_out.is_none());
+
+        // Escape before leaving the window: the drag is dropped.
+        drag_from(&mut app, &ctx, start, egui::vec2(0.0, 10.0), 5);
+        frame(&mut app, &ctx, key(Key::Escape, Modifiers::NONE));
+        assert!(app.drag_out.is_none(), "Escape dropped the drag");
+        frame(
+            &mut app,
+            &ctx,
+            vec![Event::PointerMoved(Pos2::new(-40.0, start.y))],
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![button(Pos2::new(-40.0, start.y), false)],
+        );
+        assert!(DRAGGED.lock().expect("lock").is_empty());
+
+        // Past the window's edge with the button down: handed over, with
+        // the dragged file (selected on the way).
+        drag_from(&mut app, &ctx, start, egui::vec2(-20.0, 0.0), 5);
+        frame(
+            &mut app,
+            &ctx,
+            vec![Event::PointerMoved(Pos2::new(-40.0, start.y))],
+        );
+        frame(&mut app, &ctx, Vec::new());
+        let dragged = DRAGGED.lock().expect("lock").clone();
+        assert_eq!(dragged, vec![vec![folder.0.join("file.txt")]]);
+        assert!(app.drag_out.is_none(), "handed over once");
+        let drag = LAST_DRAG.lock().expect("lock").clone().expect("a handle");
+
+        // The cursor follows the drag thread's state.
+        drag.set_state(DragState::Accepted);
+        assert_eq!(frame(&mut app, &ctx, Vec::new()), egui::CursorIcon::Copy);
+        drag.set_state(DragState::Refused);
+        assert_eq!(frame(&mut app, &ctx, Vec::new()), egui::CursorIcon::NoDrop);
+
+        // Escape cancels it, and does nothing else (the search row, say).
+        app.pane_mut().search_open = true;
+        frame(&mut app, &ctx, key(Key::Escape, Modifiers::NONE));
+        assert!(drag.is_cancelled());
+        assert!(app.pane().search_open, "Escape only cancelled the drag");
+
+        // Once the thread says it's over, the app lets go of it.
+        drag.set_state(DragState::Ended);
+        frame(&mut app, &ctx, Vec::new());
+        assert!(app.dragging_out.is_none());
     }
 
     #[test]

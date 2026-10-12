@@ -1004,6 +1004,7 @@ dependencies = [
  "jpeg-decoder",
  "libc",
  "png",
+ "x11rb",
 ]
 
 [[package]]
