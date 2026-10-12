@@ -21,7 +21,7 @@ mod toolbar;
 mod zoom;
 
 use std::ffi::OsString;
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
@@ -35,9 +35,12 @@ use settings::Settings;
 use theme::Theme;
 
 /// How to call it, for `--help` and mistakes.
-const USAGE: &str = "usage: itami [FOLDER] [--select ITEM]...
+const USAGE: &str = "usage: itami [--foreground] [FOLDER] [--select ITEM]...
        itami --pick < request      (file dialog, used by the portal)
-       itami --font-info           (which fonts are used, for bug reports)";
+       itami --font-info           (which fonts are used, for bug reports)
+
+Started from a terminal, itami moves to the background; --foreground
+(or ITAMI_DEBUG=1) keeps it attached.";
 
 /// The command line: `itami [FOLDER] [--select ITEM]...`, `itami --pick`,
 /// or `itami --font-info`. FOLDER and ITEM may be paths or `file://` URIs.
@@ -45,6 +48,8 @@ struct Args {
     pick: bool,
     /// Print the font report and exit.
     font_info: bool,
+    /// Stay attached to the terminal instead of moving to the background.
+    foreground: bool,
     path: Option<PathBuf>,
     /// Items to select once the folder is listed ("Show in folder").
     select: Vec<PathBuf>,
@@ -63,6 +68,22 @@ fn main() {
     if args.font_info {
         fonts::print_report();
         return;
+    }
+    let debugging = std::env::var_os("ITAMI_DEBUG").is_some_and(|v| v == "1");
+    let in_terminal = std::io::stdout().is_terminal() || std::io::stderr().is_terminal();
+    if should_detach(&args, in_terminal, debugging) {
+        // The copy's output isn't a terminal, so it won't detach again.
+        let started = match std::env::current_exe() {
+            Ok(exe) => {
+                let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+                itamiiru_core::platform::spawn_detached(&exe, &arguments)
+            }
+            Err(err) => Err(err),
+        };
+        match started {
+            Ok(()) => return,
+            Err(err) => eprintln!("itami: can't move to the background ({err}); staying here"),
+        }
     }
 
     // Startup is the one time the UI thread may read small files: the
@@ -144,6 +165,14 @@ fn main() {
     }
 }
 
+/// Started from a terminal, the explorer moves to the background so the
+/// prompt comes back. Not the picker (the portal reads its output and exit
+/// code), not with --foreground, and not while debugging (the log goes to
+/// the terminal).
+fn should_detach(args: &Args, in_terminal: bool, debugging: bool) -> bool {
+    return in_terminal && !args.pick && !args.foreground && !debugging;
+}
+
 /// `arguments` is the command line without the program name. An unknown
 /// `--option` is an error, not a folder to open. `--help` prints the usage
 /// and exits.
@@ -151,6 +180,7 @@ fn parse_args(arguments: Vec<OsString>) -> Result<Args, String> {
     let mut args = Args {
         pick: false,
         font_info: false,
+        foreground: false,
         path: None,
         select: Vec::new(),
     };
@@ -160,6 +190,8 @@ fn parse_args(arguments: Vec<OsString>) -> Result<Args, String> {
             args.pick = true;
         } else if arg == "--font-info" {
             args.font_info = true;
+        } else if arg == "--foreground" {
+            args.foreground = true;
         } else if arg == "--select" {
             if let Some(item) = items.next() {
                 args.select.push(arg_to_path(item));
@@ -312,6 +344,22 @@ mod tests {
         assert!(parse(&["--pick"]).pick);
         assert!(parse(&["--font-info"]).font_info);
         assert!(!parse(&["/tmp"]).font_info);
+    }
+
+    #[test]
+    fn detaching() {
+        // From a terminal, the explorer detaches.
+        assert!(should_detach(&parse(&["/tmp"]), true, false));
+        // Not from a desktop launcher, xdg-open or "Show in folder".
+        assert!(!should_detach(&parse(&["/tmp"]), false, false));
+        assert!(!should_detach(
+            &parse(&["--foreground", "/tmp"]),
+            true,
+            false
+        ));
+        assert!(!should_detach(&parse(&["--pick"]), true, false));
+        assert!(!should_detach(&parse(&["/tmp"]), true, true));
+        assert!(parse(&["--foreground"]).foreground);
     }
 
     #[test]

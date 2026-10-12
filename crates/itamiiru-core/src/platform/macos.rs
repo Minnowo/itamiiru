@@ -274,3 +274,22 @@ pub fn unmount_volume(_volume: &crate::places::Volume) -> Result<(), String> {
 pub fn eject_volume(_volume: &crate::places::Volume) -> Result<(), String> {
     return Err("ejecting drives isn't supported on this system yet".to_string());
 }
+/// Starts `program` with `args` in the background, cut off from the
+/// terminal: no stdin, stdout or stderr, and its own process group, so
+/// the terminal's hang-up signal (closing the window) doesn't reach it.
+/// Doesn't wait for it; when this process exits, init adopts and reaps it.
+pub fn spawn_detached(
+    program: &std::path::Path,
+    args: &[std::ffi::OsString],
+) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()?;
+    return Ok(());
+}

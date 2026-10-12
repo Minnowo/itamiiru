@@ -509,6 +509,26 @@ pub fn create_private_dir_all(path: &std::path::Path) -> std::io::Result<()> {
         .create(path);
 }
 
+/// Starts `program` with `args` in the background, cut off from the
+/// terminal: no stdin, stdout or stderr, and its own process group, so
+/// the terminal's hang-up signal (closing the window) doesn't reach it.
+/// Doesn't wait for it; when this process exits, init adopts and reaps it.
+pub fn spawn_detached(
+    program: &std::path::Path,
+    args: &[std::ffi::OsString],
+) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    use std::process::Stdio;
+    std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()?;
+    return Ok(());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -519,6 +539,48 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         return dir;
+    }
+
+    #[test]
+    fn detached_children_leave_the_terminal() {
+        // A sleep with an odd length, so it can be found among others.
+        let args = vec![std::ffi::OsString::from("7.31")];
+        spawn_detached(std::path::Path::new("/bin/sleep"), &args).expect("spawns");
+        let mut found = None;
+        for _ in 0..100 {
+            for entry in std::fs::read_dir("/proc").expect("proc").flatten() {
+                let cmdline = std::fs::read(entry.path().join("cmdline")).unwrap_or_default();
+                if cmdline == b"/bin/sleep\x007.31\x00" {
+                    found = Some(entry.path());
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let proc_dir = found.expect("the child is running");
+        let pid: u32 = proc_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.parse().ok())
+            .expect("pid");
+        // Field 5 of /proc/PID/stat is the process group; it leads its own.
+        let stat = std::fs::read_to_string(proc_dir.join("stat")).expect("stat");
+        let after_name = &stat[stat.rfind(')').expect("comm") + 2..];
+        let pgid: u32 = after_name
+            .split(' ')
+            .nth(2)
+            .and_then(|f| f.parse().ok())
+            .expect("pgid");
+        assert_eq!(pgid, pid, "own process group");
+        for fd in ["0", "1", "2"] {
+            let target = std::fs::read_link(proc_dir.join("fd").join(fd)).expect("fd");
+            assert_eq!(target, PathBuf::from("/dev/null"), "fd {fd}");
+        }
+        let _ = std::process::Command::new("kill")
+            .arg(pid.to_string())
+            .status();
     }
 
     #[test]

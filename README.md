@@ -9,7 +9,10 @@ dialog, written in Rust with egui.
 - **A file explorer** with the same UI: Details, List and icon views with
   thumbnails, a preview pane, search, cut/copy/paste, trash, rename.
 
-The command is `itami` (`itami [FOLDER]` opens the explorer). Linux only
+The command is `itami` (`itami [FOLDER]` opens the explorer). Started
+from a terminal it moves to the background, so the prompt comes back and
+closing the terminal doesn't close the window; `itami --foreground` (or
+`ITAMI_DEBUG=1`) keeps it attached. `itami --help` lists the options. Linux only
 for now; Windows and macOS are planned.
 
 ## Requirements

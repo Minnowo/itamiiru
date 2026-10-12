@@ -223,3 +223,22 @@ pub fn unmount_volume(_volume: &crate::places::Volume) -> Result<(), String> {
 pub fn eject_volume(_volume: &crate::places::Volume) -> Result<(), String> {
     return Err("ejecting drives isn't supported on this system yet".to_string());
 }
+/// Starts `program` with `args` in the background, without the console
+/// it was started from, and doesn't wait for it.
+pub fn spawn_detached(
+    program: &std::path::Path,
+    args: &[std::ffi::OsString],
+) -> std::io::Result<()> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Stdio;
+    // DETACHED_PROCESS: no console at all.
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    std::process::Command::new(program)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .creation_flags(DETACHED_PROCESS)
+        .spawn()?;
+    return Ok(());
+}
