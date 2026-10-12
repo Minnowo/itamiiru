@@ -79,6 +79,7 @@
 | D14 | Text sizes | ponkotsu's web sizes scaled from a 16 px to a 14 px body (heading 19, small 12) | A file manager is denser than a web form | Text feels too small or too large in use |
 | D15 | Natural sort case | ASCII letters compare case-insensitively; other letters by raw bytes | Simple and allocation-free | Non-English names sort badly in practice |
 | D16 | UI scaling | egui's built-in zoom (Ctrl+Plus, Ctrl+Minus, Ctrl+0; 10% steps), plus `[-] 100% [+]` buttons in the status bar, the percentage resets | One knob scales text, icons and spacing together, like a browser; painted icons stay sharp at any size | - |
+| D18 | FileManager1 | Same binary as the portal backend, run as `--file-manager`: its own process and its own activation file | Reuses the D-Bus code; the two names stay independent (either can run without the other); no daemon to keep alive | Another file manager's daemon holding the name becomes a common complaint (could queue for the name instead of giving up) |
 | D17 | File clipboard | In-app list of cut/copied paths; the paths also go on the system clipboard as text | egui's clipboard is text-only, and egui only reports Ctrl+V when the clipboard holds text, so putting the paths there makes Ctrl+V reach us and lets them paste into a terminal. No file interop with other file managers | Interop with other file managers is wanted (needs `text/uri-list` / `x-special/gnome-copied-files` clipboard targets) |
 
 ## 4. Threading model
@@ -482,12 +483,15 @@ P7.1-P7.4 were done early, after Phase 1, at the developer's request.
 - [x] P7.2 File-operation worker: copy and move with progress, a conflict prompt (skip, replace, keep both, apply to all), cancellation.
 - [x] P7.3 Rename (F2, inline), New folder, and Delete to Trash (freedesktop trash spec, with tests in a temp directory); Shift+Delete with confirmation. Trash is Linux-only for now; elsewhere Delete asks and deletes permanently.
 - [x] P7.4 In-app cut/copy/paste, plus right-click menus for items and for empty space (section 3 D17).
-- [ ] P7.5 `org.freedesktop.FileManager1` (ShowFolders, ShowItems, ShowItemProperties) in itamiiru-portal, launching `itamiiru` with a selection argument.
-- [ ] P7.6 `itamiiru.desktop` file and `inode/directory` default (`xdg-mime default itamiiru.desktop inode/directory`).
+- [x] P7.5 `org.freedesktop.FileManager1` (ShowFolders, ShowItems, ShowItemProperties) in itamiiru-portal, launching `itamiiru` with a selection argument. `xdg-desktop-portal-itamiiru --file-manager` is a separate process with its own activation file (`data/org.freedesktop.FileManager1.service`); `filemanager.rs`. It replies at once and runs `itami FOLDER --select ITEM...`, one window per folder (at most 16 windows, 1,000 items each). ShowItemProperties shows the item (no properties dialog yet). `itami` takes `--select` and `file://` URIs. `scripts/test-file-manager.sh` checks it through D-Bus activation on a private bus. On XFCE, Thunar's daemon (`Thunar --daemon`, from the Failsafe session) owns the name and keeps answering until it's stopped; P7.6's installer takes it out of the session.
+- [x] P7.6 `itamiiru.desktop` file and `inode/directory` default (`xdg-mime default itamiiru.desktop inode/directory`). `install.sh` always installs the menu entry; `--default-file-manager` also sets the folder default and the FileManager1 activation file. `--uninstall` restores an explicit earlier choice from `mimeapps.list`, or removes our line when there was none. Set on the dev machine 2026-10-11 (before: VSCodium, implicitly, from the system's mimeinfo.cache). On XFCE that wasn't enough (found in the user's test): `xdg-open` runs `exo-open`, which ignores `mimeapps.list` for folders and uses Preferred Applications' FileManager, so `--default-file-manager` also installs an exo helper (`data/itamiiru-xfce-helper.desktop`) and sets `FileManager=itamiiru` in `~/.config/xfce4/helpers.rc`. And with no saved session, XFCE starts the Failsafe session every login, which hard-codes `Thunar --daemon` (the Session settings' restart style has nothing to apply to), so the script removes that client from the user's xfconf copy of the Failsafe session. `--uninstall` restores the previous FileManager helper and resets `/sessions/Failsafe`.
 
 **Done when:** basic file management works well enough to use daily, and "Show in folder" in Firefox opens itamiiru.
 
-### Phase 8: Windows and macOS
+### ~~Phase 8: Windows and macOS~~ (deferred)
+
+Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps compiling for Windows and macOS (the `cargo check` targets stay in the task checklist), but nothing here is being worked on.
+
 - [ ] P8.1 Windows platform module (section 8) with hand-declared FFI. Includes the local time offset (`GetTimeZoneInformation`); until then Windows shows dates in UTC.
 - [ ] P8.2 Windows fonts and the cache location.
 - [ ] P8.3 macOS platform module (section 8); decide on the trash approach.

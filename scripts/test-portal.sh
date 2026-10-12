@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# End-to-end test of the portal backend on your session bus, without a
-# window: a fake picker stands in for `itami --pick`.
+# End-to-end test of the portal backend on a private session bus (so the
+# installed backend can keep running), without a window: a fake picker
+# stands in for `itami --pick`.
 # Usage: scripts/test-portal.sh   (builds the portal first)
-# Don't run it while the real backend is active: the bus name is taken.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+if [ -z "${ITAMI_TEST_PRIVATE_BUS:-}" ]; then
+  export ITAMI_TEST_PRIVATE_BUS=1
+  exec dbus-run-session -- "$0" "$@"
+fi
 cargo build -q -p itamiiru-portal
 
 DIR="$(mktemp -d)"

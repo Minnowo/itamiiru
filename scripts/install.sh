@@ -5,9 +5,14 @@
 # Works from a source checkout (builds with cargo) or from a release
 # tarball made by scripts/package.sh (uses its prebuilt bin/ folder).
 #
-# Usage: scripts/install.sh [--no-env] [--uninstall]
+# Usage: scripts/install.sh [--no-env] [--default-file-manager] [--uninstall]
 #   --no-env     don't touch the session environment (~/.xsessionrc or
 #                ~/.config/environment.d); set GTK_USE_PORTAL yourself
+#   --default-file-manager
+#                open folders with itamiiru, and answer "Show in folder"
+#                (org.freedesktop.FileManager1); on XFCE also sets the
+#                preferred file manager and drops Thunar's daemon from the
+#                Failsafe session; --uninstall undoes all of it
 #   --uninstall  remove everything this script installed
 #
 # Run as your normal user, not with sudo. It asks for your password once,
@@ -17,11 +22,13 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 USE_ENV=1
 UNINSTALL=0
+DEFAULT_FM=0
 for arg in "$@"; do
   case "$arg" in
     --no-env) USE_ENV=0 ;;
     --uninstall) UNINSTALL=1 ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
+    --default-file-manager) DEFAULT_FM=1 ;;
+    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
@@ -41,6 +48,21 @@ PORTAL_FILE=/usr/share/xdg-desktop-portal/portals/itamiiru.portal
 PORTALS_CONF="$CONFIG_HOME/xdg-desktop-portal/portals.conf"
 ENV_D_FILE="$CONFIG_HOME/environment.d/60-itamiiru.conf"
 XSESSIONRC="$HOME/.xsessionrc"
+DESKTOP_DIR="$DATA_HOME/applications"
+DESKTOP_FILE="$DESKTOP_DIR/itamiiru.desktop"
+FM_SERVICE_FILE="$SERVICE_DIR/org.freedesktop.FileManager1.service"
+MIMEAPPS="$CONFIG_HOME/mimeapps.list"
+# The folder app the user chose before --default-file-manager, for
+# --uninstall. Only an explicit choice in mimeapps.list is recorded; with
+# none, removing our line brings back whatever the system picks.
+PREVIOUS_FOLDER_APP="$CONFIG_HOME/itamiiru/previous-folder-app"
+# XFCE: xdg-open runs exo-open there, which ignores mimeapps.list for
+# folders and uses the "File Manager" from Preferred Applications.
+XFCE_HELPER="$DATA_HOME/xfce4/helpers/itamiiru.desktop"
+XFCE_HELPERS_RC="$CONFIG_HOME/xfce4/helpers.rc"
+PREVIOUS_XFCE_FM="$CONFIG_HOME/itamiiru/previous-xfce-file-manager"
+# Says we took "Thunar --daemon" out of the user's Failsafe session.
+THUNAR_DAEMON_REMOVED="$CONFIG_HOME/itamiiru/removed-thunar-daemon"
 # Marks the lines this script adds to files it doesn't own.
 BEGIN_MARK="# >>> itamiiru >>>"
 END_MARK="# <<< itamiiru <<<"
@@ -69,8 +91,90 @@ remove_block() {
   fi
 }
 
+# Prints an xfconf array one item per line (xfconf-query starts with a
+# header line and a blank line).
+xfconf_array() {
+  xfconf-query -c "$1" -p "$2" 2> /dev/null | sed '1,2d'
+}
+
+# Takes "Thunar --daemon" out of the Failsafe session in xfconf channel $1.
+# XFCE starts the Failsafe session at login when no session was saved, and
+# Thunar's daemon owns org.freedesktop.FileManager1, so it would answer
+# "Show in folder". The later clients move up one slot. The change goes in
+# the user's settings; resetting /sessions/Failsafe brings back the
+# system's list. Returns 1 when there was no Thunar daemon to remove.
+drop_thunar_daemon() {
+  local channel="$1" base="/sessions/Failsafe" count i out found command item
+  local args
+  count="$(xfconf-query -c "$channel" -p "$base/Count" 2> /dev/null || true)"
+  case "$count" in
+    '' | *[!0-9]*) return 1 ;;
+  esac
+  out=0
+  found=0
+  for ((i = 0; i < count; i++)); do
+    command="$(xfconf_array "$channel" "$base/Client${i}_Command" | tr '\n' ' ')"
+    case "$command" in
+      [Tt]hunar\ --daemon\ )
+        found=1
+        continue
+        ;;
+    esac
+    if [ "$out" -ne "$i" ]; then
+      args=()
+      while IFS= read -r item; do
+        args+=(-t string -s "$item")
+      done < <(xfconf_array "$channel" "$base/Client${i}_Command")
+      xfconf-query -c "$channel" -p "$base/Client${out}_Command" -n -a "${args[@]}"
+      xfconf-query -c "$channel" -p "$base/Client${out}_Priority" -n -t int \
+        -s "$(xfconf-query -c "$channel" -p "$base/Client${i}_Priority")"
+      xfconf-query -c "$channel" -p "$base/Client${out}_PerScreen" -n -t bool \
+        -s "$(xfconf-query -c "$channel" -p "$base/Client${i}_PerScreen")"
+    fi
+    out=$((out + 1))
+  done
+  if [ "$found" -eq 0 ]; then
+    return 1
+  fi
+  xfconf-query -c "$channel" -p "$base/Count" -n -t int -s "$out"
+  return 0
+}
+
 if [ "$UNINSTALL" -eq 1 ]; then
-  rm -f "$BIN_DIR/itami" "$BIN_DIR/xdg-desktop-portal-itamiiru" "$SERVICE_FILE"
+  rm -f "$XFCE_HELPER"
+  if [ -f "$XFCE_HELPERS_RC" ] && grep -qx 'FileManager=itamiiru' "$XFCE_HELPERS_RC"; then
+    previous="$(cat "$PREVIOUS_XFCE_FM" 2> /dev/null || true)"
+    if [ -n "$previous" ]; then
+      sed -i "s|^FileManager=itamiiru\$|FileManager=$previous|" "$XFCE_HELPERS_RC"
+    else
+      sed -i '/^FileManager=itamiiru$/d' "$XFCE_HELPERS_RC"
+      if [ ! -s "$XFCE_HELPERS_RC" ]; then
+        rm -f "$XFCE_HELPERS_RC"
+      fi
+    fi
+    say "XFCE's preferred file manager is ${previous:-the default} again"
+  fi
+  rm -f "$PREVIOUS_XFCE_FM"
+  if [ -f "$THUNAR_DAEMON_REMOVED" ]; then
+    xfconf-query -c xfce4-session -p /sessions/Failsafe -r -R 2> /dev/null || true
+    rm -f "$THUNAR_DAEMON_REMOVED"
+    say "Thunar's daemon is back in XFCE's Failsafe session (from the next login)"
+  fi
+  rm -f "$BIN_DIR/itami" "$BIN_DIR/xdg-desktop-portal-itamiiru" "$SERVICE_FILE" "$FM_SERVICE_FILE"
+  if [ -f "$MIMEAPPS" ] && grep -qx 'inode/directory=itamiiru.desktop;\{0,1\}' "$MIMEAPPS"; then
+    previous="$(cat "$PREVIOUS_FOLDER_APP" 2> /dev/null || true)"
+    if [ -n "$previous" ] && command -v xdg-mime > /dev/null; then
+      xdg-mime default "$previous" inode/directory
+      say "Folders open with $previous again"
+    else
+      sed -i '/^inode\/directory=itamiiru\.desktop;\{0,1\}$/d' "$MIMEAPPS"
+      say "Folders open with the system's default app again"
+    fi
+  fi
+  rm -f "$PREVIOUS_FOLDER_APP" "$DESKTOP_FILE"
+  if command -v update-desktop-database > /dev/null; then
+    update-desktop-database "$DESKTOP_DIR" 2> /dev/null || true
+  fi
   if [ -f "$PORTALS_CONF" ] && grep -q "^# Created by itamiiru's install.sh" "$PORTALS_CONF"; then
     rm -f "$PORTALS_CONF"
   elif [ -f "$PORTALS_CONF" ]; then
@@ -135,6 +239,65 @@ install -m755 "$BUILT/xdg-desktop-portal-itamiiru" "$BIN_DIR/xdg-desktop-portal-
 sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/org.freedesktop.impl.portal.desktop.itamiiru.service" \
   > "$SERVICE_FILE"
 say "Installed itami and xdg-desktop-portal-itamiiru in $BIN_DIR"
+
+# --- Menu entry (also lets other apps offer itamiiru for folders) ------------
+mkdir -p "$DESKTOP_DIR"
+sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/itamiiru.desktop" > "$DESKTOP_FILE"
+if command -v update-desktop-database > /dev/null; then
+  update-desktop-database "$DESKTOP_DIR" 2> /dev/null || true
+fi
+
+# --- Optional: the default file manager ----------------------------------------
+if [ "$DEFAULT_FM" -eq 1 ]; then
+  sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/org.freedesktop.FileManager1.service" > "$FM_SERVICE_FILE"
+  if command -v xdg-mime > /dev/null; then
+    # The user's own choice, if they made one: the first app listed.
+    chosen=""
+    if [ -f "$MIMEAPPS" ]; then
+      chosen="$(sed -n 's/^inode\/directory=\([^;]*\).*$/\1/p' "$MIMEAPPS" | head -1)"
+    fi
+    if [ -n "$chosen" ] && [ "$chosen" != "itamiiru.desktop" ] && [ ! -f "$PREVIOUS_FOLDER_APP" ]; then
+      mkdir -p "$(dirname "$PREVIOUS_FOLDER_APP")"
+      printf '%s\n' "$chosen" > "$PREVIOUS_FOLDER_APP"
+    fi
+    xdg-mime default itamiiru.desktop inode/directory
+    say "Folders now open with itamiiru"
+  else
+    say "NOTE: xdg-mime not found; set itamiiru as the folder app in your desktop's settings."
+  fi
+  if command -v exo-open > /dev/null; then
+    mkdir -p "$(dirname "$XFCE_HELPER")" "$(dirname "$XFCE_HELPERS_RC")"
+    sed "s|@BINDIR@|$BIN_DIR|" "$ROOT/data/itamiiru-xfce-helper.desktop" > "$XFCE_HELPER"
+    previous=""
+    if [ -f "$XFCE_HELPERS_RC" ]; then
+      previous="$(sed -n 's/^FileManager=//p' "$XFCE_HELPERS_RC" | head -1)"
+    fi
+    if [ -n "$previous" ] && [ "$previous" != "itamiiru" ] && [ ! -f "$PREVIOUS_XFCE_FM" ]; then
+      mkdir -p "$(dirname "$PREVIOUS_XFCE_FM")"
+      printf '%s\n' "$previous" > "$PREVIOUS_XFCE_FM"
+    fi
+    if [ -n "$previous" ]; then
+      sed -i 's|^FileManager=.*$|FileManager=itamiiru|' "$XFCE_HELPERS_RC"
+    else
+      printf 'FileManager=itamiiru\n' >> "$XFCE_HELPERS_RC"
+    fi
+    say "XFCE's preferred file manager (used by xdg-open there) is now itamiiru"
+  fi
+  if command -v xfconf-query > /dev/null && [ ! -f "$THUNAR_DAEMON_REMOVED" ] \
+    && drop_thunar_daemon xfce4-session; then
+    mkdir -p "$(dirname "$THUNAR_DAEMON_REMOVED")"
+    : > "$THUNAR_DAEMON_REMOVED"
+    say "Took 'Thunar --daemon' out of XFCE's Failsafe session (from the next login)"
+  fi
+  # A file manager running as a daemon keeps the name, and with it
+  # "Show in folder", until it stops.
+  owner="$(busctl --user status org.freedesktop.FileManager1 2> /dev/null | sed -n 's/^Comm=//p' || true)"
+  if [ -n "$owner" ] && [ "$owner" != "xdg-desktop-por" ]; then
+    say "NOTE: $owner owns org.freedesktop.FileManager1, so \"Show in folder\" opens it"
+    say "  until it stops. Log out and back in, or for Thunar run: thunar -q"
+    say "  (closes its windows). Thunar started by hand takes the name back while it runs."
+  fi
+fi
 
 # --- The .portal file: the frontend only reads its own system folder -----------
 if cmp -s "$ROOT/data/itamiiru.portal" "$PORTAL_FILE"; then

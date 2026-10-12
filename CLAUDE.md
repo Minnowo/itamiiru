@@ -84,6 +84,7 @@ cargo check -p itamiiru-core --target aarch64-apple-darwin  # macOS code in plat
     # needs: rustup target add aarch64-apple-darwin
 ./scripts/install-dev.sh                                  # install portal backend locally
 ./scripts/package.sh                                      # release tarball in target/
+./scripts/test-portal.sh, ./scripts/test-file-manager.sh  # D-Bus tests on a private bus
 ITAMI_DEBUG=1 cargo run -p itamiiru                          # debug logging to stderr
 ```
 

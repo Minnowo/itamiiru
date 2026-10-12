@@ -69,7 +69,46 @@ Then:
 `docs/app-compat.md` lists which apps were tested and what each needs.
 
 Options: `--no-env` leaves the session environment alone (set the
-variables yourself, see below); `--uninstall` removes everything.
+variables yourself, see below); `--default-file-manager` makes itamiiru the
+app for folders and for "Show in folder" (next section); `--uninstall`
+removes everything.
+
+## Default file manager
+
+`scripts/install.sh --default-file-manager` also:
+
+- makes itamiiru open folders (`xdg-mime default itamiiru.desktop
+  inode/directory`), so double-clicking a folder elsewhere or `xdg-open
+  ~/Downloads` opens itamiiru;
+- answers `org.freedesktop.FileManager1`, which Firefox, Chromium and
+  others call for "Show in folder": itamiiru opens the folder with the file
+  selected.
+
+On XFCE it does two more things:
+
+- `xdg-open` there runs `exo-open`, which ignores the folder default above
+  and uses Settings > Preferred Applications > File Manager. The script
+  adds itamiiru to that list and selects it (`~/.config/xfce4/helpers.rc`).
+- Only one program can own `org.freedesktop.FileManager1`, and XFCE starts
+  `Thunar --daemon` at every login, which holds it. Unless you saved a
+  session, XFCE starts its built-in "Failsafe" session, so changing Thunar's
+  restart style in Session and Startup does nothing. The script takes
+  Thunar's daemon out of your copy of that session, from the next login
+  (or run `thunar -q` now; it closes Thunar's windows). Thunar opened by
+  hand still takes the name while it runs.
+
+The same applies to other file managers running as a background daemon;
+the installer says when one holds the name.
+
+`--uninstall` puts back the folder app you had chosen before (or the
+system's default if you hadn't chosen one), XFCE's previous file manager,
+and Thunar's daemon in the Failsafe session.
+
+By hand: `itami [FOLDER] [--select ITEM]...` (paths or `file://` URIs);
+copy `data/itamiiru.desktop` to `~/.local/share/applications/` and
+`data/org.freedesktop.FileManager1.service` to
+`~/.local/share/dbus-1/services/`, replacing `@BINDIR@` in both, then run
+`xdg-mime default itamiiru.desktop inode/directory`.
 
 ## What the script does (to install by hand)
 
@@ -120,7 +159,8 @@ variables yourself, see below); `--uninstall` removes everything.
 scripts/install.sh --uninstall
 ```
 
-It removes the binaries, the two portal files, its line in
+It removes the binaries, the portal and FileManager1 files, the menu
+entry, the folder default and XFCE changes (see above), its line in
 `portals.conf` and its lines in `~/.xsessionrc` (or its environment.d
 file). Settings in `~/.config/itamiiru/` are kept; delete that folder too
 for a clean slate. Thumbnails stay in `~/.cache/thumbnails`, shared with

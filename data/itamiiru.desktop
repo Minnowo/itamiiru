@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=itamiiru
+GenericName=File Manager
+Comment=Browse files and folders
+Exec=@BINDIR@/itami %U
+Icon=system-file-manager
+Terminal=false
+StartupNotify=true
+StartupWMClass=itamiiru
+Categories=System;FileTools;FileManager;
+MimeType=inode/directory;
+Keywords=files;folders;explorer;browser;

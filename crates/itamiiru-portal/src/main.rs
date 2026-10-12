@@ -2,9 +2,13 @@
 //!
 //! The portal frontend calls us on the session bus; for each call we run
 //! `itami --pick` and reply with its answer (PLAN.md section 9).
+//! With `--file-manager` it serves org.freedesktop.FileManager1 instead
+//! ("Show in folder", P7.5), as a separate process.
 
 #[cfg(target_os = "linux")]
 mod dbus;
+#[cfg(target_os = "linux")]
+mod filemanager;
 #[cfg(target_os = "linux")]
 mod portal;
 
@@ -13,7 +17,15 @@ fn main() {
     use std::sync::mpsc;
 
     use dbus::conn::{self, Connection};
+    use filemanager::FileManager;
     use portal::{Event, Portal};
+
+    let file_manager = std::env::args().skip(1).any(|arg| arg == "--file-manager");
+    let bus_name = if file_manager {
+        filemanager::BUS_NAME
+    } else {
+        portal::BUS_NAME
+    };
 
     let Some(address) = conn::session_address() else {
         eprintln!("xdg-desktop-portal-itamiiru: no session bus address");
@@ -26,14 +38,13 @@ fn main() {
             std::process::exit(1);
         }
     };
-    if let Err(err) = connection.register(&mut reader, portal::BUS_NAME) {
+    if let Err(err) = connection.register(&mut reader, bus_name) {
         eprintln!("xdg-desktop-portal-itamiiru: {err}");
         std::process::exit(1);
     }
     eprintln!(
         "xdg-desktop-portal-itamiiru: ready as {} ({})",
-        portal::BUS_NAME,
-        connection.unique_name
+        bus_name, connection.unique_name
     );
 
     // The reader thread turns socket data into events; picker threads add
@@ -56,6 +67,15 @@ fn main() {
         }
     });
 
+    if file_manager {
+        let mut file_manager = FileManager::new(connection);
+        for event in rx.iter() {
+            if !file_manager.handle(event) {
+                break;
+            }
+        }
+        return;
+    }
     let mut portal = Portal::new(connection, tx);
     for event in rx.iter() {
         if !portal.handle(event) {

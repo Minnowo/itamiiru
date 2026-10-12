@@ -194,6 +194,7 @@ impl App {
         ctx: egui::Context,
         theme: Theme,
         start: PathBuf,
+        select: Vec<PathBuf>,
         config: Config,
         config_path: Option<PathBuf>,
         picker: Option<Picker>,
@@ -276,6 +277,8 @@ impl App {
             preview: Preview::new(),
             picker,
         };
+        // Items from `--select` get selected when the first listing is done.
+        app.after_listing.select = select;
         app.load();
         app.scan_places();
         return app;

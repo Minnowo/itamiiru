@@ -304,7 +304,7 @@ impl Portal {
 
 /// The picker binary: `$ITAMI_BIN`, else `itami` next to this program,
 /// else `itami` on `PATH`.
-fn picker_binary() -> PathBuf {
+pub fn picker_binary() -> PathBuf {
     if let Some(bin) = std::env::var_os("ITAMI_BIN") {
         return PathBuf::from(bin);
     }
