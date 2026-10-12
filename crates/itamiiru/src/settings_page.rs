@@ -10,7 +10,7 @@ use eframe::egui;
 use itamiiru_core::entry::{Entry, EntryKind};
 
 use crate::icons::{Arrow, arrow_button};
-use crate::settings::{Settings, StatusField};
+use crate::settings::{DetailsColumns, Settings, StatusField};
 use crate::theme::{self, Accent, Theme};
 
 const DIALOG_WIDTH: f32 = 460.0;
@@ -24,6 +24,7 @@ pub struct Options {
     pub thumbnails: bool,
     pub preview_pane: bool,
     pub status_fields: Vec<StatusField>,
+    pub columns: DetailsColumns,
 }
 
 impl Options {
@@ -37,6 +38,7 @@ impl Options {
             thumbnails: d.thumbnails,
             preview_pane: d.preview_pane,
             status_fields: d.status_fields,
+            columns: d.columns,
         };
     }
 }
@@ -79,6 +81,13 @@ pub fn show(
                     ui.checkbox(&mut options.thumbnails, "Show thumbnails in the icon views");
                     ui.checkbox(&mut options.preview_pane, "Show the preview pane")
                         .on_hover_text("Alt+P");
+                });
+                section(ui, theme, "Details view", |ui| {
+                    ui.label("Columns besides Name, which takes the rest of the width:");
+                    ui.checkbox(&mut options.columns.modified, "Date modified");
+                    ui.checkbox(&mut options.columns.kind, "Type")
+                        .on_hover_text("The extension, e.g. \"PNG File\", or \"Folder\"");
+                    ui.checkbox(&mut options.columns.size, "Size");
                 });
                 section(ui, theme, "Status bar", |ui| {
                     ui.label("Details shown for one selected item, in this order:");

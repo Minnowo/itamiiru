@@ -24,7 +24,7 @@ use crate::ops_ui::{self, RunningOp};
 use crate::pane::{Filter, Pane};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::preview::Preview;
-use crate::settings::{ColumnWidths, Settings, StatusField};
+use crate::settings::{DetailsColumns, Settings, StatusField};
 use crate::settings_page::{self, Options};
 use crate::sidebar::{self, SidebarAction};
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
@@ -106,7 +106,8 @@ pub struct App {
     latest_settings: Settings,
     settings_changed_at: Option<f64>,
     sidebar_width: f32,
-    column_widths: ColumnWidths,
+    /// Which columns the Details view shows.
+    details_columns: DetailsColumns,
     auto_refresh_folder: bool,
     auto_refresh_drives: bool,
     thumbnails_enabled: bool,
@@ -179,7 +180,7 @@ impl App {
             latest_settings: settings.clone(),
             settings_changed_at: None,
             sidebar_width: settings.sidebar_width,
-            column_widths: settings.columns,
+            details_columns: settings.columns,
             auto_refresh_folder: settings.auto_refresh_folder,
             auto_refresh_drives: settings.auto_refresh_drives,
             thumbnails_enabled: settings.thumbnails,
@@ -1112,7 +1113,8 @@ impl App {
             cut,
             menu: &menu,
             show_folder: pane.search.is_some(),
-            columns: self.column_widths,
+            columns: self.details_columns,
+            widest_type: &pane.widest_type,
         };
         let scroll_to = pane.scroll_to.take();
         out.action = match self.view {
@@ -1121,23 +1123,7 @@ impl App {
                     vertical: 1,
                     horizontal: 0,
                 };
-                let (action, widths) = details::show(ui, &input, &mut pane.rename, scroll_to);
-                // Columns: Name, [Folder,] Date modified, Type, Size. Only
-                // the active pane's widths are saved.
-                if is_active
-                    && let Some(widths) = widths
-                    && widths.len() >= 4
-                {
-                    self.column_widths.name = widths[0];
-                    let mut next = 1;
-                    if input.show_folder && widths.len() >= 5 {
-                        self.column_widths.folder = widths[1];
-                        next = 2;
-                    }
-                    self.column_widths.modified = widths[next];
-                    self.column_widths.kind = widths[next + 1];
-                }
-                action
+                details::show(ui, &input, &mut pane.rename, scroll_to)
             }
             ViewMode::List => {
                 let (action, steps) = iconview::show_list(ui, &input, &mut pane.rename, scroll_to);
@@ -1349,7 +1335,7 @@ impl App {
             sidebar_width: self.sidebar_width,
             window_size,
             maximized,
-            columns: self.column_widths,
+            columns: self.details_columns,
             auto_refresh_folder: self.auto_refresh_folder,
             auto_refresh_drives: self.auto_refresh_drives,
             thumbnails: self.thumbnails_enabled,
@@ -1536,6 +1522,7 @@ impl App {
             thumbnails: self.thumbnails_enabled,
             preview_pane: self.preview_pane,
             status_fields: self.status_fields.clone(),
+            columns: self.details_columns,
         };
     }
 
@@ -1553,6 +1540,7 @@ impl App {
         self.auto_refresh_drives = options.auto_refresh_drives;
         self.preview_pane = options.preview_pane;
         self.status_fields = options.status_fields;
+        self.details_columns = options.columns;
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {
@@ -2150,6 +2138,42 @@ mod tests {
         // The arrow keys carry on from it: alpha is just above beta.
         frame(&mut app, &ctx, key(Key::ArrowUp, Modifiers::NONE));
         assert!(app.pane().selection.is_selected(&folder.0.join("alpha")));
+    }
+
+    #[test]
+    fn details_columns_can_be_switched_off() {
+        let folder = Folder::new("columns");
+        std::fs::write(folder.0.join("picture.jpeg"), b"x").expect("jpeg");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        // "JPEG File" is longer than "Folder" and "TXT File".
+        assert_eq!(app.pane().widest_type, "JPEG File");
+
+        for bits in 0..8 {
+            app.details_columns = DetailsColumns {
+                modified: bits & 1 != 0,
+                kind: bits & 2 != 0,
+                size: bits & 4 != 0,
+            };
+            frame(&mut app, &ctx, Vec::new());
+        }
+        // And with search results' Folder column.
+        app.pane_mut().open_search();
+        // One frame for the box to take focus, then type into it.
+        frame(&mut app, &ctx, Vec::new());
+        frame(&mut app, &ctx, vec![Event::Text("pic".to_string())]);
+        std::thread::sleep(Duration::from_millis(400));
+        for _ in 0..50 {
+            frame(&mut app, &ctx, Vec::new());
+            if app.pane().search.as_ref().is_some_and(|s| !s.running) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(app.pane().visible.len(), 1);
+        assert_eq!(app.pane().widest_type, "JPEG File");
+        frame(&mut app, &ctx, Vec::new());
     }
 
     #[test]

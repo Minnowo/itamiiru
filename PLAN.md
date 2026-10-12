@@ -81,6 +81,7 @@
 | D16 | UI scaling | egui's built-in zoom (Ctrl+Plus, Ctrl+Minus, Ctrl+0; 10% steps), plus `[-] 100% [+]` buttons in the status bar, the percentage resets | One knob scales text, icons and spacing together, like a browser; painted icons stay sharp at any size | - |
 | D18 | FileManager1 | Same binary as the portal backend, run as `--file-manager`: its own process and its own activation file | Reuses the D-Bus code; the two names stay independent (either can run without the other); no daemon to keep alive | Another file manager's daemon holding the name becomes a common complaint (could queue for the name instead of giving up) |
 | D19 | Tabs and split view | A `Pane` holds one folder view (history, listing, selection, search) with its own worker channels; a `Tab` holds one or two panes; the app keeps what's shared (toolbar, sidebar, clipboard, operations, thumbnails, settings). Actions from a pane are returned, then applied after it becomes the active one | Results can't reach the wrong pane, and the old single-folder code moved over almost unchanged | A third pane, or saving tabs between runs, is wanted |
+| D20 | Details column widths | Name fills the leftover width; the other columns are sized to their content (measured text of the longest possible value, or the header) and can't be dragged; `details_columns` picks which show. Replaces resizable columns with saved widths (P4.10) | The fixed columns' content has a known longest shape, so measuring beats remembering drags; long names get all the space | A column whose content varies a lot is added (Folder already shares the leftover with Name) |
 | D17 | File clipboard | In-app list of cut/copied paths; the paths also go on the system clipboard as text | egui's clipboard is text-only, and egui only reports Ctrl+V when the clipboard holds text, so putting the paths there makes Ctrl+V reach us and lets them paste into a terminal. No file interop with other file managers | Interop with other file managers is wanted (needs `text/uri-list` / `x-special/gnome-copied-files` clipboard targets) |
 
 ## 4. Threading model
@@ -182,7 +183,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
   - *Network* shows gvfs mounts under `/run/user/$UID/gvfs`, plus network filesystems.
 - **Tabs and split view (P10):** explorer mode only; the picker has neither. Each tab holds one pane, or two side by side (split view, at most two). A pane has its own Back/Forward/Up, address bar, search and filter buttons and file list; the search row (recursive search, Ctrl+F) and the filter row (hides names in the listed folder as you type, Ctrl+Shift+F; plain text matches part of the name, `*`/`?` make it a glob; case ignored) appear under the address bar. A drag handle between split panes moves the split (each pane at least 200 points; double-click for halves); each tab keeps its own split. The tab strip is a darker band; the active tab has the toolbar's color and joins it. The toolbar, sidebar, preview pane, keys and status bar act on the active pane (clicked last; in split view its bar is one surface step lighter). View, sort and hidden files are shared by all panes. Tabs aren't saved between runs.
 - **Address bar:** clickable breadcrumb segments. Clicking empty space, Ctrl+L, Alt+D or F4 switches it to a text field. Enter navigates; `~` expands; Escape reverts.
-- **File list views:** Details (default), List, and Medium/Large/Extra-large icons, which show thumbnails. In Details, headers sort (click again to reverse), columns resize, and folders always come first. Sorting is natural.
+- **File list views:** Details (default), List, and Medium/Large/Extra-large icons, which show thumbnails. In Details, headers sort (click again to reverse) and folders always come first. Name (and Folder, for search results) takes the width left over; Date modified, Type and Size are exactly as wide as their longest possible text (a fixed-shape date, `1023 bytes`, the widest type in the folder) or their header, so they don't resize by hand. Which of those three show is the `details_columns` setting (section 3 D20). Sorting is natural.
 - **Type column:** Windows-style `"PNG File"` (uppercase extension + " File"), `"Folder"`, or `"File"` when there's no extension.
 - **Icons:** painted in code with egui's painter (folder, generic file, image, archive, text, executable badge). No icon assets and no icon-theme lookup.
 - **Preview pane:** optional, toggled from the toolbar. Shows a large thumbnail and file details.
@@ -228,7 +229,7 @@ The portal writes a request to the picker's **stdin**. The picker writes a respo
 
 ### Persistence (`~/.config/itamiiru/config`, key=value)
 
-View mode, sort column and direction, column widths, sidebar width, window size, zoom level, hidden-files toggle, and the last folder per `app_id`.
+View mode, sort column and direction, Details columns (`details_columns=modified,type,size`, any subset; Name always shows), sidebar width, window size, zoom level, hidden-files toggle, and the last folder per `app_id`.
 
 `status_fields` sets what the status bar says about one selected item: a comma-separated list of `name`, `type`, `size` (files only), `modified`, `path`, shown in that order and joined with ", ". Default `type,size,modified` (no name: it's already highlighted in the list). Unknown names are skipped; an empty value shows just "1 selected". Several selected items always show the count and the files' total size. Set on the settings page or by hand.
 
@@ -520,6 +521,7 @@ Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps c
 - [ ] P9.5 Startup time: under 150 ms to first frame on your machine. Measure and fix.
 - [ ] P9.6 Follow the system light/dark theme.
 - [ ] P9.7 Packaging (install script -> AUR/deb/rpm later).
+- [x] P9.9 Details columns: `details_columns` setting and a "Details view" section on the settings page; Name fills the rest, the others fit their content (D20). The old `column_*` width keys are no longer read or written.
 - [x] P9.8 Settings page (`settings_page.rs`): a dialog opened by the toolbar's Settings button or Ctrl+Comma, with hidden files, the two auto-refresh features, thumbnails, the preview pane, and the status bar fields (shown/hidden and their order, with an example line), plus Restore defaults and the config file's location. Changes apply at once (thumbnails restart the pool) and are saved like any setting. It edits a copy (`Options`); `App::apply_options` applies the difference. This unblocks P4.6b (`breadcrumb_dropdowns`).
 
 ### Phase 10: Tabs and split view

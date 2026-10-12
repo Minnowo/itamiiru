@@ -6,14 +6,47 @@ use itamiiru_core::sort::{SortColumn, SortOrder};
 
 use crate::toolbar::ViewMode;
 
-/// Widths of the Details columns, in points. Size takes what's left.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ColumnWidths {
-    pub name: f32,
-    /// Only shown for search results.
-    pub folder: f32,
-    pub modified: f32,
-    pub kind: f32,
+/// Which columns the Details view shows besides Name (always shown) and
+/// Folder (search results only). Config: `details_columns=modified,type,size`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DetailsColumns {
+    pub modified: bool,
+    pub kind: bool,
+    pub size: bool,
+}
+
+impl DetailsColumns {
+    /// Reads a comma-separated list; unknown names are skipped.
+    fn parse(value: &str) -> DetailsColumns {
+        let mut columns = DetailsColumns {
+            modified: false,
+            kind: false,
+            size: false,
+        };
+        for part in value.split(',') {
+            match part.trim() {
+                "modified" => columns.modified = true,
+                "type" => columns.kind = true,
+                "size" => columns.size = true,
+                _ => {}
+            }
+        }
+        return columns;
+    }
+
+    fn value(self) -> String {
+        let mut keys = Vec::new();
+        if self.modified {
+            keys.push("modified");
+        }
+        if self.kind {
+            keys.push("type");
+        }
+        if self.size {
+            keys.push("size");
+        }
+        return keys.join(",");
+    }
 }
 
 /// What the status bar says about a single selected item, in the order
@@ -91,7 +124,7 @@ pub struct Settings {
     /// The window's size when not maximized, in points at 100% zoom.
     pub window_size: [f32; 2],
     pub maximized: bool,
-    pub columns: ColumnWidths,
+    pub columns: DetailsColumns,
     /// Optional features (PLAN.md section 6).
     pub auto_refresh_folder: bool,
     pub auto_refresh_drives: bool,
@@ -117,11 +150,10 @@ impl Default for Settings {
             sidebar_width: 220.0,
             window_size: [900.0, 600.0],
             maximized: false,
-            columns: ColumnWidths {
-                name: 320.0,
-                folder: 260.0,
-                modified: 140.0,
-                kind: 110.0,
+            columns: DetailsColumns {
+                modified: true,
+                kind: true,
+                size: true,
             },
             auto_refresh_folder: true,
             auto_refresh_drives: true,
@@ -171,11 +203,9 @@ impl Settings {
                 ),
             ],
             maximized: config.get_bool("window_maximized", d.maximized),
-            columns: ColumnWidths {
-                name: column_width(config, "column_name", d.columns.name),
-                folder: column_width(config, "column_folder", d.columns.folder),
-                modified: column_width(config, "column_modified", d.columns.modified),
-                kind: column_width(config, "column_type", d.columns.kind),
+            columns: match config.get("details_columns") {
+                Some(value) => DetailsColumns::parse(value),
+                None => d.columns,
             },
             auto_refresh_folder: config.get_bool("auto_refresh_folder", d.auto_refresh_folder),
             auto_refresh_drives: config.get_bool("auto_refresh_drives", d.auto_refresh_drives),
@@ -204,10 +234,7 @@ impl Settings {
         config.set_f32("window_width", self.window_size[0].round());
         config.set_f32("window_height", self.window_size[1].round());
         config.set_bool("window_maximized", self.maximized);
-        config.set_f32("column_name", self.columns.name.round());
-        config.set_f32("column_folder", self.columns.folder.round());
-        config.set_f32("column_modified", self.columns.modified.round());
-        config.set_f32("column_type", self.columns.kind.round());
+        config.set("details_columns", &self.columns.value());
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
         config.set_bool("thumbnails", self.thumbnails);
@@ -219,10 +246,6 @@ impl Settings {
 
 fn clamp(value: f32, min: f32, max: f32) -> f32 {
     return value.clamp(min, max);
-}
-
-fn column_width(config: &Config, key: &str, default: f32) -> f32 {
-    return clamp(config.get_f32(key, default), 40.0, 4000.0);
 }
 
 fn sort_column_key(column: SortColumn) -> &'static str {
@@ -250,8 +273,11 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let mut columns = Settings::default().columns;
-        columns.name = 400.0;
+        let columns = DetailsColumns {
+            modified: true,
+            kind: false,
+            size: true,
+        };
         let settings = Settings {
             view: ViewMode::LargeIcons,
             sort: SortOrder {
@@ -305,6 +331,16 @@ mod tests {
         for field in StatusField::ALL {
             assert_eq!(StatusField::from_key(field.key()), Some(field));
         }
+    }
+
+    #[test]
+    fn details_columns() {
+        let columns = DetailsColumns::parse("size, bogus,modified,name");
+        assert!(columns.modified && columns.size && !columns.kind);
+        assert_eq!(columns.value(), "modified,size");
+        let none = DetailsColumns::parse("");
+        assert!(!none.modified && !none.kind && !none.size);
+        assert_eq!(Settings::default().columns.value(), "modified,type,size");
     }
 
     #[test]

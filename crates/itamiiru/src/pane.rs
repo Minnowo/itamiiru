@@ -15,7 +15,7 @@ use itamiiru_core::fileops::Op;
 use itamiiru_core::glob::Glob;
 use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
 use itamiiru_core::search::{self, SearchMsg};
-use itamiiru_core::sort::{self, SortOrder};
+use itamiiru_core::sort::{self, SortOrder, type_label};
 
 use crate::address::{AddressAction, AddressBar};
 use crate::details::Rename;
@@ -83,6 +83,9 @@ pub struct Pane {
     pub entries: Vec<Entry>,
     /// Indices into `entries` of the rows on screen, top to bottom.
     pub visible: Vec<usize>,
+    /// The longest Type text among the visible rows, which sizes the
+    /// Details view's Type column. Found when the rows change, not per frame.
+    pub widest_type: String,
 
     /// Bumped on every navigation or refresh; results from older listings are ignored.
     generation: u64,
@@ -156,6 +159,7 @@ impl Pane {
             address: AddressBar::default(),
             entries: Vec::new(),
             visible: Vec::new(),
+            widest_type: String::new(),
             generation: 0,
             loading: false,
             refreshing: false,
@@ -440,6 +444,7 @@ impl Pane {
         sort::sort_entries(&mut self.entries, filter.sort.column, filter.sort.ascending);
         let names = NameFilter::new(&self.filter_text);
         self.visible.clear();
+        self.widest_type.clear();
         for (i, entry) in self.entries.iter().enumerate() {
             if !filter.show_hidden && entry.hidden {
                 continue;
@@ -453,6 +458,10 @@ impl Pane {
                 continue;
             }
             self.visible.push(i);
+            let label = type_label(entry);
+            if label.chars().count() > self.widest_type.chars().count() {
+                self.widest_type = label;
+            }
         }
         // Drop selected rows that disappeared (deleted, or now hidden).
         let mut selection = std::mem::take(&mut self.selection);

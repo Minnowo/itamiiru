@@ -192,7 +192,8 @@ while the app is closed. Optional features: `thumbnails`, `preview_pane`, `auto_
 `auto_refresh_drives` (`true` or `false`). `status_fields` picks what the
 status bar shows for one selected item, in order: any of `name`, `type`,
 `size`, `modified`, `path`, comma-separated (default
-`type,size,modified`). Colors can be changed with a
+`type,size,modified`). `details_columns` picks the Details view's columns
+besides Name: any of `modified`, `type`, `size` (default all three). Colors can be changed with a
 theme file at `~/.config/itamiiru/theme` (see PLAN.md section 6).
 
 ## Development
