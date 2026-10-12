@@ -500,7 +500,7 @@ Deferred on 2026-10-11 at the developer's request: Linux first. The code keeps c
 **Done when:** explorer mode works on both.
 
 ### Phase 9: Polish
-- [ ] P9.1 Attach the picker to the parent window: X11 transient-for; Wayland xdg-foreign. Research what winit exposes and how COSMIC solved it.
+- [ ] P9.1 Attach the picker to the parent window: X11 transient-for; Wayland xdg-foreign. Research what winit exposes and how COSMIC solved it. Until then windows open centered on the primary monitor (`NativeOptions::centered`; X11 only, and eframe ignores the monitor's offset on multi-monitor setups); with a parent, center on it instead.
 - [ ] P9.2 Accessibility decision (D10).
 - [ ] P9.3 Recent files (`~/.local/share/recently-used.xbel`, with a minimal parser for the `href` attribute only).
 - [ ] P9.4 inotify live updates on Linux via libc (replacing polling, D9).

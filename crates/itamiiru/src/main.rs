@@ -93,6 +93,10 @@ fn main() {
             .with_app_id("itamiiru")
             .with_inner_size(settings.window_size)
             .with_maximized(settings.maximized),
+        // Without a position, some window managers (xfwm4's smart
+        // placement) put big windows in a corner. Wayland ignores this;
+        // the compositor places windows there.
+        centered: true,
         ..Default::default()
     };
     let is_picker = picker.is_some();
