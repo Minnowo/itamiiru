@@ -882,6 +882,16 @@ impl Pane {
                         self.open_search();
                     }
                 }
+                let refresh = icon_button(ui, ButtonIcon::Refresh, false);
+                if refresh.on_hover_text("Refresh (F5)").clicked() {
+                    if self.this_pc {
+                        // The app rescans drives for a pane that just
+                        // (re)entered This PC.
+                        self.navigated = true;
+                    } else {
+                        self.refresh(filter);
+                    }
+                }
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                     self.address_bar(ui, theme);
                 });

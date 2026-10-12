@@ -68,14 +68,20 @@ pub fn show(
                         &mut options.auto_refresh_folder,
                         "Refresh the open folder when its contents change",
                     )
-                    .on_hover_text("Checked every 2 seconds while the window is focused");
+                    .on_hover_text(
+                        "Checked every 2 seconds while the window is focused. \
+                         Off: use the refresh button or F5.",
+                    );
                 });
                 section(ui, theme, "Drives", |ui| {
                     ui.checkbox(
                         &mut options.auto_refresh_drives,
                         "Notice new drives and bookmarks while the window is open",
                     )
-                    .on_hover_text("Checked every 5 seconds while the window is focused");
+                    .on_hover_text(
+                        "Checked every 5 seconds while the window is focused. \
+                         Off: use the refresh button at the bottom of the side pane.",
+                    );
                 });
                 section(ui, theme, "Pictures", |ui| {
                     ui.checkbox(&mut options.thumbnails, "Show thumbnails in the icon views");

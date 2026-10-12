@@ -119,21 +119,21 @@ impl RunningOp {
             ui.add_space(theme::GAP);
             ui.checkbox(&mut self.apply_to_all, "Do this for all conflicts");
             ui.add_space(theme::GAP);
-            ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
-                    choice = Some(Resolution::Cancel);
-                }
-                if ui.button("Skip").clicked() {
-                    choice = Some(Resolution::Skip);
-                }
-                if ui.button("Keep both").clicked() {
-                    choice = Some(Resolution::KeepBoth);
-                }
+            theme::dialog_buttons(ui, |ui| {
                 if theme
                     .outlined_button(ui, Accent::Error, "Replace")
                     .clicked()
                 {
                     choice = Some(Resolution::Replace);
+                }
+                if ui.button("Keep both").clicked() {
+                    choice = Some(Resolution::KeepBoth);
+                }
+                if ui.button("Skip").clicked() {
+                    choice = Some(Resolution::Skip);
+                }
+                if ui.button("Cancel").clicked() {
+                    choice = Some(Resolution::Cancel);
                 }
             });
         });
@@ -168,12 +168,12 @@ pub fn confirm_delete_dialog(
         ui.heading("Delete permanently?");
         ui.label(format!("Permanently delete {what}? This can't be undone."));
         ui.add_space(theme::GAP);
-        ui.horizontal(|ui| {
-            if ui.button("Cancel").clicked() {
-                choice = Some(false);
-            }
+        theme::dialog_buttons(ui, |ui| {
             if theme.filled_button(ui, Accent::Error, "Delete").clicked() {
                 choice = Some(true);
+            }
+            if ui.button("Cancel").clicked() {
+                choice = Some(false);
             }
         });
     });

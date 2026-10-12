@@ -571,6 +571,16 @@ impl Theme {
 }
 
 /// An egui button with its own fill for the rest, hover and pressed states.
+/// A dialog's button row, in its bottom-right corner. Laid out from the
+/// right edge, so add the main action first and Cancel last; on screen
+/// they read Cancel ... Main, left to right.
+pub fn dialog_buttons(ui: &mut egui::Ui, add_buttons: impl FnOnce(&mut egui::Ui)) {
+    ui.with_layout(
+        egui::Layout::right_to_left(egui::Align::Center),
+        add_buttons,
+    );
+}
+
 fn button_with_colors(
     ui: &mut egui::Ui,
     text: &str,

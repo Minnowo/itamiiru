@@ -516,15 +516,15 @@ impl Picker {
                 "\"{name}\" already exists. Do you want to replace it?"
             ));
             ui.add_space(theme::GAP);
-            ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
-                    choice = Some(false);
-                }
+            theme::dialog_buttons(ui, |ui| {
                 if theme
                     .filled_button(ui, Accent::Primary, "Replace")
                     .clicked()
                 {
                     choice = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    choice = Some(false);
                 }
             });
         });

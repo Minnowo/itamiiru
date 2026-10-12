@@ -8,7 +8,7 @@ use eframe::egui::{self, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::format::format_size;
 use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, Places, Volume};
 
-use crate::icons::{paint_drive_icon, paint_eject, paint_place_icon};
+use crate::icons::{ButtonIcon, icon_button, paint_drive_icon, paint_eject, paint_place_icon};
 use crate::theme::{self, Theme};
 
 /// Height of a drive's usage bar, in points.
@@ -28,6 +28,10 @@ pub enum SidebarAction {
     /// From the right-click menu.
     OpenInNewTab(PathBuf),
     CopyPath(PathBuf),
+    /// The buttons at the bottom: look for drives and bookmarks again,
+    /// and open the settings page.
+    Refresh,
+    Settings,
 }
 
 /// Draws the pane. `current` is the folder on screen, or None on This PC.
@@ -45,6 +49,30 @@ pub fn show(
     theme: &Theme,
 ) -> Option<SidebarAction> {
     let mut action = None;
+    // The buttons sit at the bottom; the places scroll above them.
+    egui::Panel::bottom("sidebar-buttons")
+        .show_separator_line(false)
+        .frame(egui::Frame::new().inner_margin(egui::Margin {
+            left: 0,
+            right: 0,
+            top: theme::GAP as i8,
+            bottom: 0,
+        }))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let refresh = icon_button(ui, ButtonIcon::Refresh, false);
+                if refresh
+                    .on_hover_text("Look for drives and bookmarks again")
+                    .clicked()
+                {
+                    action = Some(SidebarAction::Refresh);
+                }
+                let settings = icon_button(ui, ButtonIcon::Settings, false);
+                if settings.on_hover_text("Settings (Ctrl+Comma)").clicked() {
+                    action = Some(SidebarAction::Settings);
+                }
+            });
+        });
     let scroll = egui::ScrollArea::vertical().auto_shrink([false, false]);
     scroll.show(ui, |ui| {
         section(ui, "Quick access", |ui| {

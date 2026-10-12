@@ -1663,17 +1663,8 @@ impl eframe::App for App {
                 );
             });
         self.sidebar_width = sidebar.response.rect.width();
-        match sidebar_action {
-            Some(SidebarAction::GoTo(path)) => self.pane_mut().navigate(path),
-            Some(SidebarAction::ThisPc) => self.pane_mut().show_this_pc(),
-            Some(SidebarAction::Mount(volume)) => self.mount_volume(volume),
-            Some(SidebarAction::Unmount(volume)) => self.eject_volume(volume, false),
-            Some(SidebarAction::Eject(volume)) => self.eject_volume(volume, true),
-            Some(SidebarAction::OpenInNewTab(path)) => self.new_tab(Some(path), true),
-            Some(SidebarAction::CopyPath(path)) => {
-                self.ctx.copy_text(path.to_string_lossy().into_owned());
-            }
-            None => {}
+        if let Some(action) = sidebar_action {
+            self.apply_sidebar_action(action);
         }
 
         if self.preview_pane && !self.pane().this_pc {
@@ -1699,6 +1690,22 @@ impl eframe::App for App {
 }
 
 impl App {
+    fn apply_sidebar_action(&mut self, action: SidebarAction) {
+        match action {
+            SidebarAction::GoTo(path) => self.pane_mut().navigate(path),
+            SidebarAction::ThisPc => self.pane_mut().show_this_pc(),
+            SidebarAction::Mount(volume) => self.mount_volume(volume),
+            SidebarAction::Unmount(volume) => self.eject_volume(volume, false),
+            SidebarAction::Eject(volume) => self.eject_volume(volume, true),
+            SidebarAction::OpenInNewTab(path) => self.new_tab(Some(path), true),
+            SidebarAction::CopyPath(path) => {
+                self.ctx.copy_text(path.to_string_lossy().into_owned());
+            }
+            SidebarAction::Refresh => self.scan_places(),
+            SidebarAction::Settings => self.settings_open = true,
+        }
+    }
+
     /// The options the settings page shows, as they are now.
     fn options(&self) -> Options {
         return Options {
@@ -2610,6 +2617,121 @@ mod tests {
                 .any(|e| e.starts_with("Nope: can't run itamiiru-no-such-program")),
             "{:?}",
             app.op_errors
+        );
+    }
+
+    #[test]
+    fn settings_moved_to_the_sidebar() {
+        let folder = Folder::new("sidebarbuttons");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        assert!(
+            !texts.iter().any(|(t, _)| t == "Settings"),
+            "no Settings text button"
+        );
+
+        // The icons sit in a row at the bottom of the side pane, just above
+        // the status bar: click along it until the settings page opens.
+        let status = texts
+            .iter()
+            .find(|(t, _)| t == "3 items")
+            .expect("status bar")
+            .1;
+        let mut opened = false;
+        'search: for dy in (12..80).step_by(4) {
+            for x in (10..120).step_by(6) {
+                let y = status.top() - dy as f32;
+                click(&mut app, &ctx, Pos2::new(x as f32, y));
+                if app.settings_open {
+                    opened = true;
+                    break 'search;
+                }
+            }
+        }
+        assert!(opened, "the gear opens the settings page");
+    }
+
+    #[test]
+    fn the_refresh_button_lists_the_folder_again() {
+        let folder = Folder::new("refreshbutton");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        app.auto_refresh_folder = false;
+        settle(&mut app, &ctx);
+        assert_eq!(app.pane().visible.len(), 3);
+        std::fs::write(folder.0.join("new.txt"), b"x").expect("new file");
+
+        // The buttons are at the right end of the navigation bar, on the
+        // same row as the folder's name in the address bar.
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let name = folder.0.file_name().and_then(|n| n.to_str()).expect("name");
+        let row = texts
+            .iter()
+            .find(|(t, _)| t == name)
+            .expect("the address bar shows the folder")
+            .1
+            .center()
+            .y;
+        let mut refreshed = false;
+        for x in (900..1195).rev().step_by(3) {
+            click(&mut app, &ctx, Pos2::new(x as f32, row));
+            // Undo the neighbors: search and filter open a row.
+            if app.pane().search_open {
+                app.pane_mut().close_search();
+            }
+            if app.pane().filter_open {
+                let (pane, filter) = app.pane_and_filter();
+                pane.close_filter(&filter);
+            }
+            if app.pane().loading {
+                refreshed = true;
+                break;
+            }
+        }
+        assert!(refreshed, "found the refresh button");
+        settle(&mut app, &ctx);
+        assert_eq!(app.pane().visible.len(), 4, "the new file shows");
+    }
+
+    #[test]
+    fn dialog_buttons_sit_bottom_right() {
+        let folder = Folder::new("dialogbuttons");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        app.confirm_delete = Some(vec![folder.0.join("file.txt")]);
+        frame(&mut app, &ctx, Vec::new());
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let message = texts
+            .iter()
+            .find(|(t, _)| t.starts_with("Permanently delete"))
+            .expect("message")
+            .1;
+        // The dialog's buttons, not the toolbar's "Delete" at the top.
+        let find = |wanted: &str| {
+            let found = texts
+                .iter()
+                .find(|(t, rect)| t == wanted && rect.top() > message.bottom());
+            return found
+                .unwrap_or_else(|| panic!("{wanted:?} in the dialog"))
+                .1;
+        };
+        let cancel = find("Cancel");
+        let delete = find("Delete");
+        // Cancel, then Delete, both under the right half of the message.
+        assert!(
+            cancel.right() < delete.left(),
+            "cancel {cancel:?} delete {delete:?}"
+        );
+        assert!(
+            cancel.left() > message.center().x,
+            "cancel {cancel:?} message {message:?}"
+        );
+        assert!(
+            delete.right() > message.right() - 40.0,
+            "delete {delete:?} message {message:?}"
         );
     }
 

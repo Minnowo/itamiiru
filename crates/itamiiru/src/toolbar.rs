@@ -148,14 +148,6 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
 
         // Laid out from the right edge, so added in reverse order.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            command(
-                ui,
-                &mut action,
-                "Settings",
-                "Ctrl+Comma",
-                true,
-                Command::OpenSettings,
-            );
             if let Some(split) = state.split {
                 let mut split = split;
                 let checkbox = ui.checkbox(&mut split, "Split view");

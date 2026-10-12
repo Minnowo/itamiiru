@@ -224,8 +224,8 @@ with `ITAMI_DEBUG=1`.
 
 ## Settings
 
-The **Settings** button at the right of the toolbar (or Ctrl+Comma) opens
-the settings page; changes apply at once. Behind it is
+The gear at the bottom of the side pane (or Ctrl+Comma) opens the
+settings page; changes apply at once. Behind it is
 `~/.config/itamiiru/config`, `key=value` lines written as you use the app
 (view, sort, zoom, window size, ...), which can also be edited by hand
 while the app is closed. Optional features: `thumbnails`, `preview_pane`, `auto_refresh_folder`,

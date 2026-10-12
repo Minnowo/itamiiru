@@ -108,6 +108,7 @@ The UI follows the ponkotsu design system (https://github.com/Minnowo/ponkotsu-c
 - Never write a color literal in UI code. Use a `Theme` role. Text on fill `X` is `on_X`.
 - Depth comes from `theme.surface(n)` fills, not borders or shadows. Bump `n` for each nested box.
 - At most one `filled_button` per group, with the main action last in the row. Cancel is a plain `ui.button`.
+- Dialog buttons go in the bottom-right corner: lay them out with `theme::dialog_buttons` (right to left, so the main action is added first).
 - Spacing comes from the theme constants (`GAP_SMALL` 4, `GAP` 8, `GAP_LARGE` 16, `PADDING` 12). Don't invent other values.
 - Corner radius: `RADIUS_SMALL` (4) for controls, `RADIUS_MEDIUM` (8) for containers. Nothing else.
 - Muted text is `ui.weak(..)`; the colors behind it come from the theme.

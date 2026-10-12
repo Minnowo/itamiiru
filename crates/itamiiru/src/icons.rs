@@ -101,6 +101,10 @@ pub enum ButtonIcon {
     Plus,
     /// A funnel, for filtering names.
     Filter,
+    /// A circular arrow, for refreshing.
+    Refresh,
+    /// A gear, for the settings page.
+    Settings,
 }
 
 /// A square button like `arrow_button`, with a painted icon. `selected`
@@ -140,6 +144,45 @@ pub fn icon_button(ui: &mut egui::Ui, icon: ButtonIcon, selected: bool) -> egui:
                     [Pos2::new(c.x, area.top()), Pos2::new(c.x, area.bottom())],
                     stroke,
                 );
+            }
+            ButtonIcon::Refresh => {
+                // Most of a circle, with an arrowhead where it ends.
+                let center = area.center();
+                let radius = area.width() * 0.45;
+                let start = 0.35 * std::f32::consts::PI;
+                let end = 1.85 * std::f32::consts::PI;
+                let steps = 20;
+                let mut points = Vec::new();
+                for i in 0..=steps {
+                    let angle = start + (end - start) * i as f32 / steps as f32;
+                    points.push(center + radius * egui::vec2(angle.cos(), angle.sin()));
+                }
+                let tip = points[steps];
+                painter.add(Shape::line(points, stroke));
+                // The arrowhead points along the circle, clockwise on screen.
+                let size = area.width() * 0.3;
+                let head = vec![
+                    tip + egui::vec2(size * 0.6, 0.0),
+                    tip + egui::vec2(-size * 0.4, -size * 0.7),
+                    tip + egui::vec2(-size * 0.4, size * 0.5),
+                ];
+                painter.add(Shape::convex_polygon(head, color, Stroke::NONE));
+            }
+            ButtonIcon::Settings => {
+                // A ring with eight teeth around it.
+                let center = area.center();
+                let outer = area.width() * 0.5;
+                let inner = area.width() * 0.3;
+                for i in 0..8 {
+                    let angle = i as f32 * std::f32::consts::PI / 4.0;
+                    let direction = egui::vec2(angle.cos(), angle.sin());
+                    painter.line_segment(
+                        [center + direction * inner, center + direction * outer],
+                        Stroke::new(stroke.width * 1.6, color),
+                    );
+                }
+                painter.circle_stroke(center, inner, stroke);
+                painter.circle_stroke(center, inner * 0.35, stroke);
             }
             ButtonIcon::Filter => {
                 // The funnel's outline: wide at the top, then a short stem.
