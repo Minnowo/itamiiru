@@ -29,6 +29,7 @@ use crate::preview::Preview;
 use crate::settings::{DetailsColumns, Settings, StatusField};
 use crate::settings_page::{self, Options};
 use crate::sidebar::{self, SidebarAction};
+use crate::startup;
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
 use crate::theme::{self, Theme};
 use crate::thispc::{self, TileAction};
@@ -146,6 +147,11 @@ pub struct App {
     /// Set in picker mode (`itami --pick`). The picker has one tab and no
     /// split view.
     picker: Option<Picker>,
+    /// Startup timing stages already logged: first frame started, its
+    /// drawing done, and it being on screen.
+    startup_logged: [bool; 3],
+    /// The first folder's listing finished (startup timing).
+    first_listing_logged: bool,
 }
 
 /// What the panes list with. A free function, so it can borrow these
@@ -223,6 +229,8 @@ impl App {
             start_drag_out: itamiiru_core::platform::start_drag_out,
             dragging_out: None,
             picker,
+            startup_logged: [false; 3],
+            first_listing_logged: false,
         };
         app.scan_places();
         return app;
@@ -1656,6 +1664,25 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        // egui counts frames shown, and passes within a frame (a frame can
+        // be laid out twice before it's shown).
+        let frame_nr = ui.ctx().cumulative_frame_nr();
+        let pass = ui.ctx().current_pass_index();
+        if frame_nr == 0 && !self.startup_logged[0] {
+            self.startup_logged[0] = true;
+            startup::mark("first frame started");
+        }
+        if frame_nr == 0 && pass > 0 {
+            startup::mark("first frame laid out again (extra pass)");
+        }
+        if frame_nr >= 1 && !self.startup_logged[2] {
+            self.startup_logged[2] = true;
+            startup::mark("first frame on screen (second frame started)");
+        }
+        if !self.first_listing_logged && !self.pane().loading && frame_nr >= 1 {
+            self.first_listing_logged = true;
+            startup::mark("folder listed");
+        }
         self.handle_navigation();
         self.receive_panes();
         self.receive_op();
@@ -1773,6 +1800,10 @@ impl eframe::App for App {
         }
 
         egui::CentralPanel::default().show(ui, |ui| self.panes(ui));
+        if frame_nr == 0 && !self.startup_logged[1] {
+            self.startup_logged[1] = true;
+            startup::mark("first frame drawn by us (egui paints it next)");
+        }
     }
 }
 
@@ -3051,6 +3082,47 @@ mod tests {
             .1;
         click(&mut app, &ctx, header.center());
         assert_eq!(app.sort.column, SortColumn::Name);
+    }
+
+    /// Startup work that doesn't need a window, as the app does it (P9.5).
+    /// `cargo test --release -p itamiiru startup_timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn startup_timing() {
+        let ms = |since: std::time::Instant| since.elapsed().as_secs_f64() * 1000.0;
+        let home = itamiiru_core::platform::home_dir().expect("home");
+        let t = std::time::Instant::now();
+        let path = itamiiru_core::config::default_path();
+        let config = match &path {
+            Some(path) => Config::load(path),
+            None => Config::default(),
+        };
+        let theme = Theme::load();
+        let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
+        println!("{:7.1} ms  config, theme, time zone", ms(t));
+        let ctx = egui::Context::default();
+        let t = std::time::Instant::now();
+        theme.install(&ctx);
+        let mut app = App::new(ctx.clone(), theme, home, Vec::new(), config, None, None);
+        println!("{:7.1} ms  App::new", ms(t));
+        let t = std::time::Instant::now();
+        frame(&mut app, &ctx, Vec::new());
+        println!("{:7.1} ms  first frame (egui's fonts, no GPU)", ms(t));
+        let t = std::time::Instant::now();
+        frame(&mut app, &ctx, Vec::new());
+        println!("{:7.1} ms  second frame", ms(t));
+        let t = std::time::Instant::now();
+        settle(&mut app, &ctx);
+        println!(
+            "{:7.1} ms  home folder listed ({} items)",
+            ms(t),
+            app.pane().entries.len()
+        );
+        let t = std::time::Instant::now();
+        for _ in 0..10 {
+            frame(&mut app, &ctx, Vec::new());
+        }
+        println!("{:7.1} ms  per frame after that", ms(t) / 10.0);
     }
 
     #[test]

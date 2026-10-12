@@ -198,27 +198,30 @@ fn load_font(path: &Path, index: u32) -> Result<FontData, String> {
     let bytes = std::fs::read(path).map_err(|err| err.to_string())?;
     let mut data = FontData::from_owned(bytes);
     data.index = index;
-    egui_can_use(&data)?;
-    return Ok(data);
+    return egui_can_use(data);
 }
 
 /// Builds a throwaway set of egui fonts holding just this one, and
-/// catches the panic if egui can't parse it.
-fn egui_can_use(data: &FontData) -> Result<(), String> {
+/// catches the panic if egui can't parse it. The font is shared with the
+/// test, not copied (CJK fonts are 20 MB), and handed back afterwards.
+fn egui_can_use(data: FontData) -> Result<FontData, String> {
+    let data = Arc::new(data);
     let mut definitions = FontDefinitions::empty();
     definitions
         .font_data
-        .insert("test".to_string(), Arc::new(data.clone()));
+        .insert("test".to_string(), data.clone());
     definitions
         .families
         .insert(FontFamily::Proportional, vec!["test".to_string()]);
+    // `definitions` moves into the closure and is gone when it returns,
+    // so `data` is the only owner again.
     let result = std::panic::catch_unwind(move || {
         let _ = Fonts::new(TextOptions::default(), definitions);
     });
     if result.is_err() {
         return Err("egui can't read this font".to_string());
     }
-    return Ok(());
+    return Arc::try_unwrap(data).map_err(|_| "font still in use after the check".to_string());
 }
 
 /// `itami --font-info`: what fontconfig picks, whether egui can read each
@@ -326,13 +329,35 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// How long the font thread takes, as the window waits for it (P9.5).
+    /// `cargo test --release -p itamiiru font_timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn font_timing() {
+        let started = std::time::Instant::now();
+        let rx = start();
+        while let Ok(msg) = rx.recv() {
+            let what = match msg {
+                FontMsg::Main(fonts) => format!("main fonts ({})", fonts.len()),
+                FontMsg::Fallbacks(fonts) => format!("fallbacks ({})", fonts.len()),
+            };
+            println!(
+                "{:7.1} ms  {what}",
+                started.elapsed().as_secs_f64() * 1000.0
+            );
+        }
+    }
+
     #[test]
     fn unreadable_fonts_are_refused_not_crashed_on() {
         let garbage = FontData::from_owned(b"this is not a font file".to_vec());
-        assert!(egui_can_use(&garbage).is_err());
+        assert!(egui_can_use(garbage).is_err());
         let built_in = egui::FontDefinitions::default();
         let ubuntu = built_in.font_data["Ubuntu-Light"].as_ref().clone();
-        assert!(egui_can_use(&ubuntu).is_ok());
+        let size = ubuntu.font.len();
+        // Handed back whole, without a copy.
+        let back = egui_can_use(ubuntu).expect("readable");
+        assert_eq!(back.font.len(), size);
     }
 
     #[test]

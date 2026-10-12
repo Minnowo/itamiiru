@@ -13,6 +13,7 @@ mod selection;
 mod settings;
 mod settings_page;
 mod sidebar;
+mod startup;
 mod tabs;
 mod theme;
 mod thispc;
@@ -56,6 +57,7 @@ struct Args {
 }
 
 fn main() {
+    startup::begin();
     // args_os keeps non-UTF-8 paths intact.
     let args = match parse_args(std::env::args_os().skip(1).collect()) {
         Ok(args) => args,
@@ -109,6 +111,7 @@ fn main() {
     let theme = Theme::load();
     let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
 
+    startup::mark("config, theme and time zone loaded");
     let start = start_folder(&args, request.as_ref(), &config);
     let select = if args.pick { Vec::new() } else { args.select };
     // Closing the window without choosing means "cancelled".
@@ -144,15 +147,19 @@ fn main() {
     let is_picker = picker.is_some();
     // Fonts are found while the window opens.
     let font_rx = fonts::start();
+    startup::mark("opening the window");
     let result = eframe::run_native(
         "itamiiru",
         options,
         Box::new(|cc| {
+            startup::mark("window and OpenGL ready");
             theme.install(&cc.egui_ctx);
             cc.egui_ctx.set_zoom_factor(settings.zoom);
             fonts::install(&cc.egui_ctx, font_rx);
+            startup::mark("fonts installed");
             let ctx = cc.egui_ctx.clone();
             let app = app::App::new(ctx, theme, start, select, config, config_path, picker);
+            startup::mark("app built");
             return Ok(Box::new(app));
         }),
     );
