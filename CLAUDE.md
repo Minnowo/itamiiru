@@ -34,7 +34,7 @@ The layout copies the Windows 10/11 file dialog.
 
 | Crate | Used by | Why |
 |---|---|---|
-| `eframe` (default features off; enable glow, wayland, x11, default_fonts; **verify current feature names** in eframe's Cargo.toml) | itamiiru | Window + egui. glow (OpenGL) instead of wgpu because it pulls in far fewer crates. |
+| `eframe` (default features off; wayland, x11, default_fonts, plus the renderer from the `itamiiru` crate's features: `glow` by default, or `wgpu`; **verify current feature names** in eframe's Cargo.toml) | itamiiru | Window + egui. glow (OpenGL) is the default because it pulls in far fewer crates; `--features wgpu` (Vulkan, about 37 more crates) is an opt-in build for release tarballs, see PLAN.md D25. |
 | `egui_extras` (default features off) | itamiiru | Only for `TableBuilder` in the details view. Same repo as egui. |
 | `png` | itamiiru-core | PNG decoding, and encoding for the thumbnail cache. |
 | `zune-jpeg` **or** `jpeg-decoder` | itamiiru-core | JPEG. Pick one in the Phase 5 spike. |
@@ -81,6 +81,8 @@ cargo run -p itamiiru -- --pick < tests/requests/open-images.req   # picker mode
 cargo check -p itamiiru-core -p itamiiru --target x86_64-pc-windows-gnu
     # needs: rustup target add x86_64-pc-windows-gnu
 cargo check -p itamiiru-core --target aarch64-apple-darwin  # macOS code in platform/
+cargo clippy -p itamiiru --no-default-features --features wgpu -- -D warnings
+    # the Vulkan (wgpu) renderer build; the default is glow (PLAN.md D25)
     # needs: rustup target add aarch64-apple-darwin
 ./scripts/install-dev.sh                                  # install portal backend locally
 ./scripts/package.sh                                      # release tarball in target/

@@ -11,7 +11,17 @@ path = "src/main.rs"
 [lints]
 workspace = true
 
+# The renderer, chosen when building (PLAN.md D25). glow (OpenGL) is the
+# default: far fewer crates. wgpu draws with Vulkan (falling back to
+# OpenGL without a Vulkan driver) and starts faster once the driver's
+# shader cache is warm, at the cost of about 37 more crates:
+#   cargo build --release --no-default-features --features wgpu
+[features]
+default = ["glow"]
+glow = ["eframe/glow"]
+wgpu = ["eframe/wgpu"]
+
 [dependencies]
 itamiiru-core = { path = "../itamiiru-core" }
-eframe = { version = "0.36.2", default-features = false, features = ["glow", "wayland", "x11", "default_fonts"] }
+eframe = { version = "0.36.2", default-features = false, features = ["wayland", "x11", "default_fonts"] }
 egui_extras = { version = "0.36.2", default-features = false }

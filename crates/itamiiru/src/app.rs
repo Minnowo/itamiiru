@@ -1644,10 +1644,10 @@ impl App {
     }
 }
 
-impl eframe::App for App {
+impl App {
     /// A last save on the way out, if something changed since the last one.
     /// Writing here, on the UI thread, is fine: the window is closing.
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn save_on_exit(&mut self) {
         if self.latest_settings == self.saved_settings {
             return;
         }
@@ -1657,6 +1657,19 @@ impl eframe::App for App {
         {
             itamiiru_core::debug!("config: can't save {}: {err}", path.display());
         }
+    }
+}
+
+impl eframe::App for App {
+    #[cfg(feature = "glow")]
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.save_on_exit();
+    }
+
+    // eframe's on_exit has no GL context without glow.
+    #[cfg(not(feature = "glow"))]
+    fn on_exit(&mut self) {
+        self.save_on_exit();
     }
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
@@ -1671,6 +1684,17 @@ impl eframe::App for App {
         if frame_nr == 0 && !self.startup_logged[0] {
             self.startup_logged[0] = true;
             startup::mark("first frame started");
+            // Which GPU and backend (Vulkan or OpenGL) wgpu picked.
+            #[cfg(feature = "wgpu")]
+            if let Some(state) = _frame.wgpu_render_state() {
+                let info = state.adapter.get_info();
+                itamiiru_core::debug!(
+                    "wgpu: {:?} on {} ({})",
+                    info.backend,
+                    info.name,
+                    info.driver
+                );
+            }
         }
         if frame_nr == 0 && pass > 0 {
             startup::mark("first frame laid out again (extra pass)");

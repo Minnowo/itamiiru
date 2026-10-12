@@ -5,7 +5,7 @@
 # Works from a source checkout (builds with cargo) or from a release
 # tarball made by scripts/package.sh (uses its prebuilt bin/ folder).
 #
-# Usage: scripts/install.sh [--no-env] [--default-file-manager] [--uninstall]
+# Usage: scripts/install.sh [--no-env] [--default-file-manager] [--vulkan] [--uninstall]
 #   --no-env     don't touch the session environment (~/.xsessionrc or
 #                ~/.config/environment.d); set GTK_USE_PORTAL yourself
 #   --default-file-manager
@@ -13,6 +13,9 @@
 #                (org.freedesktop.FileManager1); on XFCE also sets the
 #                preferred file manager and drops Thunar's daemon from the
 #                Failsafe session; --uninstall undoes all of it
+#   --vulkan     (building from source) draw with wgpu/Vulkan instead of
+#                OpenGL: starts faster once the driver's cache is warm,
+#                about 37 more crates to build
 #   --uninstall  remove everything this script installed
 #
 # Run as your normal user, not with sudo. It asks for your password once,
@@ -23,12 +26,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 USE_ENV=1
 UNINSTALL=0
 DEFAULT_FM=0
+RENDERER_FLAGS=()
 for arg in "$@"; do
   case "$arg" in
     --no-env) USE_ENV=0 ;;
     --uninstall) UNINSTALL=1 ;;
     --default-file-manager) DEFAULT_FM=1 ;;
-    -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+    --vulkan) RENDERER_FLAGS=(--no-default-features --features wgpu) ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     *) echo "Unknown option: $arg (try --help)" >&2; exit 1 ;;
   esac
 done
@@ -209,7 +214,8 @@ elif [ -f "$ROOT/Cargo.toml" ]; then
     say "cargo not found. Install Rust from https://rustup.rs, or use a release tarball." >&2
     exit 1
   fi
-  (cd "$ROOT" && cargo build --release -p itamiiru -p itamiiru-portal)
+  (cd "$ROOT" && cargo build --release -p itamiiru-portal \
+    && cargo build --release -p itamiiru "${RENDERER_FLAGS[@]}")
   BUILT="$ROOT/target/release"
 else
   say "No bin/ folder and no Cargo.toml next to this script; nothing to install." >&2

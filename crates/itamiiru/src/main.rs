@@ -1,3 +1,7 @@
+// One of the two renderers must be built in (see Cargo.toml).
+#[cfg(not(any(feature = "glow", feature = "wgpu")))]
+compile_error!("build with a renderer: --features glow (the default) or --features wgpu");
+
 mod address;
 mod app;
 mod details;
@@ -147,7 +151,11 @@ fn main() {
     let is_picker = picker.is_some();
     // Fonts are found while the window opens.
     let font_rx = fonts::start();
-    startup::mark("opening the window");
+    if cfg!(feature = "glow") {
+        startup::mark("opening the window (renderer: glow, OpenGL)");
+    } else {
+        startup::mark("opening the window (renderer: wgpu)");
+    }
     let result = eframe::run_native(
         "itamiiru",
         options,

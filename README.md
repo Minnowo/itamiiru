@@ -38,11 +38,18 @@ once, for the one file that must live in `/usr/share`. Run it as your
 normal user, not with sudo.
 
 **From a release tarball** (no Rust needed). On a machine with Rust, make
-the tarball:
+the tarballs:
 
 ```
-scripts/package.sh        # -> target/itamiiru-<version>-<arch>-linux.tar.gz
+scripts/package.sh        # -> target/itamiiru-<version>-<arch>-linux-opengl.tar.gz
+                          #    target/itamiiru-<version>-<arch>-linux-vulkan.tar.gz
 ```
+
+Both work the same; they differ in how they draw. `opengl` (glow) is the
+default. `vulkan` (wgpu) starts faster once the graphics driver has cached
+its shaders (the first run after a driver update is slower), and falls back
+to OpenGL on machines without a Vulkan driver. From source, `install.sh
+--vulkan` builds the Vulkan one.
 
 Copy it over, then:
 
