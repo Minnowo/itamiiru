@@ -1,9 +1,8 @@
 //! The command row under the address bar (P4.7): New folder, the clipboard
-//! and delete commands, Sort, View and the hidden-files toggle, like the
+//! and delete commands, View and the hidden-files toggle, like the
 //! Windows 11 Explorer command bar.
 
 use eframe::egui::{self, Sense, StrokeKind, TextStyle};
-use itamiiru_core::sort::{SortColumn, SortOrder};
 
 use crate::icons::{Arrow, paint_arrow};
 use crate::menus::Command;
@@ -71,7 +70,6 @@ impl ViewMode {
 pub enum ToolbarAction {
     Command(Command),
     SetView(ViewMode),
-    SetSort(SortOrder),
 }
 
 /// What the toolbar needs to know to enable its buttons.
@@ -81,7 +79,6 @@ pub struct ToolbarState {
     /// On the This PC page there are no files to act on.
     pub this_pc: bool,
     pub view: ViewMode,
-    pub sort: SortOrder,
     pub show_hidden: bool,
     pub preview_pane: bool,
     /// Split view on or off; None hides the switch (the picker has no tabs).
@@ -171,11 +168,6 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
             if let Some(view) = view_selector(ui, state.view) {
                 action = Some(ToolbarAction::SetView(view));
             }
-            ui.add_enabled_ui(in_folder, |ui| {
-                if let Some(sort) = sort_menu(ui, state.sort) {
-                    action = Some(ToolbarAction::SetSort(sort));
-                }
-            });
         });
     });
     return action;
@@ -207,47 +199,6 @@ fn view_selector(ui: &mut egui::Ui, current: ViewMode) -> Option<ViewMode> {
             {
                 ui.close();
             }
-        }
-    });
-    if chosen != current {
-        return Some(chosen);
-    }
-    return None;
-}
-
-/// Sort by a column, and ascending or descending, like Explorer's Sort menu.
-fn sort_menu(ui: &mut egui::Ui, current: SortOrder) -> Option<SortOrder> {
-    let columns = [
-        (SortColumn::Name, "Name"),
-        (SortColumn::Modified, "Date modified"),
-        (SortColumn::Type, "Type"),
-        (SortColumn::Size, "Size"),
-    ];
-    let mut current_label = "Name";
-    for (column, label) in columns {
-        if column == current.column {
-            current_label = label;
-        }
-    }
-    let mut chosen = current;
-    dropdown(ui, &format!("Sort: {current_label}"), |ui| {
-        for (column, label) in columns {
-            if ui.radio_value(&mut chosen.column, column, label).clicked() {
-                ui.close();
-            }
-        }
-        ui.separator();
-        if ui
-            .radio_value(&mut chosen.ascending, true, "Ascending")
-            .clicked()
-        {
-            ui.close();
-        }
-        if ui
-            .radio_value(&mut chosen.ascending, false, "Descending")
-            .clicked()
-        {
-            ui.close();
         }
     });
     if chosen != current {

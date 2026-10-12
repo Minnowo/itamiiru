@@ -2,6 +2,7 @@
 //! way it runs keyboard shortcuts.
 
 use eframe::egui;
+use itamiiru_core::sort::{SortColumn, SortOrder};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -33,6 +34,8 @@ pub enum Command {
     ActionOnSelection(usize),
     /// A custom action on the folder itself (right-click on empty space).
     ActionOnFolder(usize),
+    /// Sort by a column and direction (the "Sort by" menu).
+    SetSort(SortOrder),
 }
 
 /// What the menus need to know to enable or label their items.
@@ -52,6 +55,8 @@ pub struct MenuState {
     /// name). Only filled while a right-click menu may show.
     pub actions_on_selection: Vec<(usize, String)>,
     pub actions_on_folder: Vec<(usize, String)>,
+    /// How the folder is sorted now, for the "Sort by" menu.
+    pub sort: SortOrder,
 }
 
 /// The menu for right-clicking a file or folder (which is then selected).
@@ -174,6 +179,13 @@ pub fn background_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> 
         }
     }
     ui.separator();
+    // Every view can sort from here, including List and the icon views,
+    // which have no column headers to click.
+    ui.menu_button("Sort by", |ui| {
+        if let Some(sort) = sort_menu(ui, state.sort) {
+            command = Some(Command::SetSort(sort));
+        }
+    });
     item(
         ui,
         &mut command,
@@ -200,6 +212,39 @@ pub fn background_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> 
 }
 
 /// One menu entry. Clicking it sets `command` and closes the menu.
+/// The column, then the direction, each with the current one marked.
+fn sort_menu(ui: &mut egui::Ui, current: SortOrder) -> Option<SortOrder> {
+    let columns = [
+        (SortColumn::Name, "Name"),
+        (SortColumn::Modified, "Date modified"),
+        (SortColumn::Type, "Type"),
+        (SortColumn::Size, "Size"),
+    ];
+    let mut chosen = current;
+    for (column, label) in columns {
+        if ui.radio_value(&mut chosen.column, column, label).clicked() {
+            ui.close();
+        }
+    }
+    ui.separator();
+    if ui
+        .radio_value(&mut chosen.ascending, true, "Ascending")
+        .clicked()
+    {
+        ui.close();
+    }
+    if ui
+        .radio_value(&mut chosen.ascending, false, "Descending")
+        .clicked()
+    {
+        ui.close();
+    }
+    if chosen != current {
+        return Some(chosen);
+    }
+    return None;
+}
+
 fn item(
     ui: &mut egui::Ui,
     command: &mut Option<Command>,

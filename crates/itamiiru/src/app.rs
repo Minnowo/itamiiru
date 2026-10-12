@@ -127,6 +127,10 @@ pub struct App {
     status_fields: Vec<StatusField>,
     /// The settings page is open.
     settings_open: bool,
+    /// Delete moves to the trash (setting `use_trash`).
+    use_trash: bool,
+    /// Files can be dragged out to other apps (setting `drag_and_drop`).
+    drag_and_drop: bool,
     /// Custom right-click actions, from the `actions` file next to the
     /// config file (read at startup).
     actions: Vec<Action>,
@@ -212,6 +216,8 @@ impl App {
             preview: Preview::new(),
             status_fields: settings.status_fields.clone(),
             settings_open: false,
+            use_trash: settings.use_trash,
+            drag_and_drop: settings.drag_and_drop,
             actions,
             drag_out: None,
             start_drag_out: itamiiru_core::platform::start_drag_out,
@@ -383,7 +389,6 @@ impl App {
             can_paste: self.clipboard.is_some(),
             this_pc: self.pane().this_pc,
             view: self.view,
-            sort: self.sort,
             show_hidden: self.show_hidden,
             preview_pane: self.preview_pane,
             split,
@@ -391,7 +396,6 @@ impl App {
         match toolbar::show(ui, &state) {
             Some(ToolbarAction::Command(command)) => self.run_command(command),
             Some(ToolbarAction::SetView(view)) => self.view = view,
-            Some(ToolbarAction::SetSort(sort)) => self.set_sort_order(sort),
             None => {}
         }
     }
@@ -422,6 +426,9 @@ impl App {
     /// A drag started on a row: like Explorer, an unselected row becomes
     /// the selection; the selection is what gets dragged.
     fn drag_start(&mut self, row: usize) {
+        if !self.drag_and_drop {
+            return;
+        }
         self.pane_mut().select_row_if_unselected(row);
         let paths = self.pane().selected_paths();
         if !paths.is_empty() {
@@ -557,7 +564,7 @@ impl App {
                 if paths.is_empty() {
                     return;
                 }
-                if trash_supported() {
+                if trash_supported() && self.use_trash {
                     self.start_op(Op::Trash { paths });
                 } else {
                     // No trash on this OS yet: fall back to asking first.
@@ -596,6 +603,7 @@ impl App {
             }
             Command::ToggleSplit => self.toggle_split(),
             Command::OpenSettings => self.settings_open = true,
+            Command::SetSort(sort) => self.set_sort_order(sort),
             Command::ActionOnSelection(index) => self.run_action(index, false),
             Command::ActionOnFolder(index) => self.run_action(index, true),
             Command::CopyToOtherPane => self.send_to_other_pane(false),
@@ -1340,12 +1348,13 @@ impl App {
             selected: pane.selection.count(),
             can_paste: self.clipboard.is_some(),
             show_hidden: self.show_hidden,
-            trash_supported: trash_supported(),
+            trash_supported: trash_supported() && self.use_trash,
             open_in_new_tab: self.picker.is_none() && selected_is_one_folder(pane),
             other_pane: other_name,
             other_pane_same: other_same,
             actions_on_selection,
             actions_on_folder,
+            sort: self.sort,
         };
         let cut = match &self.clipboard {
             Some(clipboard) if clipboard.cut => &clipboard.set,
@@ -1593,6 +1602,8 @@ impl App {
             preview_pane: self.preview_pane,
             preview_width: self.preview_width,
             status_fields: self.status_fields.clone(),
+            use_trash: self.use_trash,
+            drag_and_drop: self.drag_and_drop,
         };
     }
 
@@ -1792,6 +1803,8 @@ impl App {
             preview_pane: self.preview_pane,
             status_fields: self.status_fields.clone(),
             columns: self.details_columns,
+            use_trash: self.use_trash,
+            drag_and_drop: self.drag_and_drop,
         };
     }
 
@@ -1810,6 +1823,8 @@ impl App {
         self.preview_pane = options.preview_pane;
         self.status_fields = options.status_fields;
         self.details_columns = options.columns;
+        self.use_trash = options.use_trash;
+        self.drag_and_drop = options.drag_and_drop;
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {
@@ -2934,6 +2949,108 @@ mod tests {
         drag.set_state(DragState::Ended);
         frame(&mut app, &ctx, Vec::new());
         assert!(app.dragging_out.is_none());
+    }
+
+    #[test]
+    fn trash_and_drag_can_be_switched_off() {
+        let folder = Folder::new("switches");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        app.start_drag_out = record_drag;
+        settle(&mut app, &ctx);
+        let mut options = app.options();
+        options.use_trash = false;
+        options.drag_and_drop = false;
+        app.apply_options(options);
+        assert!(!app.use_trash && !app.drag_and_drop);
+
+        // Delete asks to delete permanently instead of using the trash.
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let start = texts
+            .iter()
+            .find(|(text, _)| text == "file.txt")
+            .expect("file.txt is listed")
+            .1
+            .center();
+        click(&mut app, &ctx, start);
+        frame(&mut app, &ctx, key(Key::Delete, Modifiers::NONE));
+        assert!(app.confirm_delete.is_some(), "asks first");
+        assert!(app.running.is_none(), "nothing went to the trash");
+        app.confirm_delete = None;
+
+        // The right-click menu has no "Move to trash" (looked at while
+        // it's open), only "Delete permanently".
+        let right = |pressed| Event::PointerButton {
+            pos: start,
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(&mut app, &ctx, vec![Event::PointerMoved(start)]);
+        frame(&mut app, &ctx, vec![right(true)]);
+        frame(&mut app, &ctx, vec![right(false)]);
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        assert!(
+            texts.iter().any(|(t, _)| t == "Delete permanently"),
+            "the menu is open"
+        );
+        assert!(!texts.iter().any(|(t, _)| t == "Move to trash"));
+        frame(&mut app, &ctx, key(Key::Escape, Modifiers::NONE));
+        frame(&mut app, &ctx, Vec::new());
+
+        // Dragging doesn't start a drag out.
+        drag_from(&mut app, &ctx, start, egui::vec2(-20.0, 0.0), 5);
+        assert!(app.drag_out.is_none());
+        frame(
+            &mut app,
+            &ctx,
+            vec![Event::PointerMoved(Pos2::new(-40.0, start.y))],
+        );
+        frame(
+            &mut app,
+            &ctx,
+            vec![button(Pos2::new(-40.0, start.y), false)],
+        );
+        assert!(app.dragging_out.is_none());
+        assert!(folder.0.join("file.txt").exists());
+    }
+
+    #[test]
+    fn sorting_from_the_right_click_menu() {
+        let folder = Folder::new("sortmenu");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        assert!(
+            !texts.iter().any(|(t, _)| t.starts_with("Sort:")),
+            "no toolbar dropdown"
+        );
+
+        // The icon views have no headers: sort from the empty-space menu.
+        app.view = ViewMode::LargeIcons;
+        frame(&mut app, &ctx, Vec::new());
+        assert_eq!(app.sort.column, SortColumn::Name);
+        menu_click(&mut app, &ctx, Pos2::new(900.0, 700.0), "Sort by");
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let size = texts
+            .iter()
+            .find(|(t, _)| t == "Size")
+            .expect("the Sort by submenu is open")
+            .1;
+        click(&mut app, &ctx, size.center());
+        assert_eq!(app.sort.column, SortColumn::Size);
+
+        // In Details the headers still sort.
+        app.view = ViewMode::Details;
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let header = texts
+            .iter()
+            .find(|(t, _)| t == "Name")
+            .expect("Name header")
+            .1;
+        click(&mut app, &ctx, header.center());
+        assert_eq!(app.sort.column, SortColumn::Name);
     }
 
     #[test]

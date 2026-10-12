@@ -25,6 +25,8 @@ pub struct Options {
     pub preview_pane: bool,
     pub status_fields: Vec<StatusField>,
     pub columns: DetailsColumns,
+    pub use_trash: bool,
+    pub drag_and_drop: bool,
 }
 
 impl Options {
@@ -39,6 +41,8 @@ impl Options {
             preview_pane: d.preview_pane,
             status_fields: d.status_fields,
             columns: d.columns,
+            use_trash: d.use_trash,
+            drag_and_drop: d.drag_and_drop,
         };
     }
 }
@@ -83,6 +87,12 @@ pub fn show(
                          Off: use the refresh button at the bottom of the side pane.",
                     );
                 });
+                section(ui, theme, "Files", |ui| {
+                    ui.checkbox(&mut options.use_trash, "Move deleted items to the trash")
+                        .on_hover_text("Off: Delete removes them for good, after asking");
+                    ui.checkbox(&mut options.drag_and_drop, "Drag files out to other apps")
+                        .on_hover_text("Drop them in a browser, a terminal, an editor (X11 only)");
+                });
                 section(ui, theme, "Pictures", |ui| {
                     ui.checkbox(&mut options.thumbnails, "Show thumbnails in the icon views");
                     ui.checkbox(&mut options.preview_pane, "Show the preview pane")
@@ -102,7 +112,7 @@ pub fn show(
                     ui.weak(format!("Example: {}", example(&options.status_fields)));
                 });
                 if let Some(path) = config_path {
-                    section(ui, theme, "Files", |ui| {
+                    section(ui, theme, "Where settings are kept", |ui| {
                         ui.weak(format!("Settings are saved in {}", path.display()));
                         if let Some(dir) = path.parent() {
                             let theme_file = dir.join("theme");

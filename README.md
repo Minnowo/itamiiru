@@ -237,8 +237,9 @@ The gear at the bottom of the side pane (or Ctrl+Comma) opens the
 settings page; changes apply at once. Behind it is
 `~/.config/itamiiru/config`, `key=value` lines written as you use the app
 (view, sort, zoom, window size, ...), which can also be edited by hand
-while the app is closed. Optional features: `thumbnails`, `preview_pane`, `auto_refresh_folder`,
-`auto_refresh_drives` (`true` or `false`). `status_fields` picks what the
+while the app is closed. Optional features: `thumbnails`, `preview_pane`,
+`auto_refresh_folder`, `auto_refresh_drives`, `use_trash` (off: Delete
+deletes permanently, after asking), `drag_and_drop` (`true` or `false`). `status_fields` picks what the
 status bar shows for one selected item, in order: any of `name`, `type`,
 `size`, `modified`, `path`, comma-separated (default
 `type,size,modified`). `details_columns` picks the Details view's columns

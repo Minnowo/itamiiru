@@ -135,6 +135,10 @@ pub struct Settings {
     pub preview_width: f32,
     /// The details the status bar shows for one selected item.
     pub status_fields: Vec<StatusField>,
+    /// Delete moves to the trash; off, it deletes permanently (after asking).
+    pub use_trash: bool,
+    /// Files can be dragged out to other apps.
+    pub drag_and_drop: bool,
 }
 
 impl Default for Settings {
@@ -161,6 +165,8 @@ impl Default for Settings {
             preview_pane: false,
             preview_width: 300.0,
             status_fields: vec![StatusField::Type, StatusField::Size, StatusField::Modified],
+            use_trash: true,
+            drag_and_drop: true,
         };
     }
 }
@@ -220,6 +226,8 @@ impl Settings {
                 Some(value) => parse_status_fields(value),
                 None => d.status_fields,
             },
+            use_trash: config.get_bool("use_trash", d.use_trash),
+            drag_and_drop: config.get_bool("drag_and_drop", d.drag_and_drop),
         };
     }
 
@@ -235,6 +243,8 @@ impl Settings {
         config.set_f32("window_height", self.window_size[1].round());
         config.set_bool("window_maximized", self.maximized);
         config.set("details_columns", &self.columns.value());
+        config.set_bool("use_trash", self.use_trash);
+        config.set_bool("drag_and_drop", self.drag_and_drop);
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
         config.set_bool("thumbnails", self.thumbnails);
@@ -293,6 +303,8 @@ mod tests {
             preview_pane: true,
             preview_width: 420.0,
             status_fields: vec![StatusField::Path, StatusField::Name],
+            use_trash: false,
+            drag_and_drop: false,
             // The rest keep their defaults.
             ..Settings::default()
         };
