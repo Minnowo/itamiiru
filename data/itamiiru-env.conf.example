@@ -1,4 +1,7 @@
-# Copy to ~/.config/environment.d/60-itamiiru.conf, then log out and back in.
+# For Wayland and systemd-based sessions (GNOME, KDE, sway, ...): copy to
+# ~/.config/environment.d/60-itamiiru.conf, then log out and back in.
+# X sessions started by /etc/X11/Xsession (XFCE on Debian, ...) don't read
+# this; use xsessionrc.example there.
 # Makes GTK and Qt apps route file dialogs through the portal (and so to itamiiru).
 GTK_USE_PORTAL=1
 GDK_DEBUG=portals

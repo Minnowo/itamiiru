@@ -347,7 +347,9 @@ Record what actually happens in `docs/app-compat.md` (Phase 6).
 | LibreOffice | uses the GTK VCL plugin, which respects `GTK_USE_PORTAL=1` | Verify |
 | JetBrains, Java/Swing, Tk, Wine | not possible | Own dialogs |
 
-Set the environment variables session-wide in `~/.config/environment.d/60-itamiiru.conf` (see `data/itamiiru-env.conf.example`). Log out and back in afterwards.
+Set the environment variables session-wide, then log out and back in:
+- Wayland and systemd-based sessions: `~/.config/environment.d/60-itamiiru.conf` (see `data/itamiiru-env.conf.example`).
+- X sessions started by `/etc/X11/Xsession` (XFCE, MATE, Cinnamon on Debian and Ubuntu): these never read `environment.d`. Use `~/.xsessionrc` (see `data/xsessionrc.example`), which also copies the variables into the D-Bus activation environment for D-Bus-activated apps. Xsession runs with `set -e`, so every line in it must be guarded.
 
 ## 11. Phases
 
@@ -465,9 +467,9 @@ Checked 2026-10-11 without a display:
 - Still to check by hand: smooth scrolling in a 2,000-photo folder (`scripts/make-test-photos.sh` builds one in `/tmp/itamiiru-photos`), and the preview pane.
 
 ### Phase 6: Rollout on your own machine
-- [ ] P6.1 Session environment file installed; activation environment verified (section 13).
+- [x] P6.1 Session environment file installed; activation environment verified (section 13). XFCE on Debian reads `~/.xsessionrc`, not `environment.d`; installed from `data/xsessionrc.example` (2026-10-11), and checked to source cleanly under `sh -e`. The systemd activation environment already had `DISPLAY` and `XDG_CURRENT_DESKTOP`, and now has `GTK_USE_PORTAL` and `GDK_DEBUG` too. Qt variable left out: no Qt apps that open files, and no xdgdesktopportal plugin installed.
 - [ ] P6.2 Test each app in section 10 and record results in `docs/app-compat.md`.
-- [ ] P6.3 Tiling-WM float rule documented if needed.
+- [x] P6.3 Tiling-WM float rule documented if needed. Not needed on XFCE (xfwm4 floats dialogs); the sway and Hyprland rule is in section 13.
 
 **Done when:** every app you use daily shows itamiiru, or is listed as impossible with the reason.
 
