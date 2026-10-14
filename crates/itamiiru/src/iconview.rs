@@ -9,6 +9,7 @@ use eframe::egui::{self, Align, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::entry::Entry;
 use itamiiru_core::thumbcache::ThumbSize;
 
+use crate::band;
 use crate::details::{Rename, TableAction, TableInput, item_action, rename_box};
 use crate::icons::paint_entry_icon;
 use crate::menus;
@@ -71,7 +72,7 @@ pub fn show_icons(
             origin,
             egui::vec2(width, content_height.max(viewport.height())),
         );
-        background(ui, content, input, &mut action);
+        let band_started = background(ui, content, input, origin, &mut action);
 
         let cell_rect = |index: usize| {
             let (row, col) = (index / per_row, index % per_row);
@@ -104,6 +105,15 @@ pub fn show_icons(
             );
             item_action(&response, index, modifiers, input.menu, &mut action);
         }
+        band_select(
+            ui,
+            origin,
+            count,
+            cell_rect,
+            band_started,
+            input,
+            &mut action,
+        );
         if let Some(index) = scroll_to
             && index < count
         {
@@ -148,7 +158,7 @@ pub fn show_list(
             origin,
             egui::vec2(content_width.max(viewport.width()), height),
         );
-        background(ui, content, input, &mut action);
+        let band_started = background(ui, content, input, origin, &mut action);
 
         let cell_rect = |index: usize| {
             let (col, row) = (index / per_column, index % per_column);
@@ -173,6 +183,15 @@ pub fn show_list(
             );
             item_action(&response, index, modifiers, input.menu, &mut action);
         }
+        band_select(
+            ui,
+            origin,
+            count,
+            cell_rect,
+            band_started,
+            input,
+            &mut action,
+        );
         if let Some(index) = scroll_to
             && index < count
         {
@@ -207,10 +226,23 @@ pub fn visible_range(start: f32, end: f32, step: f32, total: usize) -> (usize, u
     return (first.min(total), last.min(total));
 }
 
-/// Empty space: click clears the selection, right-click shows the folder menu.
+/// Empty space: click clears the selection, right-click shows the folder
+/// menu, and a drag starts a box to select with (returns true then).
 /// Added before the items, so the items (added later, on top) win clicks.
-fn background(ui: &mut egui::Ui, rect: Rect, input: &TableInput, action: &mut Option<TableAction>) {
-    let response = ui.interact(rect, ui.id().with("background"), Sense::click());
+/// `origin` is where the content starts on screen.
+fn background(
+    ui: &mut egui::Ui,
+    rect: Rect,
+    input: &TableInput,
+    origin: egui::Pos2,
+    action: &mut Option<TableAction>,
+) -> bool {
+    let sense = if input.drag_select {
+        Sense::click_and_drag()
+    } else {
+        Sense::click()
+    };
+    let response = ui.interact(rect, ui.id().with("background"), sense);
     if response.clicked() || response.secondary_clicked() {
         *action = Some(TableAction::ClearSelection);
     }
@@ -219,6 +251,42 @@ fn background(ui: &mut egui::Ui, rect: Rect, input: &TableInput, action: &mut Op
             *action = Some(TableAction::Command(command));
         }
     });
+    band::auto_scroll(ui, ui.id().with("band"));
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        band::start(ui.ctx(), ui.id().with("band"), origin);
+        let add = ui.input(|i| i.modifiers.command);
+        *action = Some(TableAction::BandStart { add });
+        return true;
+    }
+    return false;
+}
+
+/// While a box is being drawn: paints it and selects the items it
+/// touches. `cell_rect` gives an item's place on screen.
+fn band_select(
+    ui: &egui::Ui,
+    origin: egui::Pos2,
+    count: usize,
+    cell_rect: impl Fn(usize) -> Rect,
+    band_started: bool,
+    input: &TableInput,
+    action: &mut Option<TableAction>,
+) {
+    let Some(band) = band::current(ui.ctx(), ui.id().with("band"), origin) else {
+        return;
+    };
+    band::paint(ui.painter(), band, origin, input.theme);
+    if band_started {
+        return;
+    }
+    let on_screen = band.translate(origin.to_vec2());
+    let mut rows = Vec::new();
+    for index in 0..count {
+        if cell_rect(index).intersects(on_screen) {
+            rows.push(index);
+        }
+    }
+    *action = Some(TableAction::Band(rows));
 }
 
 /// Paints the hover or selected background of an item.

@@ -132,6 +132,8 @@ pub struct Settings {
     pub thumbnails: bool,
     /// The preview pane on the right, and its width in points.
     pub preview_pane: bool,
+    /// The preview pane only shows when there's a picture or text to show.
+    pub preview_auto_hide: bool,
     pub preview_width: f32,
     /// The details the status bar shows for one selected item.
     pub status_fields: Vec<StatusField>,
@@ -139,6 +141,8 @@ pub struct Settings {
     pub use_trash: bool,
     /// Files can be dragged out to other apps.
     pub drag_and_drop: bool,
+    /// Dragging from empty space selects with a box.
+    pub drag_select: bool,
 }
 
 impl Default for Settings {
@@ -163,10 +167,12 @@ impl Default for Settings {
             auto_refresh_drives: true,
             thumbnails: true,
             preview_pane: false,
+            preview_auto_hide: false,
             preview_width: 300.0,
             status_fields: vec![StatusField::Type, StatusField::Size, StatusField::Modified],
             use_trash: true,
             drag_and_drop: true,
+            drag_select: true,
         };
     }
 }
@@ -217,6 +223,7 @@ impl Settings {
             auto_refresh_drives: config.get_bool("auto_refresh_drives", d.auto_refresh_drives),
             thumbnails: config.get_bool("thumbnails", d.thumbnails),
             preview_pane: config.get_bool("preview_pane", d.preview_pane),
+            preview_auto_hide: config.get_bool("preview_auto_hide", d.preview_auto_hide),
             preview_width: clamp(
                 config.get_f32("preview_width", d.preview_width),
                 120.0,
@@ -228,6 +235,7 @@ impl Settings {
             },
             use_trash: config.get_bool("use_trash", d.use_trash),
             drag_and_drop: config.get_bool("drag_and_drop", d.drag_and_drop),
+            drag_select: config.get_bool("drag_select", d.drag_select),
         };
     }
 
@@ -245,10 +253,12 @@ impl Settings {
         config.set("details_columns", &self.columns.value());
         config.set_bool("use_trash", self.use_trash);
         config.set_bool("drag_and_drop", self.drag_and_drop);
+        config.set_bool("drag_select", self.drag_select);
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
         config.set_bool("thumbnails", self.thumbnails);
         config.set_bool("preview_pane", self.preview_pane);
+        config.set_bool("preview_auto_hide", self.preview_auto_hide);
         config.set_f32("preview_width", self.preview_width.round());
         config.set("status_fields", &status_fields_value(&self.status_fields));
     }
@@ -301,10 +311,12 @@ mod tests {
             auto_refresh_drives: false,
             thumbnails: false,
             preview_pane: true,
+            preview_auto_hide: true,
             preview_width: 420.0,
             status_fields: vec![StatusField::Path, StatusField::Name],
             use_trash: false,
             drag_and_drop: false,
+            drag_select: false,
             // The rest keep their defaults.
             ..Settings::default()
         };

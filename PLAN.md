@@ -144,8 +144,10 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | `auto_refresh_folder` | on | Top of `App::check_for_changes` |
 | `auto_refresh_drives` | on | Top of `App::check_places` |
 | `preview_pane` | off | The `Panel::right("preview")` block in `App::ui` |
+| `preview_auto_hide` | off | Same block: the panel is skipped unless `Preview::auto_open` |
 | `use_trash` | on | `App::run_command` for `Command::Trash`, and `trash_supported` |
 | `drag_and_drop` | on | Top of `App::drag_start` |
+| `drag_select` | on | `TableInput::drag_select`: the views' empty space (and Details cells other than Name) sense drags and start a box (`band.rs`) |
 | `thumbnails` | on | `Thumbs::new` starts no pool when off |
 
 **Theme:** egui's global style is set from the theme at startup, so plain widgets follow it. Selected rows use `secondary-container`; categorical colors (`pink`, `red`, `yellow`, `green`, `blue`) are for file-type icons and drive bars, never errors. The rest of the rules are in CLAUDE.md.

@@ -1,5 +1,7 @@
 //! The preview pane, an optional feature: `preview_pane` in the
 //! config, off by default; Alt+P or the toolbar checkbox toggles it.
+//! With `preview_auto_hide` it only shows while there's a picture or
+//! text to show.
 //!
 //! Shows the one selected item: a large thumbnail for images, the start of
 //! the file for text, otherwise a big icon. Then its name, type, size and
@@ -37,6 +39,10 @@ pub struct Preview {
     /// The item being shown, as it was when it got selected.
     entry: Option<Entry>,
     text: Text,
+    /// The thumbnail size asked for, from the pane's width.
+    size: ThumbSize,
+    /// With auto-hide: the pane was showing last frame.
+    was_open: bool,
     tx: Sender<TextPreview>,
     rx: Receiver<TextPreview>,
 }
@@ -47,23 +53,58 @@ impl Preview {
         return Preview {
             entry: None,
             text: Text::None,
+            size: ThumbSize::XLarge,
+            was_open: false,
             tx,
             rx,
         };
     }
 
-    /// Draws the pane. `selected` is the one selected item, if exactly one is.
-    pub fn show(
+    /// Follows the selection and asks for its thumbnail. Called every
+    /// frame while the pane is on, also while it's hidden, so the app can
+    /// tell when there's something to show. `selected` is the one selected
+    /// item, if exactly one is; `width` is the pane's width in points.
+    pub fn prepare(
         &mut self,
-        ui: &mut egui::Ui,
+        ctx: &egui::Context,
         entries: &[Entry],
         selected: Option<&Path>,
         thumbs: &mut Thumbs,
-        theme: &Theme,
+        width: f32,
     ) {
-        self.follow_selection(ui.ctx(), entries, selected);
+        self.follow_selection(ctx, entries, selected);
         self.receive();
+        // Bigger than the pane is pointless; x-large (512 px) is plenty.
+        let pixels = width * ctx.pixels_per_point();
+        self.size = ThumbSize::for_pixels(pixels).min(ThumbSize::XLarge);
+        if let Some(entry) = &self.entry {
+            thumbs.want(&[entry], self.size);
+        }
+    }
 
+    /// With auto-hide: whether the pane showed last frame.
+    pub fn was_open(&self) -> bool {
+        return self.was_open;
+    }
+
+    /// With auto-hide: whether the pane shows this frame. It opens once
+    /// there's a picture or text to show, not just an icon, and stays open
+    /// while the next item's preview loads, so going from one file to the
+    /// next doesn't make it flicker.
+    pub fn auto_open(&mut self, thumbs: &Thumbs) -> bool {
+        let Some(entry) = &self.entry else {
+            self.was_open = false;
+            return false;
+        };
+        let ready =
+            thumbs.get(entry, self.size).is_some() || matches!(self.text, Text::Ready { .. });
+        let loading = thumbs.is_pending(entry, self.size) || matches!(self.text, Text::Loading);
+        self.was_open = ready || (self.was_open && loading);
+        return self.was_open;
+    }
+
+    /// Draws the pane, as of the last `prepare`.
+    pub fn show(&self, ui: &mut egui::Ui, thumbs: &Thumbs, theme: &Theme) {
         let Some(entry) = &self.entry else {
             ui.centered_and_justified(|ui| {
                 ui.weak("Select a file to preview.");
@@ -72,17 +113,13 @@ impl Preview {
         };
 
         let width = ui.available_width();
-        // Bigger than the pane is pointless; x-large (512 px) is plenty.
-        let pixels = width * ui.ctx().pixels_per_point();
-        let size = ThumbSize::for_pixels(pixels).min(ThumbSize::XLarge);
-        thumbs.want(&[entry], size);
 
         // The details go at the bottom; the preview takes the space above.
         let line = ui.text_style_height(&TextStyle::Body);
         let details_height = 5.0 * line + 4.0 * theme::GAP;
         let preview_height = (ui.available_height() - details_height).max(BIG_ICON);
 
-        if let Some(texture) = thumbs.get(entry, size) {
+        if let Some(texture) = thumbs.get(entry, self.size) {
             let [w, h] = texture.size();
             let natural = egui::vec2(w as f32, h as f32) / ui.ctx().pixels_per_point();
             let scale = (width / natural.x).min(preview_height / natural.y).min(1.0);

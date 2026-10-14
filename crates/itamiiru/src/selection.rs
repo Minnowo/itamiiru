@@ -75,6 +75,26 @@ impl Selection {
         }
     }
 
+    /// The selected paths, e.g. to keep while a Ctrl+drag adds more.
+    pub fn selected_set(&self) -> &HashSet<PathBuf> {
+        return &self.selected;
+    }
+
+    /// Drag to select: `base` plus the rows the box touches. The keyboard
+    /// carries on from the first of them.
+    pub fn band(&mut self, paths: &[&Path], base: &HashSet<PathBuf>, rows: &[usize]) {
+        self.selected = base.clone();
+        for row in rows {
+            if let Some(path) = paths.get(*row) {
+                self.selected.insert(path.to_path_buf());
+            }
+        }
+        if let Some(path) = rows.first().and_then(|row| paths.get(*row)) {
+            self.anchor = Some(path.to_path_buf());
+            self.cursor = Some(path.to_path_buf());
+        }
+    }
+
     pub fn select_all(&mut self, paths: &[&Path]) {
         self.selected.clear();
         for path in paths {
@@ -278,6 +298,25 @@ mod tests {
         sel.shift_click(&p, 4);
         assert_eq!(selected_names(&sel, &v), "bcde");
         assert_eq!(sel.cursor(), Some(Path::new("e")));
+    }
+
+    #[test]
+    fn band_adds_to_its_base() {
+        let v = paths();
+        let p = refs(&v);
+        let mut sel = Selection::default();
+        sel.band(&p, &HashSet::new(), &[1, 2]);
+        assert_eq!(selected_names(&sel, &v), "bc");
+        assert_eq!(sel.cursor(), Some(v[1].as_path()));
+        // The box shrank: rows it no longer touches are dropped.
+        sel.band(&p, &HashSet::new(), &[1]);
+        assert_eq!(selected_names(&sel, &v), "b");
+        // Ctrl+drag keeps what was selected when it started.
+        let base = sel.selected_set().clone();
+        sel.band(&p, &base, &[3]);
+        assert_eq!(selected_names(&sel, &v), "bd");
+        sel.band(&p, &base, &[]);
+        assert_eq!(selected_names(&sel, &v), "b");
     }
 
     #[test]

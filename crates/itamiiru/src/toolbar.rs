@@ -6,6 +6,7 @@ use eframe::egui::{self, Sense, StrokeKind, TextStyle};
 
 use crate::icons::{Arrow, paint_arrow};
 use crate::menus::Command;
+use crate::theme;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
@@ -85,127 +86,229 @@ pub struct ToolbarState {
     pub split: Option<bool>,
 }
 
+/// Widths of the toolbar's items as last drawn, so the next frame can
+/// tell whether everything fits before laying it out. An item folded into
+/// a menu keeps the width it had when it was last drawn.
+#[derive(Clone, Default, PartialEq)]
+struct Widths {
+    commands: [f32; COMMAND_COUNT],
+    separator: f32,
+    /// Hidden files, Preview pane, Split view.
+    switches: [f32; 3],
+    /// The "..." button holding the commands that don't fit.
+    more: f32,
+}
+
+const COMMAND_COUNT: usize = 6;
+
+/// How the toolbar fits its width. With `compact` the switches move into
+/// the View menu; the commands from `shown` on go into the "..." menu.
+#[derive(Debug, PartialEq)]
+struct Fit {
+    compact: bool,
+    shown: usize,
+}
+
 pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
     let mut action = None;
     let in_folder = !state.this_pc;
     let has_selection = in_folder && state.selected > 0;
-
-    ui.horizontal(|ui| {
-        command(
-            ui,
-            &mut action,
-            "New folder",
-            "Ctrl+Shift+N",
-            in_folder,
-            Command::NewFolder,
-        );
-        ui.separator();
-        command(
-            ui,
-            &mut action,
-            "Cut",
-            "Ctrl+X",
-            has_selection,
-            Command::Cut,
-        );
-        command(
-            ui,
-            &mut action,
-            "Copy",
-            "Ctrl+C",
-            has_selection,
-            Command::Copy,
-        );
-        let can_paste = in_folder && state.can_paste;
-        command(
-            ui,
-            &mut action,
+    let commands = [
+        ("New folder", "Ctrl+Shift+N", in_folder, Command::NewFolder),
+        ("Cut", "Ctrl+X", has_selection, Command::Cut),
+        ("Copy", "Ctrl+C", has_selection, Command::Copy),
+        (
             "Paste",
             "Ctrl+V",
-            can_paste,
+            in_folder && state.can_paste,
             Command::Paste,
-        );
-        let one_selected = in_folder && state.selected == 1;
-        command(
-            ui,
-            &mut action,
+        ),
+        (
             "Rename",
             "F2",
-            one_selected,
+            in_folder && state.selected == 1,
             Command::Rename,
+        ),
+        ("Delete", "Delete", has_selection, Command::Trash),
+    ];
+
+    let widths_id = ui.id().with("toolbar-widths");
+    let old_widths: Widths = ui.data(|d| d.get_temp(widths_id)).unwrap_or_default();
+    let mut widths = old_widths.clone();
+
+    ui.horizontal(|ui| {
+        let spacing = ui.spacing().item_spacing.x;
+        let view_label = format!("View: {}", state.view.label());
+        let switch_count = if state.split.is_some() { 3 } else { 2 };
+        let fit = fit(
+            &old_widths,
+            switch_count,
+            dropdown_width(ui, &view_label),
+            dropdown_width(ui, "View"),
+            spacing,
+            ui.available_width(),
         );
-        command(
-            ui,
-            &mut action,
-            "Delete",
-            "Delete",
-            has_selection,
-            Command::Trash,
-        );
+
+        for (i, (label, shortcut, enabled, value)) in commands.iter().enumerate().take(fit.shown) {
+            if i == 1 {
+                widths.separator = ui.separator().rect.width();
+            }
+            let response = ui.add_enabled(*enabled, egui::Button::new(*label));
+            widths.commands[i] = response.rect.width();
+            if response.on_hover_text(*shortcut).clicked() {
+                action = Some(ToolbarAction::Command(*value));
+            }
+        }
+        if fit.shown < COMMAND_COUNT {
+            let more = ui.menu_button("...", |ui| {
+                let mut command = None;
+                for (label, shortcut, enabled, value) in &commands[fit.shown..] {
+                    crate::menus::item(ui, &mut command, label, shortcut, *enabled, *value);
+                }
+                if let Some(command) = command {
+                    action = Some(ToolbarAction::Command(command));
+                }
+            });
+            widths.more = more.response.rect.width();
+        }
 
         // Laid out from the right edge, so added in reverse order.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if let Some(split) = state.split {
-                let mut split = split;
-                let checkbox = ui.checkbox(&mut split, "Split view");
-                if checkbox
-                    .on_hover_text("Two folders side by side (F6 switches)")
-                    .changed()
-                {
-                    action = Some(ToolbarAction::Command(Command::ToggleSplit));
-                }
+            if fit.compact {
+                dropdown(ui, "View", |ui| {
+                    view_choices(ui, state.view, &mut action);
+                    ui.separator();
+                    switch(ui, state, 0, &mut action);
+                    switch(ui, state, 1, &mut action);
+                    switch(ui, state, 2, &mut action);
+                });
+                return;
             }
-            let mut preview_pane = state.preview_pane;
-            let checkbox = ui.checkbox(&mut preview_pane, "Preview pane");
-            if checkbox.on_hover_text("Alt+P").changed() {
-                action = Some(ToolbarAction::Command(Command::TogglePreview));
-            }
-            let mut show_hidden = state.show_hidden;
-            let checkbox = ui.checkbox(&mut show_hidden, "Hidden files");
-            if checkbox.on_hover_text("Ctrl+H").changed() {
-                action = Some(ToolbarAction::Command(Command::ToggleHidden));
-            }
-            if let Some(view) = view_selector(ui, state.view) {
-                action = Some(ToolbarAction::SetView(view));
-            }
+            widths.switches[2] = switch(ui, state, 2, &mut action);
+            widths.switches[1] = switch(ui, state, 1, &mut action);
+            widths.switches[0] = switch(ui, state, 0, &mut action);
+            dropdown(ui, &view_label, |ui| {
+                view_choices(ui, state.view, &mut action);
+            });
         });
     });
+
+    if widths != old_widths {
+        ui.data_mut(|d| d.insert_temp(widths_id, widths));
+        // The layout was chosen with the old widths; redo it.
+        ui.ctx().request_repaint();
+    }
     return action;
 }
 
-/// One command button with its shortcut in the tooltip.
-fn command(
+/// Decides what to fold, given the items' widths. The switches fold
+/// first, then the commands from the right.
+fn fit(
+    widths: &Widths,
+    switch_count: usize,
+    view_full: f32,
+    view_short: f32,
+    spacing: f32,
+    available: f32,
+) -> Fit {
+    let mut full_right = view_full;
+    for width in &widths.switches[..switch_count] {
+        full_right += spacing + width;
+    }
+    if left_width(widths, COMMAND_COUNT, spacing) + theme::GAP + full_right <= available {
+        return Fit {
+            compact: false,
+            shown: COMMAND_COUNT,
+        };
+    }
+    let mut shown = COMMAND_COUNT;
+    while shown > 0 && left_width(widths, shown, spacing) + theme::GAP + view_short > available {
+        shown -= 1;
+    }
+    return Fit {
+        compact: true,
+        shown,
+    };
+}
+
+/// Width of the first `shown` commands, plus the "..." button if any
+/// are left out.
+fn left_width(widths: &Widths, shown: usize, spacing: f32) -> f32 {
+    let mut total = 0.0;
+    for width in &widths.commands[..shown] {
+        total += width + spacing;
+    }
+    // The separator after New folder.
+    if shown >= 2 {
+        total += widths.separator + spacing;
+    }
+    if shown < COMMAND_COUNT {
+        total += widths.more + spacing;
+    }
+    return total;
+}
+
+/// One of the on/off switches: 0 is Hidden files, 1 Preview pane, 2 Split
+/// view (left out in the picker). Returns its width.
+fn switch(
     ui: &mut egui::Ui,
+    state: &ToolbarState,
+    which: usize,
     action: &mut Option<ToolbarAction>,
-    label: &str,
-    shortcut: &str,
-    enabled: bool,
-    value: Command,
-) {
-    let response = ui.add_enabled(enabled, egui::Button::new(label));
-    if response.on_hover_text(shortcut).clicked() {
-        *action = Some(ToolbarAction::Command(value));
+) -> f32 {
+    let (mut value, label, tip, command) = match which {
+        0 => (
+            state.show_hidden,
+            "Hidden files",
+            "Ctrl+H",
+            Command::ToggleHidden,
+        ),
+        1 => (
+            state.preview_pane,
+            "Preview pane",
+            "Alt+P",
+            Command::TogglePreview,
+        ),
+        _ => match state.split {
+            Some(split) => (
+                split,
+                "Split view",
+                "Two folders side by side (F6 switches)",
+                Command::ToggleSplit,
+            ),
+            None => return 0.0,
+        },
+    };
+    let response = ui.checkbox(&mut value, label);
+    let width = response.rect.width();
+    if response.on_hover_text(tip).changed() {
+        *action = Some(ToolbarAction::Command(command));
+    }
+    return width;
+}
+
+fn view_choices(ui: &mut egui::Ui, current: ViewMode, action: &mut Option<ToolbarAction>) {
+    for mode in ViewMode::ALL {
+        if ui.selectable_label(mode == current, mode.label()).clicked() {
+            if mode != current {
+                *action = Some(ToolbarAction::SetView(mode));
+            }
+            ui.close();
+        }
     }
 }
 
-fn view_selector(ui: &mut egui::Ui, current: ViewMode) -> Option<ViewMode> {
-    let mut chosen = current;
-    let label = format!("View: {}", current.label());
-    dropdown(ui, &label, |ui| {
-        for mode in ViewMode::ALL {
-            if ui
-                .selectable_value(&mut chosen, mode, mode.label())
-                .clicked()
-            {
-                ui.close();
-            }
-        }
-    });
-    if chosen != current {
-        return Some(chosen);
-    }
-    return None;
+/// The width `dropdown` gives a button showing `text`.
+fn dropdown_width(ui: &egui::Ui, text: &str) -> f32 {
+    let padding = ui.spacing().button_padding;
+    let font = TextStyle::Button.resolve(ui.style());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font, ui.visuals().text_color());
+    return padding.x + galley.size().x + padding.x + DROPDOWN_ARROW + padding.x;
 }
+
+const DROPDOWN_ARROW: f32 = 8.0;
 
 /// A button that looks like a drop-down field (label and a down arrow) and
 /// opens a menu below it. Used instead of egui's ComboBox, whose list sits
@@ -217,9 +320,9 @@ pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut eg
     let galley = ui
         .painter()
         .layout_no_wrap(text.to_string(), font, text_color);
-    let arrow_size = 8.0;
+    let arrow_size = DROPDOWN_ARROW;
     let height = (galley.size().y + 2.0 * padding.y).max(ui.spacing().interact_size.y);
-    let width = padding.x + galley.size().x + padding.x + arrow_size + padding.x;
+    let width = dropdown_width(ui, text);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
 
     if ui.is_rect_visible(rect) {
@@ -243,14 +346,54 @@ pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut eg
         paint_arrow(painter, arrow_rect, Arrow::Down, visuals.fg_stroke.color);
     }
 
-    egui::Popup::menu(&response)
-        .width(rect.width())
-        .show(add_contents);
+    // At least as wide as the button, wider when the items need it (the
+    // short "View" button's menu holds the switches too).
+    egui::Popup::menu(&response).show(|ui| {
+        ui.set_min_width(rect.width());
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+        add_contents(ui);
+    });
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn folding() {
+        let widths = Widths {
+            commands: [80.0, 40.0, 40.0, 40.0, 50.0, 50.0],
+            separator: 6.0,
+            switches: [90.0, 90.0, 80.0],
+            more: 24.0,
+        };
+        // Commands: 300 + 6 * 8 = 348, separator 14. Switches with split:
+        // 260 + 3 * 8 = 284, plus the View button and the gap.
+        let fit_in = |available| fit(&widths, 3, 100.0, 50.0, 8.0, available);
+        let all = Fit {
+            compact: false,
+            shown: COMMAND_COUNT,
+        };
+        assert_eq!(fit_in(362.0 + 8.0 + 284.0 + 100.0), all);
+        let compact = Fit {
+            compact: true,
+            shown: COMMAND_COUNT,
+        };
+        assert_eq!(fit_in(362.0 + 8.0 + 284.0 + 99.0), compact);
+        assert_eq!(fit_in(362.0 + 8.0 + 50.0), compact);
+        // Delete goes into "...": 362 - 58 + 32 = 336.
+        let one_folded = Fit {
+            compact: true,
+            shown: 5,
+        };
+        assert_eq!(fit_in(336.0 + 8.0 + 50.0), one_folded);
+        assert_eq!(fit_in(0.0).shown, 0);
+        // Without Split view the full row needs 88 less.
+        assert_eq!(
+            fit(&widths, 2, 100.0, 50.0, 8.0, 362.0 + 8.0 + 196.0 + 100.0),
+            all
+        );
+    }
 
     #[test]
     fn icon_sizes_grow() {

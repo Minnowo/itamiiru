@@ -3,12 +3,13 @@
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-use eframe::egui::{self, Align, Color32, Key, Layout, RichText, Sense, TextStyle};
+use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText, Sense, TextStyle};
 use egui_extras::{Column, TableBuilder};
 use itamiiru_core::entry::Entry;
 use itamiiru_core::format::{format_local_time, format_size};
 use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
 
+use crate::band;
 use crate::icons::{Arrow, paint_arrow, paint_entry_icon};
 use crate::menus::{self, Command, MenuState};
 use crate::selection::Selection;
@@ -40,6 +41,13 @@ pub enum TableAction {
     },
     /// A click on empty space.
     ClearSelection,
+    /// A drag-to-select box was started; `add` (Ctrl held) keeps the
+    /// selection it started with.
+    BandStart {
+        add: bool,
+    },
+    /// The rows the drag-to-select box touches now.
+    Band(Vec<usize>),
 }
 
 /// A name being edited in place (F2).
@@ -67,6 +75,9 @@ pub struct TableInput<'a> {
     pub columns: DetailsColumns,
     /// The longest Type text among the rows, to size that column.
     pub widest_type: &'a str,
+    /// Dragging from empty space draws a box to select with. In the
+    /// Details view, so do drags on columns other than Name.
+    pub drag_select: bool,
 }
 
 /// The longest texts the Date modified and Size columns can hold, for
@@ -106,6 +117,8 @@ pub fn show(
     } else {
         "folder-table"
     };
+    let band_id = ui.id().with(table_id).with("band");
+    let step = row_height + ui.spacing().item_spacing.y;
     let mut table = TableBuilder::new(ui)
         .id_salt(table_id)
         .striped(true)
@@ -131,6 +144,11 @@ pub fn show(
     if let Some(row) = scroll_to {
         table = table.scroll_to_row(row, None);
     }
+    // Where row 0 is (or would be) on screen, and the rows' visible area;
+    // found from the rows drawn.
+    let mut origin = None;
+    let mut body_clip = Rect::NOTHING;
+    let mut band_started = false;
     table
         .header(row_height + theme::GAP_SMALL, |mut header| {
             // None means the column can't be sorted by.
@@ -171,7 +189,9 @@ pub fn show(
                 });
             }
         })
-        .body(|body| {
+        .body(|mut body| {
+            body_clip = body.ui_mut().clip_rect();
+            band::auto_scroll(body.ui_mut(), band_id);
             // `rows` only calls the closure for rows on screen, so 50,000
             // entries cost no more per frame than 50.
             body.rows(row_height, input.visible.len(), |mut row| {
@@ -179,7 +199,7 @@ pub fn show(
                 let entry = &input.entries[input.visible[row_number]];
                 row.set_selected(input.selection.is_selected(&entry.path));
 
-                row.col(|ui| {
+                let (_, name_cell) = row.col(|ui| {
                     let icon_size = egui::vec2(theme::ICON_SIZE, theme::ICON_SIZE);
                     let (icon_rect, _) = ui.allocate_exact_size(icon_size, Sense::hover());
                     let mut painter = ui.painter().clone();
@@ -232,10 +252,66 @@ pub fn show(
                 }
 
                 let response = row.response();
+                let row_origin = egui::pos2(
+                    response.rect.left(),
+                    response.rect.top() - row_number as f32 * step,
+                );
+                origin = Some(row_origin);
                 item_action(&response, row_number, modifiers, input.menu, &mut action);
+                // Only the Name cell drags files; the rest of the row
+                // starts a box.
+                let started = response.drag_started_by(egui::PointerButton::Primary);
+                if input.drag_select && started && !name_cell.drag_started() {
+                    band::start(&response.ctx, band_id, row_origin);
+                    action = Some(TableAction::BandStart {
+                        add: modifiers.command,
+                    });
+                    band_started = true;
+                }
             });
         });
 
+    // The empty space below the rows: click to deselect, right-click for
+    // the folder menu, drag for a box.
+    let rest = ui.available_rect_before_wrap();
+    let sense = if input.drag_select {
+        Sense::click_and_drag()
+    } else {
+        Sense::click()
+    };
+    let background = ui.allocate_rect(rest, sense);
+    background.context_menu(|ui| {
+        if let Some(command) = menus::background_menu(ui, input.menu) {
+            action = Some(TableAction::Command(command));
+        }
+    });
+    if background.clicked() || background.secondary_clicked() {
+        action = Some(TableAction::ClearSelection);
+    }
+    let Some(origin) = origin else {
+        return action;
+    };
+    if background.drag_started_by(egui::PointerButton::Primary) {
+        band::start(ui.ctx(), band_id, origin);
+        action = Some(TableAction::BandStart {
+            add: modifiers.command,
+        });
+        band_started = true;
+    }
+    if let Some(band) = band::current(ui.ctx(), band_id, origin) {
+        // Over the rows and the space below them, not the header.
+        let clip = body_clip.union(rest);
+        band::paint(
+            &ui.painter().with_clip_rect(clip),
+            band,
+            origin,
+            input.theme,
+        );
+        if !band_started {
+            let rows = band::rows_in(band, step, input.visible.len());
+            action = Some(TableAction::Band(rows));
+        }
+    }
     return action;
 }
 

@@ -83,7 +83,8 @@ impl AddressBar {
     ) -> Option<AddressAction> {
         let mut action = None;
         let height = ui.text_style_height(&TextStyle::Body) + 2.0 * ui.spacing().button_padding.y;
-        let size = egui::vec2(ui.available_width(), height);
+        // A very narrow pane can leave less than nothing.
+        let size = egui::vec2(ui.available_width().max(0.0), height);
         let (frame_rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
         // Looks like the text field it turns into (ponkotsu's `input-like`).
@@ -130,7 +131,10 @@ impl AddressBar {
                 .layout(egui::Layout::left_to_right(egui::Align::Center)),
         );
         child.spacing_mut().item_spacing.x = 0.0;
+        // Nothing is drawn outside the bar, however narrow it gets.
+        child.set_clip_rect(inner.intersect(ui.clip_rect()));
 
+        let mut edit = false;
         if first > 0 {
             child.menu_button("...", |ui| {
                 // Hidden crumbs, nearest first, like Explorer's list.
@@ -140,8 +144,16 @@ impl AddressBar {
                         ui.close();
                     }
                 }
+                ui.separator();
+                // The bar may have no empty space left to click.
+                if ui.button("Edit as path").clicked() {
+                    edit = true;
+                    ui.close();
+                }
             });
-            separator(&mut child);
+            if first < crumbs.len() {
+                separator(&mut child);
+            }
         }
         for (i, (label, path)) in crumbs.iter().enumerate().skip(first) {
             let button = egui::Button::new(label.as_str()).frame_when_inactive(false);
@@ -160,7 +172,7 @@ impl AddressBar {
         // The rest of the bar: click to type a path.
         let rest = child.available_rect_before_wrap();
         let background = child.allocate_rect(rest, Sense::click());
-        if background.on_hover_cursor(egui::CursorIcon::Text).clicked() {
+        if background.on_hover_cursor(egui::CursorIcon::Text).clicked() || edit {
             self.start_editing(current);
         }
         return action;
@@ -214,7 +226,8 @@ pub fn crumbs_for(path: &Path) -> Vec<(String, PathBuf)> {
 }
 
 /// How many crumbs from the left to fold into the "..." menu so the rest
-/// fit in `available`. The last crumb always stays.
+/// fit in `available`. When even the last crumb doesn't fit beside the
+/// "..." button, all of them are folded.
 pub fn first_visible(widths: &[f32], separator: f32, overflow_width: f32, available: f32) -> usize {
     if widths.is_empty() {
         return 0;
@@ -224,7 +237,7 @@ pub fn first_visible(widths: &[f32], separator: f32, overflow_width: f32, availa
         total += width + separator;
     }
     let mut first = 0;
-    while first < widths.len() - 1 {
+    while first < widths.len() {
         let needed = if first > 0 {
             total + overflow_width
         } else {
@@ -260,8 +273,10 @@ mod tests {
         // One too narrow: dropping the first saves 60 but "..." costs 30.
         assert_eq!(first_visible(&widths, 10.0, 30.0, 239.0), 1);
         assert_eq!(first_visible(&widths, 10.0, 30.0, 150.0), 2);
-        // Never fold the last crumb, even if it doesn't fit.
-        assert_eq!(first_visible(&widths, 10.0, 30.0, 1.0), 3);
+        // "..." and the last crumb: 30 + 60 = 90.
+        assert_eq!(first_visible(&widths, 10.0, 30.0, 90.0), 3);
+        // Not even the last crumb fits: all of them go into "...".
+        assert_eq!(first_visible(&widths, 10.0, 30.0, 89.0), 4);
         assert_eq!(first_visible(&[], 10.0, 30.0, 100.0), 0);
     }
 }

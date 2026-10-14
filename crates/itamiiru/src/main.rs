@@ -4,6 +4,7 @@ compile_error!("build with a renderer: --features glow (the default) or --featur
 
 mod address;
 mod app;
+mod band;
 mod details;
 mod fonts;
 mod icons;

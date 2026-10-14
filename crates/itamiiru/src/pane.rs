@@ -2,6 +2,7 @@
 //! and the search. A tab holds one pane, or two side by side (split view).
 //! Each pane has its own worker channels, so results never cross panes.
 
+use std::collections::HashSet;
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -99,6 +100,12 @@ pub struct Pane {
     pub skipped: usize,
 
     pub selection: Selection,
+    /// What a drag-to-select box adds to: the selection when it started
+    /// with Ctrl held, else nothing.
+    band_base: HashSet<PathBuf>,
+    /// A drag-to-select box is being drawn; the app clears this once the
+    /// button is up.
+    pub banding: bool,
     type_ahead: TypeAhead,
     /// Row to scroll into view on the next frame.
     pub scroll_to: Option<usize>,
@@ -167,6 +174,8 @@ impl Pane {
             error: None,
             skipped: 0,
             selection: Selection::default(),
+            band_base: HashSet::new(),
+            banding: false,
             type_ahead: TypeAhead::default(),
             scroll_to: None,
             key_steps: KeySteps {
@@ -681,6 +690,26 @@ impl Pane {
         } else {
             selection.click(&paths, row);
         }
+        self.selection = selection;
+    }
+
+    /// A drag-to-select box started. With `add` (Ctrl) the selection so far
+    /// stays; otherwise it's cleared.
+    pub fn band_start(&mut self, add: bool) {
+        self.banding = true;
+        if add {
+            self.band_base = self.selection.selected_set().clone();
+        } else {
+            self.band_base.clear();
+            self.selection.clear();
+        }
+    }
+
+    /// The drag-to-select box now touches `rows`.
+    pub fn band(&mut self, rows: &[usize]) {
+        let mut selection = std::mem::take(&mut self.selection);
+        let paths = self.visible_paths();
+        selection.band(&paths, &self.band_base, rows);
         self.selection = selection;
     }
 

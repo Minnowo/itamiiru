@@ -23,10 +23,12 @@ pub struct Options {
     pub auto_refresh_drives: bool,
     pub thumbnails: bool,
     pub preview_pane: bool,
+    pub preview_auto_hide: bool,
     pub status_fields: Vec<StatusField>,
     pub columns: DetailsColumns,
     pub use_trash: bool,
     pub drag_and_drop: bool,
+    pub drag_select: bool,
 }
 
 impl Options {
@@ -39,10 +41,12 @@ impl Options {
             auto_refresh_drives: d.auto_refresh_drives,
             thumbnails: d.thumbnails,
             preview_pane: d.preview_pane,
+            preview_auto_hide: d.preview_auto_hide,
             status_fields: d.status_fields,
             columns: d.columns,
             use_trash: d.use_trash,
             drag_and_drop: d.drag_and_drop,
+            drag_select: d.drag_select,
         };
     }
 }
@@ -92,11 +96,23 @@ pub fn show(
                         .on_hover_text("Off: Delete removes them for good, after asking");
                     ui.checkbox(&mut options.drag_and_drop, "Drag files out to other apps")
                         .on_hover_text("Drop them in a browser, a terminal, an editor (X11 only)");
+                    ui.checkbox(&mut options.drag_select, "Drag from empty space to select")
+                        .on_hover_text(
+                            "Draws a box; the items it touches get selected, Ctrl adds them. \
+                             In the Details view, drags beside the names count too.",
+                        );
                 });
                 section(ui, theme, "Pictures", |ui| {
                     ui.checkbox(&mut options.thumbnails, "Show thumbnails in the icon views");
                     ui.checkbox(&mut options.preview_pane, "Show the preview pane")
                         .on_hover_text("Alt+P");
+                    ui.add_enabled_ui(options.preview_pane, |ui| {
+                        ui.checkbox(
+                            &mut options.preview_auto_hide,
+                            "Only while a picture or text file is selected",
+                        )
+                        .on_hover_text("Hidden for folders, several items and other files");
+                    });
                 });
                 section(ui, theme, "Details view", |ui| {
                     ui.label("Columns besides Name, which takes the rest of the width:");

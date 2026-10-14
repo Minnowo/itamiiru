@@ -21,7 +21,7 @@ use itamiiru_core::thumbcache::ThumbSize;
 
 use crate::details::{self, TableAction, TableInput};
 use crate::iconview::{self, KeySteps, ThumbSource};
-use crate::menus::{self, Command, MenuState};
+use crate::menus::{Command, MenuState};
 use crate::ops_ui::{self, RunningOp};
 use crate::pane::{Filter, Pane};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
@@ -122,6 +122,8 @@ pub struct App {
     thumbnails_enabled: bool,
     thumbs: Thumbs,
     preview_pane: bool,
+    /// The preview pane hides while there's nothing to preview.
+    preview_auto_hide: bool,
     preview_width: f32,
     preview: Preview,
     /// What the status bar shows for one selected item.
@@ -132,6 +134,8 @@ pub struct App {
     use_trash: bool,
     /// Files can be dragged out to other apps (setting `drag_and_drop`).
     drag_and_drop: bool,
+    /// Dragging from empty space selects with a box (setting `drag_select`).
+    drag_select: bool,
     /// Custom right-click actions, from the `actions` file next to the
     /// config file (read at startup).
     actions: Vec<Action>,
@@ -218,12 +222,14 @@ impl App {
             thumbnails_enabled: settings.thumbnails,
             thumbs,
             preview_pane: settings.preview_pane,
+            preview_auto_hide: settings.preview_auto_hide,
             preview_width: settings.preview_width,
             preview: Preview::new(),
             status_fields: settings.status_fields.clone(),
             settings_open: false,
             use_trash: settings.use_trash,
             drag_and_drop: settings.drag_and_drop,
+            drag_select: settings.drag_select,
             actions,
             drag_out: None,
             start_drag_out: itamiiru_core::platform::start_drag_out,
@@ -1277,6 +1283,7 @@ impl App {
     /// they reach the right pane after it becomes the active one.
     fn show_pane(&mut self, ui: &mut egui::Ui, index: usize) -> PaneOutput {
         let mut out = PaneOutput::default();
+        let single_select = self.single_select();
         if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
             out.activated = true;
         }
@@ -1379,6 +1386,8 @@ impl App {
             show_folder: pane.search.is_some(),
             columns: self.details_columns,
             widest_type: &pane.widest_type,
+            // A picker that returns one file has nothing to select a box of.
+            drag_select: self.drag_select && !single_select,
         };
         let scroll_to = pane.scroll_to.take();
         out.action = match self.view {
@@ -1419,17 +1428,6 @@ impl App {
                 action
             }
         };
-
-        // The empty space below the rows: click to deselect, right-click
-        // for the folder menu.
-        let rest = ui.available_rect_before_wrap();
-        let background = ui.allocate_rect(rest, Sense::click());
-        background.context_menu(|ui| {
-            out.command = menus::background_menu(ui, &menu);
-        });
-        if background.clicked() || background.secondary_clicked() {
-            out.action = Some(TableAction::ClearSelection);
-        }
         return out;
     }
 
@@ -1459,6 +1457,8 @@ impl App {
             Some(TableAction::Command(command)) => self.run_command(command),
             Some(TableAction::RenameDone { commit }) => self.finish_rename(commit),
             Some(TableAction::ClearSelection) => self.pane_mut().selection.clear(),
+            Some(TableAction::BandStart { add }) => self.pane_mut().band_start(add),
+            Some(TableAction::Band(rows)) => self.pane_mut().band(&rows),
             None => {}
         }
         if let Some(command) = output.command {
@@ -1608,10 +1608,12 @@ impl App {
             auto_refresh_drives: self.auto_refresh_drives,
             thumbnails: self.thumbnails_enabled,
             preview_pane: self.preview_pane,
+            preview_auto_hide: self.preview_auto_hide,
             preview_width: self.preview_width,
             status_fields: self.status_fields.clone(),
             use_trash: self.use_trash,
             drag_and_drop: self.drag_and_drop,
+            drag_select: self.drag_select,
         };
     }
 
@@ -1805,22 +1807,43 @@ impl eframe::App for App {
             self.apply_sidebar_action(action);
         }
 
+        // While a drag-to-select box is drawn the preview stays as it is:
+        // following each item it touches would load them all, and with
+        // auto-hide the pane would open and close under the pointer.
+        let pointer_down = ui.input(|i| i.pointer.primary_down());
+        let mut banding = false;
+        for pane in &mut self.tabs[self.active_tab].panes {
+            if !pointer_down {
+                pane.banding = false;
+            }
+            banding = banding || pane.banding;
+        }
         if self.preview_pane && !self.pane().this_pc {
-            let panel = egui::Panel::right("preview")
-                .resizable(true)
-                .default_size(self.preview_width)
-                .frame(bar_frame)
-                .show(ui, |ui| {
-                    let pane = self.tabs[self.active_tab].pane();
-                    self.preview.show(
-                        ui,
-                        &pane.entries,
-                        pane.previewed(),
-                        &mut self.thumbs,
-                        &self.theme,
-                    );
-                });
-            self.preview_width = panel.response.rect.width();
+            if !banding {
+                let pane = self.tabs[self.active_tab].pane();
+                self.preview.prepare(
+                    ui.ctx(),
+                    &pane.entries,
+                    pane.previewed(),
+                    &mut self.thumbs,
+                    self.preview_width,
+                );
+            }
+            let open = if !self.preview_auto_hide {
+                true
+            } else if banding {
+                self.preview.was_open()
+            } else {
+                self.preview.auto_open(&self.thumbs)
+            };
+            if open {
+                let panel = egui::Panel::right("preview")
+                    .resizable(true)
+                    .default_size(self.preview_width)
+                    .frame(bar_frame)
+                    .show(ui, |ui| self.preview.show(ui, &self.thumbs, &self.theme));
+                self.preview_width = panel.response.rect.width();
+            }
         }
 
         egui::CentralPanel::default().show(ui, |ui| self.panes(ui));
@@ -1856,10 +1879,12 @@ impl App {
             auto_refresh_drives: self.auto_refresh_drives,
             thumbnails: self.thumbnails_enabled,
             preview_pane: self.preview_pane,
+            preview_auto_hide: self.preview_auto_hide,
             status_fields: self.status_fields.clone(),
             columns: self.details_columns,
             use_trash: self.use_trash,
             drag_and_drop: self.drag_and_drop,
+            drag_select: self.drag_select,
         };
     }
 
@@ -1876,10 +1901,12 @@ impl App {
         self.auto_refresh_folder = options.auto_refresh_folder;
         self.auto_refresh_drives = options.auto_refresh_drives;
         self.preview_pane = options.preview_pane;
+        self.preview_auto_hide = options.preview_auto_hide;
         self.status_fields = options.status_fields;
         self.details_columns = options.columns;
         self.use_trash = options.use_trash;
         self.drag_and_drop = options.drag_and_drop;
+        self.drag_select = options.drag_select;
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {

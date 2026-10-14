@@ -85,6 +85,14 @@ impl Thumbs {
         };
     }
 
+    /// Asked for and not finished yet.
+    pub fn is_pending(&self, entry: &Entry, size: ThumbSize) -> bool {
+        let Some(key) = key_for(entry, size) else {
+            return false;
+        };
+        return matches!(self.slots.get(&key), Some(Slot::Pending));
+    }
+
     /// Called with the entries on screen, top-left first: asks for the
     /// ones not seen yet and marks the ready ones as recently used.
     pub fn want(&mut self, on_screen: &[&Entry], size: ThumbSize) {

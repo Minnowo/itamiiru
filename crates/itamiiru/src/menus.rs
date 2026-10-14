@@ -245,7 +245,7 @@ fn sort_menu(ui: &mut egui::Ui, current: SortOrder) -> Option<SortOrder> {
     return None;
 }
 
-fn item(
+pub fn item(
     ui: &mut egui::Ui,
     command: &mut Option<Command>,
     label: &str,
