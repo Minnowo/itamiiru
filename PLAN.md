@@ -61,9 +61,10 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D23 | Custom actions | `actions` file next to the config, `.desktop`-like sections, hand-parsed; commands run directly, never through a shell; `%f %F %d %n %%` | Actions need more structure |
 | D24 | Drag out | XDND on `x11rb` (already in the tree via winit) in `platform/linux/xdnd.rs`, own connection and thread, pointer polled every 10 ms | Wayland support is wanted |
 | D25 | Renderer | Build-time feature: `glow` (default, 180 crates) or `wgpu` (Vulkan, 217 crates; first frame in 83-88 ms vs 115-176 ms). Releases ship both | glow is dropped by egui, or wgpu's crate count comes down |
-| D26 | Installing | A short manual guide in README.md instead of an install script; packages ship per-user files in `/usr/share/itamiiru/` | Many users struggle with the manual steps |
+| D26 | Installing | A short manual guide in docs/linux-setup/README.md instead of an install script; packages ship per-user files in `/usr/share/itamiiru/` | Many users struggle with the manual steps |
 | D27 | Drag and drop inside the window | Drop on a folder item, an address bar crumb, a side pane place or drive, or a pane (its folder); held over a tab for 0.5 s, that tab opens. Explorer's rule: move within a drive, copy across, Ctrl copies, Shift moves; "same drive" is the longest mount point from the last drive scan, so the UI thread never stats | Drops on tabs are wanted |
 | D28 | Drops from other apps | winit's hovered and dropped files; winit says nothing of the pointer then, so `platform::pointer_position` (X11: QueryPointer on a second connection) is asked each frame and fed to egui as a pointer move, and the drop lands where our own drops would. Always copied. No position: the active pane's folder | winit reports drop positions (0.31), or Wayland drops are wanted |
+| D29 | Releases | Manual `release` GitHub workflow (Actions -> Run workflow, version must match Cargo.toml) runs `scripts/package.sh` in an Ubuntu 20.04 container (Debian 11's mirrors broke after its LTS) and publishes both tarballs plus SHA256SUMS. The portal is static musl; itami links glibc 2.31 because winit and glow `dlopen` X11, Wayland and GL, which a static binary can't | Ubuntu 20.04's archive goes away, or more architectures are wanted |
 
 ## Threading model
 
@@ -196,7 +197,7 @@ Results go in `docs/app-compat.md`.
 | LibreOffice | GTK VCL plugin, `GTK_USE_PORTAL=1` | |
 | JetBrains, Java/Swing, Tk, Wine | not possible | Own dialogs |
 
-Session variables: Wayland/systemd sessions use `~/.config/environment.d/`; X11 sessions read `~/.xsessionrc` (Debian, Ubuntu; runs under `set -e`, so guard every line) or `~/.xprofile` (elsewhere). The README has the lines.
+Session variables: Wayland/systemd sessions use `~/.config/environment.d/`; X11 sessions read `~/.xsessionrc` (Debian, Ubuntu; runs under `set -e`, so guard every line) or `~/.xprofile` (elsewhere). docs/linux-setup/README.md has the lines.
 
 ## Remaining tasks
 

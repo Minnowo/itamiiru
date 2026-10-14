@@ -2,7 +2,7 @@
 # Development: builds this checkout and puts the two programs in
 # ~/.local/bin, then restarts the portal backend so the next file dialog
 # uses the new build. The rest of the setup (menu entry, D-Bus and .portal
-# files, portals.conf) is done once by hand, as in README.md.
+# files, portals.conf) is done once by hand, as in docs/linux-setup/README.md.
 #   scripts/install-dev.sh            OpenGL build
 #   scripts/install-dev.sh --vulkan   Vulkan (wgpu) build
 set -euo pipefail

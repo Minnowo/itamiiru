@@ -1,0 +1,96 @@
+# Builds the release tarballs and publishes them as a GitHub release.
+#
+# Start it from the Actions tab: "release" -> "Run workflow", with the
+# version from the workspace Cargo.toml (e.g. 0.1.0). It tests the code,
+# runs scripts/package.sh, then tags the commit as v<version> and makes a
+# release with both tarballs and a SHA256SUMS file.
+
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, must match Cargo.toml (e.g. 0.1.0)"
+        required: true
+
+permissions:
+  contents: write # create the tag and the release
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Ubuntu 20.04 has glibc 2.31, so the itami built here runs on distros
+    # from about 2020 on. The portal is static (musl) and runs anywhere.
+    # (Debian 11, also 2.31, can't install packages since its LTS ended.)
+    container: ubuntu:20.04
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev binutils git
+
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+            | sh -s -- -y --profile minimal --target x86_64-unknown-linux-musl
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+
+      - name: Check the version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          have="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          if [ "$have" != "$VERSION" ]; then
+            echo "::error::Asked for $VERSION but Cargo.toml says $have"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            echo "::error::Tag v$VERSION already exists"
+            exit 1
+          fi
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Package
+        run: |
+          scripts/package.sh
+          cd target
+          sha256sum *.tar.gz > SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            target/*.tar.gz
+            target/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release
+          path: dist
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "itamiiru $VERSION" \
+            --generate-notes
