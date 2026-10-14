@@ -1,4 +1,5 @@
-//! The Details view: a table with Name, Date modified, Type and Size.
+//! The Details view: a table with Name, then the chosen columns (Date
+//! modified, Date created, Type, Size) in the chosen order.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,7 +14,7 @@ use crate::band;
 use crate::icons::{Arrow, paint_arrow, paint_entry_icon};
 use crate::menus::{self, Command, MenuState};
 use crate::selection::Selection;
-use crate::settings::DetailsColumns;
+use crate::settings::DetailColumn;
 use crate::theme::{self, Theme};
 
 /// Something the user did in the table. The app applies it after drawing.
@@ -73,8 +74,8 @@ pub struct TableInput<'a> {
     pub menu: &'a MenuState,
     /// Search results: add a Folder column showing where each item is.
     pub show_folder: bool,
-    /// Which of Date modified, Type and Size to show.
-    pub columns: DetailsColumns,
+    /// The columns after Name, in order.
+    pub columns: &'a [DetailColumn],
     /// The longest Type text among the rows, to size that column.
     pub widest_type: &'a str,
     /// Dragging from empty space draws a box to select with. In the
@@ -114,10 +115,16 @@ pub fn show(
     let modifiers = ui.input(|i| i.modifiers);
     let sort = input.sort;
     let columns = input.columns;
-
-    let modified_width = column_width(ui, "Date modified", WIDEST_DATE);
-    let type_width = column_width(ui, "Type", input.widest_type);
-    let size_width = column_width(ui, "Size", WIDEST_SIZE);
+    // Each as wide as its longest possible text or its header.
+    let mut widths = Vec::new();
+    for column in columns {
+        let widest = match column {
+            DetailColumn::Modified | DetailColumn::Created => WIDEST_DATE,
+            DetailColumn::Type => input.widest_type,
+            DetailColumn::Size => WIDEST_SIZE,
+        };
+        widths.push(column_width(ui, column.label(), widest));
+    }
 
     let table_id = if input.show_folder {
         "search-table"
@@ -139,14 +146,8 @@ pub fn show(
         // Name and Folder share what's left.
         table = table.column(Column::remainder().at_least(MIN_NAME_WIDTH).clip(true));
     }
-    if columns.modified {
-        table = table.column(Column::exact(modified_width).clip(true));
-    }
-    if columns.kind {
-        table = table.column(Column::exact(type_width).clip(true));
-    }
-    if columns.size {
-        table = table.column(Column::exact(size_width).clip(true));
+    for width in widths {
+        table = table.column(Column::exact(width).clip(true));
     }
     if let Some(row) = scroll_to {
         table = table.scroll_to_row(row, None);
@@ -159,20 +160,14 @@ pub fn show(
     table
         .header(row_height + theme::GAP_SMALL, |mut header| {
             // None means the column can't be sorted by.
-            let mut columns = vec![("Name", Some(SortColumn::Name))];
+            let mut headers = vec![("Name", Some(SortColumn::Name))];
             if input.show_folder {
-                columns.push(("Folder", None));
+                headers.push(("Folder", None));
             }
-            if input.columns.modified {
-                columns.push(("Date modified", Some(SortColumn::Modified)));
+            for column in columns {
+                headers.push((column.label(), Some(column.sort_column())));
             }
-            if input.columns.kind {
-                columns.push(("Type", Some(SortColumn::Type)));
-            }
-            if input.columns.size {
-                columns.push(("Size", Some(SortColumn::Size)));
-            }
-            for (title, column) in columns {
+            for (title, column) in headers {
                 header.col(|ui| {
                     let Some(column) = column else {
                         ui.label(RichText::new(title).strong());
@@ -239,24 +234,8 @@ pub fn show(
                         }
                     });
                 }
-                if columns.modified {
-                    row.col(|ui| {
-                        if let Some(mtime) = entry.mtime {
-                            cell_text(ui, RichText::new(format_local_time(mtime)));
-                        }
-                    });
-                }
-                if columns.kind {
-                    row.col(|ui| cell_text(ui, RichText::new(type_label(entry))));
-                }
-                if columns.size {
-                    row.col(|ui| {
-                        if !entry.is_dir() {
-                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                cell_text(ui, RichText::new(format_size(entry.size)));
-                            });
-                        }
-                    });
+                for column in columns {
+                    row.col(|ui| cell(ui, *column, entry));
                 }
 
                 let response = row.response();
@@ -409,6 +388,30 @@ fn select_stem(ctx: &egui::Context, id: egui::Id, text: &str) {
     let range = CCursorRange::two(CCursor::new(0), CCursor::new(stem_chars));
     state.cursor.set_char_range(Some(range));
     state.store(ctx, id);
+}
+
+/// One cell of a column after Name.
+fn cell(ui: &mut egui::Ui, column: DetailColumn, entry: &Entry) {
+    match column {
+        DetailColumn::Modified => {
+            if let Some(time) = entry.mtime {
+                cell_text(ui, RichText::new(format_local_time(time)));
+            }
+        }
+        DetailColumn::Created => {
+            if let Some(time) = entry.created {
+                cell_text(ui, RichText::new(format_local_time(time)));
+            }
+        }
+        DetailColumn::Type => cell_text(ui, RichText::new(type_label(entry))),
+        DetailColumn::Size => {
+            if !entry.is_dir() {
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    cell_text(ui, RichText::new(format_size(entry.size)));
+                });
+            }
+        }
+    }
 }
 
 /// One line of text that gets cut off with "..." and doesn't eat clicks

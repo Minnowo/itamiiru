@@ -10,6 +10,7 @@ use crate::natsort;
 pub enum SortColumn {
     Name,
     Modified,
+    Created,
     Type,
     Size,
 }
@@ -38,6 +39,7 @@ pub fn compare_entries(a: &Entry, b: &Entry, column: SortColumn, ascending: bool
         SortColumn::Name => Ordering::Equal,
         SortColumn::Size => a.size.cmp(&b.size),
         SortColumn::Modified => a.mtime.cmp(&b.mtime),
+        SortColumn::Created => a.created.cmp(&b.created),
         SortColumn::Type => compare_ignore_ascii_case(extension(a), extension(b)),
     };
     let ord = ord.then_with(|| natsort::compare(&a.name, &b.name));
@@ -91,6 +93,7 @@ mod tests {
             kind,
             size,
             mtime: Some(SystemTime::UNIX_EPOCH + Duration::from_secs(mtime_secs)),
+            created: None,
             hidden: false,
             executable: false,
         };
@@ -126,6 +129,18 @@ mod tests {
         assert_eq!(names(&v), ["adir", "zdir", "a10.png", "a2.PNG", "b.txt"]);
         sort_entries(&mut v, SortColumn::Modified, false);
         assert_eq!(names(&v), ["zdir", "adir", "a10.png", "a2.PNG", "b.txt"]);
+    }
+
+    #[test]
+    fn by_date_created() {
+        let mut v = sample();
+        // Created in the opposite order to modified; unknown sorts first.
+        for (i, e) in v.iter_mut().enumerate() {
+            e.created = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(10 - i as u64));
+        }
+        v[3].created = None;
+        sort_entries(&mut v, SortColumn::Created, true);
+        assert_eq!(names(&v), ["adir", "zdir", "a2.PNG", "a10.png", "b.txt"]);
     }
 
     #[test]
@@ -180,6 +195,7 @@ mod bench {
                 kind: EntryKind::File,
                 size: seed >> 40,
                 mtime: None,
+                created: None,
                 hidden: false,
                 executable: false,
             });

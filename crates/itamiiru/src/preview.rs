@@ -116,7 +116,7 @@ impl Preview {
 
         // The details go at the bottom; the preview takes the space above.
         let line = ui.text_style_height(&TextStyle::Body);
-        let details_height = 5.0 * line + 4.0 * theme::GAP;
+        let details_height = 6.0 * line + 4.0 * theme::GAP;
         let preview_height = (ui.available_height() - details_height).max(BIG_ICON);
 
         if let Some(texture) = thumbs.get(entry, self.size) {
@@ -159,6 +159,9 @@ impl Preview {
         }
         if let Some(mtime) = entry.mtime {
             detail(ui, "Date modified", &format_local_time(mtime));
+        }
+        if let Some(created) = entry.created {
+            detail(ui, "Date created", &format_local_time(created));
         }
     }
 

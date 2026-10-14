@@ -26,7 +26,7 @@ use crate::ops_ui::{self, RunningOp};
 use crate::pane::{Filter, Pane};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::preview::Preview;
-use crate::settings::{DetailsColumns, Settings, StatusField};
+use crate::settings::{DetailColumn, Settings, StatusField};
 use crate::settings_page::{self, Options};
 use crate::sidebar::{self, SidebarAction, SidebarDrop};
 use crate::startup;
@@ -114,7 +114,7 @@ pub struct App {
     settings_changed_at: Option<f64>,
     sidebar_width: f32,
     /// Which columns the Details view shows.
-    details_columns: DetailsColumns,
+    details_columns: Vec<DetailColumn>,
     auto_refresh_folder: bool,
     auto_refresh_drives: bool,
     thumbnails_enabled: bool,
@@ -236,7 +236,7 @@ impl App {
             latest_settings: settings.clone(),
             settings_changed_at: None,
             sidebar_width: settings.sidebar_width,
-            details_columns: settings.columns,
+            details_columns: settings.columns.clone(),
             auto_refresh_folder: settings.auto_refresh_folder,
             auto_refresh_drives: settings.auto_refresh_drives,
             thumbnails_enabled: settings.thumbnails,
@@ -1633,7 +1633,7 @@ impl App {
             cut,
             menu: &menu,
             show_folder: pane.search.is_some(),
-            columns: self.details_columns,
+            columns: &self.details_columns,
             widest_type: &pane.widest_type,
             // A picker that returns one file has nothing to select a box of.
             drag_select: self.drag_select && !single_select,
@@ -1853,7 +1853,7 @@ impl App {
             sidebar_width: self.sidebar_width,
             window_size,
             maximized,
-            columns: self.details_columns,
+            columns: self.details_columns.clone(),
             auto_refresh_folder: self.auto_refresh_folder,
             auto_refresh_drives: self.auto_refresh_drives,
             thumbnails: self.thumbnails_enabled,
@@ -2140,7 +2140,7 @@ impl App {
             preview_pane: self.preview_pane,
             preview_auto_hide: self.preview_auto_hide,
             status_fields: self.status_fields.clone(),
-            columns: self.details_columns,
+            columns: self.details_columns.clone(),
             use_trash: self.use_trash,
             drag_and_drop: self.drag_and_drop,
             drag_select: self.drag_select,
@@ -2229,6 +2229,11 @@ pub fn selection_summary(selected: &[&Entry], fields: &[StatusField]) -> Option<
                 StatusField::Modified => {
                     if let Some(mtime) = entry.mtime {
                         parts.push(format!("modified {}", format_local_time(mtime)));
+                    }
+                }
+                StatusField::Created => {
+                    if let Some(created) = entry.created {
+                        parts.push(format!("created {}", format_local_time(created)));
                     }
                 }
                 StatusField::Path => parts.push(entry.path.to_string_lossy().into_owned()),
@@ -2546,6 +2551,7 @@ mod tests {
             kind,
             size,
             mtime: None,
+            created: None,
             hidden: false,
             executable: false,
         };
@@ -2802,12 +2808,18 @@ mod tests {
         // "JPEG File" is longer than "Folder" and "TXT File".
         assert_eq!(app.pane().widest_type, "JPEG File");
 
-        for bits in 0..8 {
-            app.details_columns = DetailsColumns {
-                modified: bits & 1 != 0,
-                kind: bits & 2 != 0,
-                size: bits & 4 != 0,
-            };
+        // Every subset of the columns, in order and reversed.
+        for bits in 0..16 {
+            let mut columns = Vec::new();
+            for (i, column) in DetailColumn::ALL.iter().enumerate() {
+                if bits & (1 << i) != 0 {
+                    columns.push(*column);
+                }
+            }
+            app.details_columns = columns.clone();
+            frame(&mut app, &ctx, Vec::new());
+            columns.reverse();
+            app.details_columns = columns;
             frame(&mut app, &ctx, Vec::new());
         }
         // And with search results' Folder column.

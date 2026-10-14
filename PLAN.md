@@ -55,7 +55,7 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D17 | File clipboard | In-app list of paths, also put on the system clipboard as text (so egui reports Ctrl+V, and paths paste into a terminal) | Interop with other file managers is wanted (`text/uri-list` targets) |
 | D18 | FileManager1 | Same binary as the portal, `--file-manager`, own process and activation file | Another file manager's daemon holding the name is a common complaint |
 | D19 | Tabs and split | A `Pane` is one folder view with its own channels; a `Tab` holds one or two panes; the app holds what's shared. Pane actions are returned, then applied | A third pane or saved tabs are wanted |
-| D20 | Details columns | Name fills the leftover width; others sized to their longest possible text; `details_columns` picks which show | A column with very variable content is added |
+| D20 | Details columns | Name fills the leftover width; others sized to their longest possible text; `details_columns` picks which show and their order (Date modified, Date created, Type, Size; Name always first) | A column with very variable content is added |
 | D21 | Removable drives | UDisks2 on the system bus with our D-Bus client: list, `Filesystem.Mount`, eject = unmount all then `PowerOff`/`Eject`; polkit decides (interactive auth flag) | Encrypted volumes are wanted, or polling is too slow |
 | D22 | Fonts | System fonts first (fontconfig on Linux), egui's built-in next (emoji), script fallbacks last | A system font renders badly in egui |
 | D23 | Custom actions | `actions` file next to the config, `.desktop`-like sections, hand-parsed; commands run directly, never through a shell; `%f %F %d %n %%` | Actions need more structure |

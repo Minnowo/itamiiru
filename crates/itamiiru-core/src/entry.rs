@@ -27,6 +27,9 @@ pub struct Entry {
     pub size: u64,
     /// None when the OS can't tell us.
     pub mtime: Option<SystemTime>,
+    /// When it was created (its birth time); None where the filesystem
+    /// doesn't record it.
+    pub created: Option<SystemTime>,
     pub hidden: bool,
     /// Can be run as a program (exec bit on Unix, extension on Windows).
     pub executable: bool,
@@ -69,6 +72,7 @@ impl Entry {
             kind,
             size,
             mtime: meta.modified().ok(),
+            created: meta.created().ok(),
             hidden,
             executable,
         });

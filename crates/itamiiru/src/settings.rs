@@ -6,47 +6,84 @@ use itamiiru_core::sort::{SortColumn, SortOrder};
 
 use crate::toolbar::ViewMode;
 
-/// Which columns the Details view shows besides Name (always shown) and
-/// Folder (search results only). Config: `details_columns=modified,type,size`.
+/// A Details view column besides Name (always first) and Folder (search
+/// results only). `details_columns=modified,type,size` lists the shown
+/// ones in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DetailsColumns {
-    pub modified: bool,
-    pub kind: bool,
-    pub size: bool,
+pub enum DetailColumn {
+    Modified,
+    Created,
+    Type,
+    Size,
 }
 
-impl DetailsColumns {
-    /// Reads a comma-separated list; unknown names are skipped.
-    fn parse(value: &str) -> DetailsColumns {
-        let mut columns = DetailsColumns {
-            modified: false,
-            kind: false,
-            size: false,
+impl DetailColumn {
+    pub const ALL: [DetailColumn; 4] = [
+        DetailColumn::Modified,
+        DetailColumn::Created,
+        DetailColumn::Type,
+        DetailColumn::Size,
+    ];
+
+    /// The name used in the config file.
+    pub fn key(self) -> &'static str {
+        return match self {
+            DetailColumn::Modified => "modified",
+            DetailColumn::Created => "created",
+            DetailColumn::Type => "type",
+            DetailColumn::Size => "size",
         };
-        for part in value.split(',') {
-            match part.trim() {
-                "modified" => columns.modified = true,
-                "type" => columns.kind = true,
-                "size" => columns.size = true,
-                _ => {}
-            }
-        }
-        return columns;
     }
 
-    fn value(self) -> String {
-        let mut keys = Vec::new();
-        if self.modified {
-            keys.push("modified");
+    pub fn from_key(key: &str) -> Option<DetailColumn> {
+        for column in DetailColumn::ALL {
+            if column.key() == key {
+                return Some(column);
+            }
         }
-        if self.kind {
-            keys.push("type");
-        }
-        if self.size {
-            keys.push("size");
-        }
-        return keys.join(",");
+        return None;
     }
+
+    /// The header, and the name on the settings page.
+    pub fn label(self) -> &'static str {
+        return match self {
+            DetailColumn::Modified => "Date modified",
+            DetailColumn::Created => "Date created",
+            DetailColumn::Type => "Type",
+            DetailColumn::Size => "Size",
+        };
+    }
+
+    pub fn sort_column(self) -> SortColumn {
+        return match self {
+            DetailColumn::Modified => SortColumn::Modified,
+            DetailColumn::Created => SortColumn::Created,
+            DetailColumn::Type => SortColumn::Type,
+            DetailColumn::Size => SortColumn::Size,
+        };
+    }
+}
+
+/// Reads a comma-separated column list. Unknown names and repeats are
+/// skipped.
+fn parse_columns(value: &str) -> Vec<DetailColumn> {
+    let mut columns = Vec::new();
+    for part in value.split(',') {
+        if let Some(column) = DetailColumn::from_key(part.trim())
+            && !columns.contains(&column)
+        {
+            columns.push(column);
+        }
+    }
+    return columns;
+}
+
+fn columns_value(columns: &[DetailColumn]) -> String {
+    let mut keys = Vec::new();
+    for column in columns {
+        keys.push(column.key());
+    }
+    return keys.join(",");
 }
 
 /// What the status bar says about a single selected item, in the order
@@ -58,16 +95,18 @@ pub enum StatusField {
     /// Files only; a folder's size isn't known without walking it.
     Size,
     Modified,
+    Created,
     /// The full path.
     Path,
 }
 
 impl StatusField {
-    pub const ALL: [StatusField; 5] = [
+    pub const ALL: [StatusField; 6] = [
         StatusField::Name,
         StatusField::Type,
         StatusField::Size,
         StatusField::Modified,
+        StatusField::Created,
         StatusField::Path,
     ];
 
@@ -78,6 +117,7 @@ impl StatusField {
             StatusField::Type => "type",
             StatusField::Size => "size",
             StatusField::Modified => "modified",
+            StatusField::Created => "created",
             StatusField::Path => "path",
         };
     }
@@ -124,7 +164,8 @@ pub struct Settings {
     /// The window's size when not maximized, in points at 100% zoom.
     pub window_size: [f32; 2],
     pub maximized: bool,
-    pub columns: DetailsColumns,
+    /// The Details view's columns after Name, in order.
+    pub columns: Vec<DetailColumn>,
     /// Optional features.
     pub auto_refresh_folder: bool,
     pub auto_refresh_drives: bool,
@@ -160,11 +201,11 @@ impl Default for Settings {
             sidebar_width: 220.0,
             window_size: [900.0, 600.0],
             maximized: false,
-            columns: DetailsColumns {
-                modified: true,
-                kind: true,
-                size: true,
-            },
+            columns: vec![
+                DetailColumn::Modified,
+                DetailColumn::Type,
+                DetailColumn::Size,
+            ],
             auto_refresh_folder: true,
             auto_refresh_drives: true,
             thumbnails: true,
@@ -219,7 +260,7 @@ impl Settings {
             ],
             maximized: config.get_bool("window_maximized", d.maximized),
             columns: match config.get("details_columns") {
-                Some(value) => DetailsColumns::parse(value),
+                Some(value) => parse_columns(value),
                 None => d.columns,
             },
             auto_refresh_folder: config.get_bool("auto_refresh_folder", d.auto_refresh_folder),
@@ -254,7 +295,7 @@ impl Settings {
         config.set_f32("window_width", self.window_size[0].round());
         config.set_f32("window_height", self.window_size[1].round());
         config.set_bool("window_maximized", self.maximized);
-        config.set("details_columns", &self.columns.value());
+        config.set("details_columns", &columns_value(&self.columns));
         config.set_bool("use_trash", self.use_trash);
         config.set_bool("drag_and_drop", self.drag_and_drop);
         config.set_bool("drag_select", self.drag_select);
@@ -277,6 +318,7 @@ fn sort_column_key(column: SortColumn) -> &'static str {
     return match column {
         SortColumn::Name => "name",
         SortColumn::Modified => "modified",
+        SortColumn::Created => "created",
         SortColumn::Type => "type",
         SortColumn::Size => "size",
     };
@@ -286,6 +328,7 @@ fn sort_column_from_key(key: &str) -> Option<SortColumn> {
     return match key {
         "name" => Some(SortColumn::Name),
         "modified" => Some(SortColumn::Modified),
+        "created" => Some(SortColumn::Created),
         "type" => Some(SortColumn::Type),
         "size" => Some(SortColumn::Size),
         _ => None,
@@ -298,11 +341,7 @@ mod tests {
 
     #[test]
     fn round_trip() {
-        let columns = DetailsColumns {
-            modified: true,
-            kind: false,
-            size: true,
-        };
+        let columns = vec![DetailColumn::Size, DetailColumn::Created];
         let settings = Settings {
             view: ViewMode::LargeIcons,
             sort: SortOrder {
@@ -365,12 +404,18 @@ mod tests {
 
     #[test]
     fn details_columns() {
-        let columns = DetailsColumns::parse("size, bogus,modified,name");
-        assert!(columns.modified && columns.size && !columns.kind);
-        assert_eq!(columns.value(), "modified,size");
-        let none = DetailsColumns::parse("");
-        assert!(!none.modified && !none.kind && !none.size);
-        assert_eq!(Settings::default().columns.value(), "modified,type,size");
+        // In the order given; unknown names and repeats are skipped.
+        let columns = parse_columns("size, bogus,created,name,size");
+        assert_eq!(columns, [DetailColumn::Size, DetailColumn::Created]);
+        assert_eq!(columns_value(&columns), "size,created");
+        assert!(parse_columns("").is_empty());
+        assert_eq!(
+            columns_value(&Settings::default().columns),
+            "modified,type,size"
+        );
+        for column in DetailColumn::ALL {
+            assert_eq!(DetailColumn::from_key(column.key()), Some(column));
+        }
     }
 
     #[test]

@@ -710,6 +710,7 @@ mod tests {
             kind,
             size: 0,
             mtime: None,
+            created: None,
             hidden: false,
             executable: false,
         };

@@ -217,6 +217,7 @@ fn sort_menu(ui: &mut egui::Ui, current: SortOrder) -> Option<SortOrder> {
     let columns = [
         (SortColumn::Name, "Name"),
         (SortColumn::Modified, "Date modified"),
+        (SortColumn::Created, "Date created"),
         (SortColumn::Type, "Type"),
         (SortColumn::Size, "Size"),
     ];

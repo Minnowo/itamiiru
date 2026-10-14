@@ -78,6 +78,7 @@ mod tests {
             kind,
             size: 0,
             mtime: None,
+            created: None,
             hidden: false,
             executable: false,
         };
@@ -117,6 +118,7 @@ mod tests {
             kind: EntryKind::File,
             size: 0,
             mtime: None,
+            created: None,
             hidden: false,
             executable: false,
         };

@@ -10,7 +10,7 @@ use eframe::egui;
 use itamiiru_core::entry::{Entry, EntryKind};
 
 use crate::icons::{Arrow, arrow_button};
-use crate::settings::{DetailsColumns, Settings, StatusField};
+use crate::settings::{DetailColumn, Settings, StatusField};
 use crate::theme::{self, Accent, Theme};
 
 const DIALOG_WIDTH: f32 = 460.0;
@@ -25,7 +25,7 @@ pub struct Options {
     pub preview_pane: bool,
     pub preview_auto_hide: bool,
     pub status_fields: Vec<StatusField>,
-    pub columns: DetailsColumns,
+    pub columns: Vec<DetailColumn>,
     pub use_trash: bool,
     pub drag_and_drop: bool,
     pub drag_select: bool,
@@ -130,15 +130,24 @@ pub fn show(
                     });
                 });
                 section(ui, theme, "Details view", |ui| {
-                    ui.label("Columns besides Name, which takes the rest of the width:");
-                    ui.checkbox(&mut options.columns.modified, "Date modified");
-                    ui.checkbox(&mut options.columns.kind, "Type")
-                        .on_hover_text("The extension, e.g. \"PNG File\", or \"Folder\"");
-                    ui.checkbox(&mut options.columns.size, "Size");
+                    ui.label(
+                        "Columns after Name, which comes first and takes the rest of the width:",
+                    );
+                    ordered_list(
+                        ui,
+                        &DetailColumn::ALL,
+                        &mut options.columns,
+                        DetailColumn::label,
+                    );
                 });
                 section(ui, theme, "Status bar", |ui| {
                     ui.label("Details shown for one selected item, in this order:");
-                    status_fields(ui, &mut options.status_fields);
+                    ordered_list(
+                        ui,
+                        &StatusField::ALL,
+                        &mut options.status_fields,
+                        field_label,
+                    );
                     ui.add_space(theme::GAP_SMALL);
                     ui.weak(format!("Example: {}", example(&options.status_fields)));
                 });
@@ -199,23 +208,30 @@ fn section(
 
 /// One row per field: a checkbox, and for the shown ones, arrows that
 /// move them earlier or later.
-fn status_fields(ui: &mut egui::Ui, fields: &mut Vec<StatusField>) {
-    for (field, shown) in field_rows(fields) {
+/// Picks and orders items from `all`: the shown ones first, in order,
+/// with arrows to move them; the rest after them, unticked.
+fn ordered_list<T: Copy + PartialEq>(
+    ui: &mut egui::Ui,
+    all: &[T],
+    shown: &mut Vec<T>,
+    label: fn(T) -> &'static str,
+) {
+    for (item, is_shown) in list_rows(all, shown) {
         ui.horizontal(|ui| {
-            let position = fields.iter().position(|f| *f == field);
+            let position = shown.iter().position(|s| *s == item);
             let can_move_up = position.is_some_and(|i| i > 0);
-            let can_move_down = position.is_some_and(|i| i + 1 < fields.len());
+            let can_move_down = position.is_some_and(|i| i + 1 < shown.len());
             let up = ui.add_enabled_ui(can_move_up, |ui| arrow_button(ui, Arrow::Up));
             if up.inner.on_hover_text("Earlier").clicked() {
-                move_field(fields, field, -1);
+                move_item(shown, item, -1);
             }
             let down = ui.add_enabled_ui(can_move_down, |ui| arrow_button(ui, Arrow::Down));
             if down.inner.on_hover_text("Later").clicked() {
-                move_field(fields, field, 1);
+                move_item(shown, item, 1);
             }
-            let mut checked = shown;
-            if ui.checkbox(&mut checked, field_label(field)).changed() {
-                set_field(fields, field, checked);
+            let mut checked = is_shown;
+            if ui.checkbox(&mut checked, label(item)).changed() {
+                set_shown(shown, item, checked);
             }
         });
     }
@@ -227,42 +243,43 @@ fn field_label(field: StatusField) -> &'static str {
         StatusField::Type => "Type",
         StatusField::Size => "Size (files only)",
         StatusField::Modified => "Date modified",
+        StatusField::Created => "Date created",
         StatusField::Path => "Full path",
     };
 }
 
-/// The rows to show: the shown fields in their order, then the rest.
-fn field_rows(fields: &[StatusField]) -> Vec<(StatusField, bool)> {
+/// The rows to show: the shown items in their order, then the rest.
+fn list_rows<T: Copy + PartialEq>(all: &[T], shown: &[T]) -> Vec<(T, bool)> {
     let mut rows = Vec::new();
-    for field in fields {
-        rows.push((*field, true));
+    for item in shown {
+        rows.push((*item, true));
     }
-    for field in StatusField::ALL {
-        if !fields.contains(&field) {
-            rows.push((field, false));
+    for item in all {
+        if !shown.contains(item) {
+            rows.push((*item, false));
         }
     }
     return rows;
 }
 
-/// Shows a field (added at the end) or hides it.
-fn set_field(fields: &mut Vec<StatusField>, field: StatusField, shown: bool) {
-    fields.retain(|f| *f != field);
-    if shown {
-        fields.push(field);
+/// Shows an item (added at the end) or hides it.
+fn set_shown<T: Copy + PartialEq>(shown: &mut Vec<T>, item: T, on: bool) {
+    shown.retain(|s| *s != item);
+    if on {
+        shown.push(item);
     }
 }
 
-/// Moves a shown field one place earlier (-1) or later (+1).
-fn move_field(fields: &mut [StatusField], field: StatusField, step: isize) {
-    let Some(from) = fields.iter().position(|f| *f == field) else {
+/// Moves a shown item one place earlier (-1) or later (+1).
+fn move_item<T: Copy + PartialEq>(shown: &mut [T], item: T, step: isize) {
+    let Some(from) = shown.iter().position(|s| *s == item) else {
         return;
     };
     let to = from as isize + step;
-    if to < 0 || to as usize >= fields.len() {
+    if to < 0 || to as usize >= shown.len() {
         return;
     }
-    fields.swap(from, to as usize);
+    shown.swap(from, to as usize);
 }
 
 /// What the status bar would say for a sample photo.
@@ -273,6 +290,7 @@ fn example(fields: &[StatusField]) -> String {
         kind: EntryKind::File,
         size: 3 * 1024 * 1024,
         mtime: Some(SystemTime::now()),
+        created: None,
         hidden: false,
         executable: false,
     };
@@ -286,7 +304,7 @@ mod tests {
     #[test]
     fn rows_put_shown_fields_first_in_order() {
         let fields = vec![StatusField::Size, StatusField::Name];
-        let rows = field_rows(&fields);
+        let rows = list_rows(&StatusField::ALL, &fields);
         assert_eq!(rows.len(), StatusField::ALL.len());
         assert_eq!(rows[0], (StatusField::Size, true));
         assert_eq!(rows[1], (StatusField::Name, true));
@@ -296,24 +314,24 @@ mod tests {
     #[test]
     fn showing_hiding_and_moving_fields() {
         let mut fields = vec![StatusField::Type, StatusField::Size];
-        set_field(&mut fields, StatusField::Name, true);
+        set_shown(&mut fields, StatusField::Name, true);
         assert_eq!(
             fields,
             [StatusField::Type, StatusField::Size, StatusField::Name]
         );
-        move_field(&mut fields, StatusField::Name, -1);
-        move_field(&mut fields, StatusField::Name, -1);
+        move_item(&mut fields, StatusField::Name, -1);
+        move_item(&mut fields, StatusField::Name, -1);
         assert_eq!(
             fields,
             [StatusField::Name, StatusField::Type, StatusField::Size]
         );
         // Already first: stays.
-        move_field(&mut fields, StatusField::Name, -1);
+        move_item(&mut fields, StatusField::Name, -1);
         assert_eq!(fields[0], StatusField::Name);
         // Not shown: nothing to move.
-        move_field(&mut fields, StatusField::Path, 1);
+        move_item(&mut fields, StatusField::Path, 1);
         assert_eq!(fields.len(), 3);
-        set_field(&mut fields, StatusField::Type, false);
+        set_shown(&mut fields, StatusField::Type, false);
         assert_eq!(fields, [StatusField::Name, StatusField::Size]);
     }
 
