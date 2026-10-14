@@ -28,7 +28,7 @@ use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::preview::Preview;
 use crate::settings::{DetailsColumns, Settings, StatusField};
 use crate::settings_page::{self, Options};
-use crate::sidebar::{self, SidebarAction};
+use crate::sidebar::{self, SidebarAction, SidebarDrop};
 use crate::startup;
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
 use crate::theme::{self, Theme};
@@ -147,9 +147,24 @@ pub struct App {
     /// The folder the dragged items would be dropped into, as of the last
     /// frame.
     drop_target: Option<PathBuf>,
+    /// Files another app is dragging over the window this frame, or just
+    /// dropped (`drag_in_dropped`). Set in `raw_input_hook`.
+    drag_in: Option<Vec<PathBuf>>,
+    drag_in_dropped: bool,
+    /// The platform said where the pointer is, so the drop goes where it
+    /// points; otherwise into the active pane's folder.
+    drag_in_pointer: bool,
+    /// A drag has been over this tab since this time (egui seconds); held
+    /// there long enough, the tab opens so the items can be dropped in it.
+    drag_over_tab: Option<(usize, f64)>,
+    /// Drags over the side pane's places and drives.
+    sidebar_drop: SidebarDrop,
     /// Starts that drag. A field so tests can watch it instead of
     /// dragging on the real screen.
     start_drag_out: fn(Vec<PathBuf>) -> Result<DragOut, String>,
+    /// Where the pointer is on the screen, while another app drags files
+    /// over the window. A field so tests don't read the real pointer.
+    pointer_position: fn() -> Option<(f32, f32)>,
     /// The drag out in progress, for its cursor and Escape.
     dragging_out: Option<DragOut>,
 
@@ -239,7 +254,13 @@ impl App {
             actions,
             drag_out: None,
             drop_target: None,
+            drag_in: None,
+            drag_in_dropped: false,
+            drag_in_pointer: false,
+            drag_over_tab: None,
+            sidebar_drop: SidebarDrop::default(),
             start_drag_out: itamiiru_core::platform::start_drag_out,
+            pointer_position: itamiiru_core::platform::pointer_position,
             dragging_out: None,
             picker,
             startup_logged: [false; 3],
@@ -519,6 +540,56 @@ impl App {
         }
     }
 
+    /// Notices files another app drags over the window or drops on it.
+    /// While it drags, the pointer is the other app's, so its position is
+    /// asked of the platform and fed to egui as a pointer move: then the
+    /// views find the folder under it as for our own drags.
+    fn notice_drag_in(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.drag_in = None;
+        self.drag_in_dropped = false;
+        self.drag_in_pointer = false;
+        if !self.drag_and_drop {
+            return;
+        }
+        let mut paths = Vec::new();
+        let dropped = !raw.dropped_files.is_empty();
+        if dropped {
+            for file in &raw.dropped_files {
+                let path = file.path();
+                if !path.as_os_str().is_empty() {
+                    paths.push(path.to_path_buf());
+                }
+            }
+        } else {
+            for file in &raw.hovered_files {
+                if let Some(path) = &file.path {
+                    paths.push(path.clone());
+                }
+            }
+        }
+        if paths.is_empty() {
+            return;
+        }
+        let inner_rect = match raw.viewports.get(&raw.viewport_id) {
+            Some(info) if info.inner_rect.is_some() => info.inner_rect,
+            _ => ctx.input(|i| i.viewport().inner_rect),
+        };
+        if let Some((x, y)) = (self.pointer_position)()
+            && let Some(inner_rect) = inner_rect
+        {
+            let ppp = ctx.pixels_per_point();
+            let pos = egui::pos2(x / ppp, y / ppp) - inner_rect.min.to_vec2();
+            raw.events.push(egui::Event::PointerMoved(pos));
+            self.drag_in_pointer = true;
+        }
+        if !dropped {
+            // Nothing else wakes us while it's dragged around.
+            ctx.request_repaint_after(Duration::from_millis(30));
+        }
+        self.drag_in = Some(paths);
+        self.drag_in_dropped = dropped;
+    }
+
     /// Like Explorer: dropped items move within a drive and are copied to
     /// another one; Ctrl copies and Shift moves either way.
     fn drop_copies(&self, sources: &[PathBuf], dest_dir: &Path, modifiers: Modifiers) -> bool {
@@ -544,12 +615,57 @@ impl App {
         }
     }
 
+    /// The items being dragged over the window: ours (with `drag_within`)
+    /// or another app's.
+    fn dragged(&self) -> Option<&Vec<PathBuf>> {
+        if self.drag_within
+            && let Some(paths) = &self.drag_out
+        {
+            return Some(paths);
+        }
+        return self.drag_in.as_ref();
+    }
+
+    /// A drag held over another tab for a moment opens that tab, so the
+    /// items can be dropped in it. `over` is the tab under the pointer.
+    fn drag_over_tab(&mut self, ctx: &egui::Context, over: Option<usize>) {
+        const HOLD: f64 = 0.5;
+        let Some(index) = over else {
+            self.drag_over_tab = None;
+            return;
+        };
+        let now = ctx.input(|i| i.time);
+        let since = match self.drag_over_tab {
+            Some((tab, since)) if tab == index => since,
+            _ => now,
+        };
+        if now - since >= HOLD && index < self.tabs.len() {
+            self.active_tab = index;
+            self.drag_over_tab = None;
+            return;
+        }
+        self.drag_over_tab = Some((index, since));
+        // The pointer may not move again; look back when it's time.
+        ctx.request_repaint_after(Duration::from_secs_f64(HOLD - (now - since)));
+    }
+
+    /// Without the pointer's position, files from another app go into the
+    /// active pane's folder.
+    fn drag_in_fallback(&self) -> Option<PathBuf> {
+        let sources = self.drag_in.as_ref()?;
+        let pane = self.pane();
+        if pane.this_pc || !can_drop(sources, &pane.current) {
+            return None;
+        }
+        return Some(pane.current.clone());
+    }
+
     /// Where the dragged items would go with the pointer over pane
     /// `index`: into the folder of the address bar crumb it's on, or of
     /// row `row` if that's a folder, else into the pane's folder. None
     /// where they can't go: into themselves, or back where they all are.
     fn drop_target_in(&self, index: usize, row: Option<usize>) -> Option<PathBuf> {
-        let sources = self.drag_out.as_ref()?;
+        let sources = self.dragged()?;
         let pane = &self.tabs[self.active_tab].panes[index];
         let mut dest_dir = pane.current.clone();
         if let Some(crumb) = &pane.address.drop_hover {
@@ -1256,6 +1372,10 @@ impl App {
     /// The central area: the operation error banner, then one pane, or
     /// two side by side with a drag handle between them.
     fn panes(&mut self, ui: &mut egui::Ui) {
+        let dragging = self.dragged().is_some();
+        for pane in &mut self.tabs[self.active_tab].panes {
+            pane.address.dragging = dragging;
+        }
         ops_ui::error_banner(ui, &self.theme, &mut self.op_errors);
         let full = ui.available_rect_before_wrap();
         let mut rects = vec![full];
@@ -1280,7 +1400,11 @@ impl App {
 
         // During a drag: the pane under the pointer and the row in it.
         self.drop_target = None;
-        let pointer = ui.input(|i| i.pointer.latest_pos());
+        let mut pointer = ui.input(|i| i.pointer.latest_pos());
+        if self.drag_in.is_some() && !self.drag_in_pointer {
+            // From before the drag came in; it says nothing.
+            pointer = None;
+        }
         for (index, output) in outputs.iter_mut().enumerate() {
             let mut row = None;
             if let Some(TableAction::DropHover(hovered)) = output.action {
@@ -1288,8 +1412,7 @@ impl App {
                 output.action = None;
             }
             let rect = pane_rects[index];
-            let dragging = self.drag_within && self.drag_out.is_some();
-            if !dragging || !pointer.is_some_and(|p| rect.contains(p)) {
+            if self.dragged().is_none() || !pointer.is_some_and(|p| rect.contains(p)) {
                 continue;
             }
             self.drop_target = self.drop_target_in(index, row);
@@ -1304,8 +1427,38 @@ impl App {
                 );
             }
         }
+        // Over a place or drive in the side pane (drawn before the panes).
+        let pointer_known = self.drag_in.is_none() || self.drag_in_pointer;
+        if pointer_known
+            && let Some(place) = &self.sidebar_drop.hover
+            && let Some(sources) = self.dragged()
+            && can_drop(sources, place)
+        {
+            self.drop_target = Some(place.clone());
+        }
+        if self.drag_in.is_some() && !self.drag_in_pointer {
+            self.drop_target = self.drag_in_fallback();
+            let active = self.tabs[self.active_tab].active;
+            if self.drop_target.is_some()
+                && let Some(rect) = pane_rects.get(active)
+            {
+                ui.painter().rect_filled(
+                    *rect,
+                    theme::RADIUS_MEDIUM,
+                    self.theme.on_surface_hover_tint,
+                );
+            }
+        }
         for pane in &mut self.tabs[self.active_tab].panes {
             pane.address.drop_target = self.drop_target.clone();
+        }
+        self.sidebar_drop.target = self.drop_target.clone();
+        // Files from another app are copied: the app may still need them.
+        if self.drag_in_dropped
+            && let Some(sources) = self.drag_in.take()
+            && let Some(dest_dir) = self.drop_target.take()
+        {
+            self.start_op(Op::Copy { sources, dest_dir });
         }
 
         for (index, output) in outputs.into_iter().enumerate() {
@@ -1382,6 +1535,7 @@ impl App {
         if ui.input(|i| i.pointer.any_pressed()) && ui.rect_contains_pointer(ui.max_rect()) {
             out.activated = true;
         }
+        let dragging = self.dragged().is_some();
         let tab = &mut self.tabs[self.active_tab];
         let split = tab.is_split();
         let is_active = tab.active == index;
@@ -1483,7 +1637,7 @@ impl App {
             widest_type: &pane.widest_type,
             // A picker that returns one file has nothing to select a box of.
             drag_select: self.drag_select && !single_select,
-            dragging: self.drag_within && self.drag_out.is_some(),
+            dragging,
             drop_target: self.drop_target.as_deref(),
         };
         let scroll_to = pane.scroll_to.take();
@@ -1773,6 +1927,7 @@ impl eframe::App for App {
 
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         self.click_fix.fix(ctx.zoom_factor(), raw_input);
+        self.notice_drag_in(ctx, raw_input);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -1842,18 +1997,23 @@ impl eframe::App for App {
                 .frame(strip)
                 .show_separator_line(false)
                 .show(ui, |ui| {
-                    tab_action = tabs::tab_bar(ui, &self.tabs, self.active_tab, &self.theme);
+                    let dragging = self.dragged().is_some();
+                    tab_action =
+                        tabs::tab_bar(ui, &self.tabs, self.active_tab, dragging, &self.theme);
                 });
         }
         egui::Panel::top("toolbar")
             .frame(bar_frame)
             .show(ui, |ui| self.command_row(ui));
+        let mut over_tab = None;
         match tab_action {
             Some(TabAction::Select(index)) => self.active_tab = index,
             Some(TabAction::Close(index)) => self.close_tab(index),
             Some(TabAction::New) => self.new_tab(None, true),
+            Some(TabAction::DragOver(index)) => over_tab = Some(index),
             None => {}
         }
+        self.drag_over_tab(ui.ctx(), over_tab);
         egui::Panel::bottom("status")
             .frame(bar_frame)
             .show(ui, |ui| self.status_bar(ui));
@@ -1877,6 +2037,7 @@ impl eframe::App for App {
         }
 
         let mut sidebar_action = None;
+        self.sidebar_drop.dragging = self.dragged().is_some();
         let sidebar = egui::Panel::left("places")
             .resizable(true)
             .default_size(self.sidebar_width)
@@ -1896,6 +2057,7 @@ impl eframe::App for App {
                     current,
                     self.show_hidden,
                     self.picker.is_none(),
+                    &mut self.sidebar_drop,
                     &self.theme,
                 );
             });
@@ -2181,6 +2343,7 @@ fn show_error(ui: &mut egui::Ui, theme: &Theme, folder: &Path, error: &str) {
 mod tests {
     use super::*;
     use eframe::egui::{Event, PointerButton, Pos2, Rect};
+    use std::sync::{Arc, Mutex};
 
     const SCREEN: Rect = Rect::from_min_max(Pos2::ZERO, Pos2::new(1200.0, 800.0));
 
@@ -3204,6 +3367,189 @@ mod tests {
         drag_and_drop(&mut app, &ctx, file, crumb);
         assert!(folder.0.join("file.txt").exists());
         assert!(!folder.0.join("alpha/file.txt").exists());
+    }
+
+    #[derive(Debug)]
+    struct TestDrop(PathBuf);
+
+    impl egui::DroppedFile for TestDrop {
+        fn path(&self) -> &Path {
+            return &self.0;
+        }
+
+        fn bytes(&self) -> Result<Vec<u8>, String> {
+            return std::fs::read(&self.0).map_err(|e| e.to_string());
+        }
+    }
+
+    /// Where the window's inside is on the (pretend) screen.
+    const WINDOW_AT: egui::Vec2 = egui::vec2(100.0, 50.0);
+
+    static POINTER: Mutex<Option<(f32, f32)>> = Mutex::new(None);
+
+    fn test_pointer() -> Option<(f32, f32)> {
+        return *POINTER.lock().expect("lock");
+    }
+
+    /// A frame where another app drags `paths` over the window, or drops
+    /// them, with the pointer at `at` in the window (None: unknown).
+    fn drag_in_frame(
+        app: &mut App,
+        ctx: &egui::Context,
+        paths: &[PathBuf],
+        drop: bool,
+        at: Option<Pos2>,
+    ) {
+        *POINTER.lock().expect("lock") = at.map(|p| (p.x + WINDOW_AT.x, p.y + WINDOW_AT.y));
+        app.pointer_position = test_pointer;
+        let mut input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            ..Default::default()
+        };
+        let info = egui::ViewportInfo {
+            inner_rect: Some(SCREEN.translate(WINDOW_AT)),
+            ..Default::default()
+        };
+        input.viewports.insert(egui::ViewportId::ROOT, info);
+        for path in paths {
+            if drop {
+                input.dropped_files.push(Arc::new(TestDrop(path.clone())));
+            } else {
+                input.hovered_files.push(egui::HoveredFile {
+                    path: Some(path.clone()),
+                    mime: String::new(),
+                });
+            }
+        }
+        app.notice_drag_in(ctx, &mut input);
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut output = ctx.run_ui(input, |ui| eframe::App::ui(app, ui, &mut frame));
+        output.textures_delta.clear();
+    }
+
+    #[test]
+    fn files_dropped_in_from_another_app() {
+        let folder = Folder::new("dropin");
+        let outside = Folder::new("dropin-outside");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let file = outside.0.join("file.txt");
+
+        // Dropped on a folder: copied into it, the original stays.
+        let alpha = text_center(&mut app, &ctx, "alpha");
+        drag_in_frame(
+            &mut app,
+            &ctx,
+            std::slice::from_ref(&file),
+            false,
+            Some(alpha),
+        );
+        drag_in_frame(
+            &mut app,
+            &ctx,
+            std::slice::from_ref(&file),
+            false,
+            Some(alpha),
+        );
+        assert_eq!(app.drop_target, Some(folder.0.join("alpha")));
+        drag_in_frame(
+            &mut app,
+            &ctx,
+            std::slice::from_ref(&file),
+            true,
+            Some(alpha),
+        );
+        settle_op(&mut app, &ctx);
+        assert!(folder.0.join("alpha/file.txt").exists());
+        assert!(file.exists());
+
+        // Where the pointer is isn't known: into the open folder.
+        let new_file = outside.0.join("new.txt");
+        std::fs::write(&new_file, b"new").expect("write new.txt");
+        drag_in_frame(&mut app, &ctx, std::slice::from_ref(&new_file), false, None);
+        drag_in_frame(&mut app, &ctx, std::slice::from_ref(&new_file), true, None);
+        settle_op(&mut app, &ctx);
+        assert!(folder.0.join("new.txt").exists());
+
+        // Switched off: nothing happens.
+        let mut options = app.options();
+        options.drag_and_drop = false;
+        app.apply_options(options);
+        let alpha_dir = outside.0.join("alpha");
+        drag_in_frame(
+            &mut app,
+            &ctx,
+            std::slice::from_ref(&alpha_dir),
+            true,
+            Some(alpha),
+        );
+        settle_op(&mut app, &ctx);
+        assert!(!folder.0.join("alpha/alpha").exists());
+    }
+
+    #[test]
+    fn a_drag_held_over_a_tab_opens_it() {
+        let folder = Folder::new("dragtab");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        app.new_tab(Some(folder.0.join("alpha")), false);
+        settle(&mut app, &ctx);
+        assert_eq!(app.active_tab, 0);
+
+        // The second tab is named alpha; the topmost "alpha" is the tab.
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let mut tab = None;
+        for (text, rect) in &texts {
+            if text == "alpha" && tab.is_none_or(|t: Rect| rect.top() < t.top()) {
+                tab = Some(*rect);
+            }
+        }
+        let tab = tab.expect("the alpha tab").center();
+        let file = text_center(&mut app, &ctx, "file.txt");
+        drag_from(&mut app, &ctx, file, (tab - file) / 5.0, 5);
+        assert_eq!(app.active_tab, 0, "not straight away");
+        for _ in 0..40 {
+            frame(&mut app, &ctx, Vec::new());
+        }
+        assert_eq!(app.active_tab, 1, "held there, the tab opened");
+
+        // Dropped in the open tab's folder.
+        let empty = Pos2::new(600.0, 600.0);
+        for i in 1..=5 {
+            let pos = tab + (empty - tab) * (i as f32 / 5.0);
+            frame(&mut app, &ctx, vec![Event::PointerMoved(pos)]);
+        }
+        frame(&mut app, &ctx, Vec::new());
+        frame(&mut app, &ctx, vec![button(empty, false)]);
+        settle_op(&mut app, &ctx);
+        assert!(folder.0.join("alpha/file.txt").exists());
+        assert!(!folder.0.join("file.txt").exists());
+    }
+
+    #[test]
+    fn dropping_on_a_sidebar_place() {
+        let folder = Folder::new("dropsidebar");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        // No rescans replacing the pretend place below.
+        app.auto_refresh_drives = false;
+        frame(&mut app, &ctx, Vec::new());
+        app.places = Places {
+            quick: vec![itamiiru_core::places::Place {
+                name: "DropHere".to_string(),
+                path: folder.0.join("beta"),
+                kind: itamiiru_core::places::PlaceKind::Folder,
+            }],
+            ..Places::default()
+        };
+        let place = text_center(&mut app, &ctx, "DropHere");
+        let file = text_center(&mut app, &ctx, "file.txt");
+        drag_and_drop(&mut app, &ctx, file, place);
+        assert!(folder.0.join("beta/file.txt").exists());
+        assert!(!folder.0.join("file.txt").exists());
     }
 
     #[test]

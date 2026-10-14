@@ -216,6 +216,12 @@ pub fn mount_volume(_volume: &crate::places::Volume) -> Result<std::path::PathBu
     return Err("mounting drives isn't supported on this system yet".to_string());
 }
 
+/// Where the pointer is on the screen, in pixels. Not done here yet:
+/// files dropped from other apps go into the active pane's folder.
+pub fn pointer_position() -> Option<(f32, f32)> {
+    return None;
+}
+
 /// Dragging files out to other apps isn't done on this system yet.
 pub fn start_drag_out(_paths: Vec<std::path::PathBuf>) -> Result<super::DragOut, String> {
     return Err("dragging out isn't supported on this system yet".to_string());

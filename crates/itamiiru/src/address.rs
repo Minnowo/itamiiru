@@ -25,6 +25,8 @@ pub enum AddressAction {
 
 #[derive(Default)]
 pub struct AddressBar {
+    /// Files are being dragged (set by the app before drawing).
+    pub dragging: bool,
     /// Files are being dragged over this crumb's folder (set while drawing).
     pub drop_hover: Option<PathBuf>,
     /// Where the app would drop them, as of the last frame: that crumb is
@@ -161,15 +163,13 @@ impl AddressBar {
                 separator(&mut child);
             }
         }
-        // Something is being dragged; the app decides whether it's files.
-        let dragging = ui.ctx().dragged_id().is_some();
         for (i, (label, path)) in crumbs.iter().enumerate().skip(first) {
             let drop_here = path.is_some() && *path == self.drop_target;
             let button = egui::Button::new(label.as_str())
                 .frame_when_inactive(false)
                 .selected(drop_here);
             let response = child.add(button);
-            if dragging && response.contains_pointer() {
+            if self.dragging && response.contains_pointer() {
                 self.drop_hover = path.clone();
             }
             if let Some(path) = path {

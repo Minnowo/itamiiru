@@ -62,7 +62,8 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D24 | Drag out | XDND on `x11rb` (already in the tree via winit) in `platform/linux/xdnd.rs`, own connection and thread, pointer polled every 10 ms | Wayland support is wanted |
 | D25 | Renderer | Build-time feature: `glow` (default, 180 crates) or `wgpu` (Vulkan, 217 crates; first frame in 83-88 ms vs 115-176 ms). Releases ship both | glow is dropped by egui, or wgpu's crate count comes down |
 | D26 | Installing | A short manual guide in README.md instead of an install script; packages ship per-user files in `/usr/share/itamiiru/` | Many users struggle with the manual steps |
-| D27 | Drag and drop inside the window | Drop on a folder item, an address bar crumb, or a pane (its folder). Explorer's rule: move within a drive, copy across, Ctrl copies, Shift moves; "same drive" is the longest mount point from the last drive scan, so the UI thread never stats | Drops on the side pane's places are wanted |
+| D27 | Drag and drop inside the window | Drop on a folder item, an address bar crumb, a side pane place or drive, or a pane (its folder); held over a tab for 0.5 s, that tab opens. Explorer's rule: move within a drive, copy across, Ctrl copies, Shift moves; "same drive" is the longest mount point from the last drive scan, so the UI thread never stats | Drops on tabs are wanted |
+| D28 | Drops from other apps | winit's hovered and dropped files; winit says nothing of the pointer then, so `platform::pointer_position` (X11: QueryPointer on a second connection) is asked each frame and fed to egui as a pointer move, and the drop lands where our own drops would. Always copied. No position: the active pane's folder | winit reports drop positions (0.31), or Wayland drops are wanted |
 
 ## Threading model
 
@@ -147,7 +148,7 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | `preview_pane` | off | The `Panel::right("preview")` block in `App::ui` |
 | `preview_auto_hide` | off | Same block: the panel is skipped unless `Preview::auto_open` |
 | `use_trash` | on | `App::run_command` for `Command::Trash`, and `trash_supported` |
-| `drag_and_drop` | on | `App::check_drag_out`: hands a drag to the system when it leaves the window |
+| `drag_and_drop` | on | `App::check_drag_out` hands a drag to the system when it leaves the window; `App::notice_drag_in` takes drops from other apps |
 | `drag_within` | on | `App::panes` looks for a drop target only when on; with both off, `App::drag_start` starts nothing |
 | `drag_select` | on | `TableInput::drag_select`: the views' empty space (and Details cells other than Name) sense drags and start a box (`band.rs`) |
 | `thumbnails` | on | `Thumbs::new` starts no pool when off |
@@ -203,7 +204,7 @@ Session variables: Wayland/systemd sessions use `~/.config/environment.d/`; X11 
 - [ ] P9.2 Accessibility decision (D10).
 - [ ] P9.4 inotify live updates via libc, replacing polling (D9).
 - [ ] P9.7 Packaging: an Arch PKGBUILD lives in the separate `kutsubako` repo; deb/rpm not done.
-- Known gaps: encrypted volumes, drag into itamiiru and drags on Wayland, custom actions in the sidebar and This PC menus, a properties dialog for ShowItemProperties.
+- Known gaps: encrypted volumes, drags on Wayland (winit 0.30 has no drops there), the pointer during drops on Windows and macOS (they go into the active pane), custom actions in the sidebar and This PC menus, a properties dialog for ShowItemProperties.
 
 **Deferred: Windows and macOS.** The code keeps compiling for both (`cargo check` stays in the checklist). To do: the Windows platform module, fonts and cache location; the macOS platform module and trash; testing on real machines.
 

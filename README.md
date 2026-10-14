@@ -182,7 +182,12 @@ sed "s|@BINDIR@|$HOME/.local/bin|" data/org.freedesktop.FileManager1.service \
 - **USB drives** show up under This PC even before they're mounted: click
   to mount, right-click to unmount or eject (needs `udisks2`).
 - **Drag files out** onto other apps (a browser upload box, a terminal, an
-  editor). X11 sessions only for now; Escape cancels.
+  editor), and **drop files in** from other apps: they're copied into the
+  folder under the pointer. X11 sessions only for now; Escape cancels.
+- **Drag and drop inside the window**: onto a folder, a folder name in the
+  address bar, a place or drive in the side pane, or the other pane; hold
+  it over a tab to open that tab. Within a drive files move, onto another
+  drive they're copied; hold Ctrl to copy or Shift to move.
 
 ## Update
 

@@ -103,8 +103,14 @@ pub fn show(
                     .on_hover_text(
                         "Moves them within a drive, copies to another; Ctrl copies, Shift moves",
                     );
-                    ui.checkbox(&mut options.drag_and_drop, "Drag files out to other apps")
-                        .on_hover_text("Drop them in a browser, a terminal, an editor (X11 only)");
+                    ui.checkbox(
+                        &mut options.drag_and_drop,
+                        "Drag files to and from other apps",
+                    )
+                    .on_hover_text(
+                        "Drop them in a browser, a terminal, an editor; files dropped \
+                             in from other apps are copied (X11 only for now)",
+                    );
                     ui.checkbox(&mut options.drag_select, "Drag from empty space to select")
                         .on_hover_text(
                             "Draws a box; the items it touches get selected, Ctrl adds them. \

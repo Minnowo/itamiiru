@@ -14,6 +14,7 @@
 //! (upload, open, paste them), and nothing here deletes anything.
 
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use x11rb::connection::{Connection, RequestConnection};
@@ -71,6 +72,43 @@ pub fn start(paths: Vec<PathBuf>) -> Result<DragOut, String> {
         return Err(format!("can't start the drag: {err}"));
     }
     return Ok(handle);
+}
+
+/// The connection `pointer_position` asks on, opened on first use. None
+/// inside once connecting failed, so it isn't tried every frame.
+static POINTER_CONN: Mutex<Option<Option<(RustConnection, Window)>>> = Mutex::new(None);
+
+/// Where the pointer is on the screen, in pixels, on X11. While another
+/// app drags files over our window it holds the pointer, so winit tells
+/// us nothing about where they are; this asks the X server instead.
+pub fn pointer_position() -> Option<(f32, f32)> {
+    if std::env::var_os("WAYLAND_DISPLAY").is_some() {
+        return None;
+    }
+    let Ok(mut slot) = POINTER_CONN.lock() else {
+        return None;
+    };
+    if slot.is_none() {
+        let opened = match x11rb::connect(None) {
+            Ok((conn, screen)) => match conn.setup().roots.get(screen) {
+                Some(root) => {
+                    let root = root.root;
+                    Some((conn, root))
+                }
+                None => None,
+            },
+            Err(err) => {
+                crate::debug!("xdnd: no connection for the pointer: {err}");
+                None
+            }
+        };
+        *slot = Some(opened);
+    }
+    let Some(Some((conn, root))) = slot.as_ref() else {
+        return None;
+    };
+    let reply = conn.query_pointer(*root).ok()?.reply().ok()?;
+    return Some((f32::from(reply.root_x), f32::from(reply.root_y)));
 }
 
 /// The atoms XDND uses, looked up once per drag.

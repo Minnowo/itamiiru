@@ -66,13 +66,22 @@ pub enum TabAction {
     Select(usize),
     Close(usize),
     New,
+    /// Items are being dragged over this tab (not the active one).
+    DragOver(usize),
 }
 
 /// The row of tabs, with a close button on each (when there's more than
 /// one) and a new-tab button at the end. Middle-click closes a tab. The
 /// active tab has the toolbar's color and touches the panel's bottom
-/// edge, so it joins the toolbar below like a browser tab.
-pub fn tab_bar(ui: &mut egui::Ui, tabs: &[Tab], active: usize, theme: &Theme) -> Option<TabAction> {
+/// edge, so it joins the toolbar below like a browser tab. `dragging`:
+/// items are being dragged, so a tab under the pointer is reported.
+pub fn tab_bar(
+    ui: &mut egui::Ui,
+    tabs: &[Tab],
+    active: usize,
+    dragging: bool,
+    theme: &Theme,
+) -> Option<TabAction> {
     let mut action = None;
     egui::ScrollArea::horizontal()
         .id_salt("tab-bar")
@@ -87,6 +96,8 @@ pub fn tab_bar(ui: &mut egui::Ui, tabs: &[Tab], active: usize, theme: &Theme) ->
                         action = Some(TabAction::Close(i));
                     } else if response.clicked() {
                         action = Some(TabAction::Select(i));
+                    } else if dragging && i != active && response.contains_pointer() {
+                        action = Some(TabAction::DragOver(i));
                     }
                 }
                 let new = icon_button(ui, ButtonIcon::Plus, false);

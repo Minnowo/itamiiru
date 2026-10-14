@@ -16,6 +16,33 @@ const USAGE_BAR_HEIGHT: f32 = 4.0;
 /// A drive more full than this gets an error-colored bar, like Explorer's red.
 const NEARLY_FULL: f32 = 0.9;
 
+/// Items dragged over the side pane: they can be dropped on a place or
+/// a drive.
+#[derive(Default)]
+pub struct SidebarDrop {
+    /// Items are being dragged (set by the app before drawing).
+    pub dragging: bool,
+    /// Where the app would drop them, as of the last frame: that row is
+    /// drawn selected.
+    pub target: Option<PathBuf>,
+    /// The row under the pointer (set while drawing).
+    pub hover: Option<PathBuf>,
+}
+
+impl SidebarDrop {
+    /// The row for `path` is drawn selected: it's the folder on screen,
+    /// or where a drag would drop.
+    fn marks(&self, current: Option<&Path>, path: &Path) -> bool {
+        return current == Some(path) || self.target.as_deref() == Some(path);
+    }
+
+    fn notice(&mut self, row: &egui::Response, path: &Path) {
+        if self.dragging && row.contains_pointer() {
+            self.hover = Some(path.to_path_buf());
+        }
+    }
+}
+
 pub enum SidebarAction {
     GoTo(PathBuf),
     ThisPc,
@@ -46,9 +73,11 @@ pub fn show(
     current: Option<&Path>,
     show_hidden: bool,
     tabs: bool,
+    drop: &mut SidebarDrop,
     theme: &Theme,
 ) -> Option<SidebarAction> {
     let mut action = None;
+    drop.hover = None;
     // The buttons sit at the bottom; the places scroll above them.
     egui::Panel::bottom("sidebar-buttons")
         .show_separator_line(false)
@@ -77,7 +106,9 @@ pub fn show(
     scroll.show(ui, |ui| {
         section(ui, "Quick access", |ui| {
             for place in &places.quick {
-                let row = place_row(ui, place, current, theme);
+                let selected = drop.marks(current, &place.path);
+                let row = place_row(ui, place, selected, theme);
+                drop.notice(&row, &place.path);
                 if row.clicked() {
                     action = Some(SidebarAction::GoTo(place.path.clone()));
                 }
@@ -87,7 +118,9 @@ pub fn show(
         if !places.bookmarks.is_empty() {
             section(ui, "Bookmarks", |ui| {
                 for place in &places.bookmarks {
-                    let row = place_row(ui, place, current, theme);
+                    let selected = drop.marks(current, &place.path);
+                    let row = place_row(ui, place, selected, theme);
+                    drop.notice(&row, &place.path);
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
@@ -123,7 +156,9 @@ pub fn show(
                     let drive_usage = usage.get(&drive.mount_point);
                     let volume = places.volume_at(&drive.mount_point);
                     let removable = volume.is_some();
-                    let row = drive_row(ui, drive, drive_usage, removable, current, theme);
+                    let selected = drop.marks(current, &drive.mount_point);
+                    let row = drive_row(ui, drive, drive_usage, removable, selected, theme);
+                    drop.notice(&row, &drive.mount_point);
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(drive.mount_point.clone()));
                     }
@@ -149,7 +184,9 @@ pub fn show(
         if !places.network.is_empty() {
             section(ui, "Network", |ui| {
                 for place in &places.network {
-                    let row = place_row(ui, place, current, theme);
+                    let selected = drop.marks(current, &place.path);
+                    let row = place_row(ui, place, selected, theme);
+                    drop.notice(&row, &place.path);
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
@@ -214,14 +251,8 @@ fn section(ui: &mut egui::Ui, title: &str, add_contents: impl FnOnce(&mut egui::
         .show(ui, add_contents);
 }
 
-fn place_row(
-    ui: &mut egui::Ui,
-    place: &Place,
-    current: Option<&Path>,
-    theme: &Theme,
-) -> egui::Response {
+fn place_row(ui: &mut egui::Ui, place: &Place, selected: bool, theme: &Theme) -> egui::Response {
     let line = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
-    let selected = current == Some(place.path.as_path());
     let (response, icon_rect, text_left) = row(ui, line + theme::GAP_SMALL, selected, theme);
     if ui.is_rect_visible(response.rect) {
         paint_place_icon(ui.painter(), icon_rect, place.kind, theme);
@@ -239,12 +270,11 @@ fn drive_row(
     drive: &Drive,
     usage: Option<&DiskUsage>,
     removable: bool,
-    current: Option<&Path>,
+    selected: bool,
     theme: &Theme,
 ) -> egui::Response {
     let line = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
     let height = line + USAGE_BAR_HEIGHT + 2.0 * theme::GAP_SMALL;
-    let selected = current == Some(drive.mount_point.as_path());
     let (response, icon_rect, text_left) = row(ui, height, selected, theme);
     let mut rect = response.rect;
 

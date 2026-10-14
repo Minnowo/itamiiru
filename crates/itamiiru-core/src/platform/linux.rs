@@ -17,6 +17,13 @@ pub fn start_drag_out(paths: Vec<PathBuf>) -> Result<super::DragOut, String> {
     return xdnd::start(paths);
 }
 
+/// Where the pointer is on the screen, in pixels, when the windowing
+/// system will say (X11). Used while files from another app are dragged
+/// over the window, when winit doesn't report the pointer.
+pub fn pointer_position() -> Option<(f32, f32)> {
+    return xdnd::pointer_position();
+}
+
 /// `$XDG_CONFIG_HOME`, or `~/.config`.
 pub fn config_home() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("XDG_CONFIG_HOME") {
