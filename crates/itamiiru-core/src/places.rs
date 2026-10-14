@@ -134,6 +134,32 @@ pub enum PlacesMsg {
 
 /// Finds all places on a new thread and sends one `PlacesMsg::Places`.
 /// Disk usage is asked for separately with `start_usage`.
+/// Whether two paths are on the same drive, going by the mount points
+/// found by the last scan (no filesystem access): each path belongs to the
+/// longest mount point it's under. Paths under no known mount point count
+/// as one drive.
+pub fn same_drive(drives: &[Drive], a: &Path, b: &Path) -> bool {
+    return mount_point_of(drives, a) == mount_point_of(drives, b);
+}
+
+fn mount_point_of<'a>(drives: &'a [Drive], path: &Path) -> Option<&'a Path> {
+    let mut best: Option<&Path> = None;
+    for drive in drives {
+        let mount = drive.mount_point.as_path();
+        if !path.starts_with(mount) {
+            continue;
+        }
+        let longer = match best {
+            Some(best) => mount.as_os_str().len() > best.as_os_str().len(),
+            None => true,
+        };
+        if longer {
+            best = Some(mount);
+        }
+    }
+    return best;
+}
+
 pub fn start_scan(tx: Sender<PlacesMsg>, wake: Wake) {
     let spawned = std::thread::Builder::new()
         .name("places".to_string())
@@ -235,6 +261,27 @@ pub fn start_usage(mount_point: PathBuf, tx: Sender<PlacesMsg>, wake: Wake) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn same_drive_by_mount_point() {
+        let drive = |mount: &str| Drive {
+            name: String::new(),
+            mount_point: PathBuf::from(mount),
+            fs_type: String::new(),
+            kind: DriveKind::System,
+            hidden: false,
+        };
+        let drives = [drive("/"), drive("/home"), drive("/media/usb")];
+        let same = |a: &str, b: &str| same_drive(&drives, Path::new(a), Path::new(b));
+        assert!(same("/home/me/a", "/home/me/b/c"));
+        assert!(same("/etc", "/usr/lib"));
+        assert!(!same("/home/me", "/etc"));
+        assert!(!same("/home/me", "/media/usb/photos"));
+        // Whole components only: /homework is on /, not /home.
+        assert!(same("/homework", "/etc"));
+        assert!(same("/a", "/b"));
+        assert!(same_drive(&[], Path::new("/a"), Path::new("/b")));
+    }
 
     #[test]
     fn used_fraction() {

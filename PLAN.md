@@ -62,6 +62,7 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D24 | Drag out | XDND on `x11rb` (already in the tree via winit) in `platform/linux/xdnd.rs`, own connection and thread, pointer polled every 10 ms | Wayland support is wanted |
 | D25 | Renderer | Build-time feature: `glow` (default, 180 crates) or `wgpu` (Vulkan, 217 crates; first frame in 83-88 ms vs 115-176 ms). Releases ship both | glow is dropped by egui, or wgpu's crate count comes down |
 | D26 | Installing | A short manual guide in README.md instead of an install script; packages ship per-user files in `/usr/share/itamiiru/` | Many users struggle with the manual steps |
+| D27 | Drag and drop inside the window | Drop on a folder item, an address bar crumb, or a pane (its folder). Explorer's rule: move within a drive, copy across, Ctrl copies, Shift moves; "same drive" is the longest mount point from the last drive scan, so the UI thread never stats | Drops on the side pane's places are wanted |
 
 ## Threading model
 
@@ -146,7 +147,8 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | `preview_pane` | off | The `Panel::right("preview")` block in `App::ui` |
 | `preview_auto_hide` | off | Same block: the panel is skipped unless `Preview::auto_open` |
 | `use_trash` | on | `App::run_command` for `Command::Trash`, and `trash_supported` |
-| `drag_and_drop` | on | Top of `App::drag_start` |
+| `drag_and_drop` | on | `App::check_drag_out`: hands a drag to the system when it leaves the window |
+| `drag_within` | on | `App::panes` looks for a drop target only when on; with both off, `App::drag_start` starts nothing |
 | `drag_select` | on | `TableInput::drag_select`: the views' empty space (and Details cells other than Name) sense drags and start a box (`band.rs`) |
 | `thumbnails` | on | `Thumbs::new` starts no pool when off |
 

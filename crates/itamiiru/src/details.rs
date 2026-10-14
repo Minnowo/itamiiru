@@ -1,7 +1,7 @@
 //! The Details view: a table with Name, Date modified, Type and Size.
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Align, Color32, Key, Layout, Rect, RichText, Sense, TextStyle};
 use egui_extras::{Column, TableBuilder};
@@ -48,6 +48,8 @@ pub enum TableAction {
     },
     /// The rows the drag-to-select box touches now.
     Band(Vec<usize>),
+    /// Items are being dragged and the pointer is over this row.
+    DropHover(usize),
 }
 
 /// A name being edited in place (F2).
@@ -78,6 +80,11 @@ pub struct TableInput<'a> {
     /// Dragging from empty space draws a box to select with. In the
     /// Details view, so do drags on columns other than Name.
     pub drag_select: bool,
+    /// Items are being dragged inside the window.
+    pub dragging: bool,
+    /// Where they'd be dropped, as of the last frame: that folder's item
+    /// is drawn selected.
+    pub drop_target: Option<&'a Path>,
 }
 
 /// The longest texts the Date modified and Size columns can hold, for
@@ -197,7 +204,8 @@ pub fn show(
             body.rows(row_height, input.visible.len(), |mut row| {
                 let row_number = row.index();
                 let entry = &input.entries[input.visible[row_number]];
-                row.set_selected(input.selection.is_selected(&entry.path));
+                let drop_here = input.drop_target == Some(entry.path.as_path());
+                row.set_selected(input.selection.is_selected(&entry.path) || drop_here);
 
                 let (_, name_cell) = row.col(|ui| {
                     let icon_size = egui::vec2(theme::ICON_SIZE, theme::ICON_SIZE);
@@ -267,6 +275,9 @@ pub fn show(
                         add: modifiers.command,
                     });
                     band_started = true;
+                }
+                if input.dragging && response.contains_pointer() {
+                    action = Some(TableAction::DropHover(row_number));
                 }
             });
         });

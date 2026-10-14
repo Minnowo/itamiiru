@@ -61,8 +61,6 @@ struct PaneOutput {
     /// Clicked somewhere in the pane: it becomes the active one.
     activated: bool,
     action: Option<TableAction>,
-    /// From the right-click menu on empty space.
-    command: Option<Command>,
     tile: Option<TileAction>,
 }
 
@@ -136,12 +134,19 @@ pub struct App {
     drag_and_drop: bool,
     /// Dragging from empty space selects with a box (setting `drag_select`).
     drag_select: bool,
+    /// Dragged files can be dropped onto folders and the other pane
+    /// (setting `drag_within`).
+    drag_within: bool,
     /// Custom right-click actions, from the `actions` file next to the
     /// config file (read at startup).
     actions: Vec<Action>,
-    /// Items being dragged; once the pointer leaves the window with the
+    /// Items being dragged. Let go over a folder or the other pane, they
+    /// move or copy there; once the pointer leaves the window with the
     /// button still down, they're dragged out to other apps.
     drag_out: Option<Vec<PathBuf>>,
+    /// The folder the dragged items would be dropped into, as of the last
+    /// frame.
+    drop_target: Option<PathBuf>,
     /// Starts that drag. A field so tests can watch it instead of
     /// dragging on the real screen.
     start_drag_out: fn(Vec<PathBuf>) -> Result<DragOut, String>,
@@ -230,8 +235,10 @@ impl App {
             use_trash: settings.use_trash,
             drag_and_drop: settings.drag_and_drop,
             drag_select: settings.drag_select,
+            drag_within: settings.drag_within,
             actions,
             drag_out: None,
+            drop_target: None,
             start_drag_out: itamiiru_core::platform::start_drag_out,
             dragging_out: None,
             picker,
@@ -440,7 +447,7 @@ impl App {
     /// A drag started on a row: like Explorer, an unselected row becomes
     /// the selection; the selection is what gets dragged.
     fn drag_start(&mut self, row: usize) {
-        if !self.drag_and_drop {
+        if !self.drag_within && !self.drag_and_drop {
             return;
         }
         self.pane_mut().select_row_if_unselected(row);
@@ -481,15 +488,26 @@ impl App {
             self.drag_out = None;
             return;
         }
-        ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+        let modifiers = ctx.input(|i| i.modifiers);
         let (down, pos) = ctx.input(|i| (i.pointer.primary_down(), i.pointer.latest_pos()));
         if !down {
-            // Let go inside the window.
-            self.drag_out = None;
+            // Let go inside the window: dropped on a folder or the other
+            // pane, or nowhere.
+            let sources = self.drag_out.take();
+            if let (Some(sources), Some(dest_dir)) = (sources, self.drop_target.take()) {
+                self.drop_into(sources, dest_dir, modifiers);
+            }
             return;
         }
+        let icon = match (&self.drag_out, &self.drop_target) {
+            (Some(sources), Some(dest_dir)) if self.drop_copies(sources, dest_dir, modifiers) => {
+                egui::CursorIcon::Copy
+            }
+            _ => egui::CursorIcon::Grabbing,
+        };
+        ctx.set_cursor_icon(icon);
         let inside = pos.is_some_and(|pos| ctx.content_rect().contains(pos));
-        if inside {
+        if inside || !self.drag_and_drop {
             return;
         }
         let Some(paths) = self.drag_out.take() else {
@@ -499,6 +517,54 @@ impl App {
             Ok(drag) => self.dragging_out = Some(drag),
             Err(err) => itamiiru_core::debug!("drag out: {err}"),
         }
+    }
+
+    /// Like Explorer: dropped items move within a drive and are copied to
+    /// another one; Ctrl copies and Shift moves either way.
+    fn drop_copies(&self, sources: &[PathBuf], dest_dir: &Path, modifiers: Modifiers) -> bool {
+        if modifiers.command {
+            return true;
+        }
+        if modifiers.shift {
+            return false;
+        }
+        for source in sources {
+            if !places::same_drive(&self.places.drives, source, dest_dir) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn drop_into(&mut self, sources: Vec<PathBuf>, dest_dir: PathBuf, modifiers: Modifiers) {
+        if self.drop_copies(&sources, &dest_dir, modifiers) {
+            self.start_op(Op::Copy { sources, dest_dir });
+        } else {
+            self.start_op(Op::Move { sources, dest_dir });
+        }
+    }
+
+    /// Where the dragged items would go with the pointer over pane
+    /// `index`: into the folder of the address bar crumb it's on, or of
+    /// row `row` if that's a folder, else into the pane's folder. None
+    /// where they can't go: into themselves, or back where they all are.
+    fn drop_target_in(&self, index: usize, row: Option<usize>) -> Option<PathBuf> {
+        let sources = self.drag_out.as_ref()?;
+        let pane = &self.tabs[self.active_tab].panes[index];
+        let mut dest_dir = pane.current.clone();
+        if let Some(crumb) = &pane.address.drop_hover {
+            dest_dir = crumb.clone();
+        } else if pane.this_pc {
+            return None;
+        } else if let Some(entry) = row.and_then(|row| pane.entry_at(row))
+            && entry.is_dir()
+        {
+            dest_dir = entry.path.clone();
+        }
+        if !can_drop(sources, &dest_dir) {
+            return None;
+        }
+        return Some(dest_dir);
     }
 
     /// Middle-click: a folder opens in a new tab, behind this one.
@@ -1199,6 +1265,7 @@ impl App {
             ui.allocate_rect(handle, Sense::hover());
         }
         let mut outputs = Vec::new();
+        let pane_rects = rects.clone();
         for (index, rect) in rects.into_iter().enumerate() {
             let id = self.tabs[self.active_tab].panes[index].id;
             let builder = egui::UiBuilder::new()
@@ -1210,11 +1277,39 @@ impl App {
             outputs.push(self.show_pane(&mut child, index));
         }
         ui.allocate_rect(full, Sense::hover());
+
+        // During a drag: the pane under the pointer and the row in it.
+        self.drop_target = None;
+        let pointer = ui.input(|i| i.pointer.latest_pos());
+        for (index, output) in outputs.iter_mut().enumerate() {
+            let mut row = None;
+            if let Some(TableAction::DropHover(hovered)) = output.action {
+                row = Some(hovered);
+                output.action = None;
+            }
+            let rect = pane_rects[index];
+            let dragging = self.drag_within && self.drag_out.is_some();
+            if !dragging || !pointer.is_some_and(|p| rect.contains(p)) {
+                continue;
+            }
+            self.drop_target = self.drop_target_in(index, row);
+            let pane = &self.tabs[self.active_tab].panes[index];
+            let on_crumb = pane.address.drop_hover.is_some();
+            if !on_crumb && self.drop_target.as_ref() == Some(&pane.current) {
+                // Into the pane's own folder: tint the whole pane.
+                ui.painter().rect_filled(
+                    rect,
+                    theme::RADIUS_MEDIUM,
+                    self.theme.on_surface_hover_tint,
+                );
+            }
+        }
+        for pane in &mut self.tabs[self.active_tab].panes {
+            pane.address.drop_target = self.drop_target.clone();
+        }
+
         for (index, output) in outputs.into_iter().enumerate() {
-            let used = output.activated
-                || output.action.is_some()
-                || output.command.is_some()
-                || output.tile.is_some();
+            let used = output.activated || output.action.is_some() || output.tile.is_some();
             if used {
                 self.tabs[self.active_tab].active = index;
                 self.apply_pane_output(output);
@@ -1388,6 +1483,8 @@ impl App {
             widest_type: &pane.widest_type,
             // A picker that returns one file has nothing to select a box of.
             drag_select: self.drag_select && !single_select,
+            dragging: self.drag_within && self.drag_out.is_some(),
+            drop_target: self.drop_target.as_deref(),
         };
         let scroll_to = pane.scroll_to.take();
         out.action = match self.view {
@@ -1459,10 +1556,9 @@ impl App {
             Some(TableAction::ClearSelection) => self.pane_mut().selection.clear(),
             Some(TableAction::BandStart { add }) => self.pane_mut().band_start(add),
             Some(TableAction::Band(rows)) => self.pane_mut().band(&rows),
+            // Taken out in `panes`.
+            Some(TableAction::DropHover(_)) => {}
             None => {}
-        }
-        if let Some(command) = output.command {
-            self.run_command(command);
         }
     }
 }
@@ -1614,6 +1710,7 @@ impl App {
             use_trash: self.use_trash,
             drag_and_drop: self.drag_and_drop,
             drag_select: self.drag_select,
+            drag_within: self.drag_within,
         };
     }
 
@@ -1885,6 +1982,7 @@ impl App {
             use_trash: self.use_trash,
             drag_and_drop: self.drag_and_drop,
             drag_select: self.drag_select,
+            drag_within: self.drag_within,
         };
     }
 
@@ -1907,6 +2005,7 @@ impl App {
         self.use_trash = options.use_trash;
         self.drag_and_drop = options.drag_and_drop;
         self.drag_select = options.drag_select;
+        self.drag_within = options.drag_within;
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {
@@ -2038,6 +2137,22 @@ fn trash_supported() -> bool {
 }
 
 /// One path per line, for the system clipboard.
+/// Whether `sources` can be dropped into `dest_dir`: not into one of
+/// them or a folder inside one, and not back into the folder they're all
+/// in already.
+fn can_drop(sources: &[PathBuf], dest_dir: &Path) -> bool {
+    let mut all_there = true;
+    for source in sources {
+        if dest_dir.starts_with(source) {
+            return false;
+        }
+        if source.parent() != Some(dest_dir) {
+            all_there = false;
+        }
+    }
+    return !all_there;
+}
+
 fn paths_as_text(paths: &[PathBuf]) -> String {
     let mut text = String::new();
     for path in paths {
@@ -3033,6 +3148,95 @@ mod tests {
         assert!(app.dragging_out.is_none());
     }
 
+    /// Drags from `start` to `end` and lets go there.
+    fn drag_and_drop(app: &mut App, ctx: &egui::Context, start: Pos2, end: Pos2) {
+        drag_from(app, ctx, start, (end - start) / 5.0, 5);
+        frame(app, ctx, Vec::new());
+        frame(app, ctx, vec![button(end, false)]);
+        settle_op(app, ctx);
+    }
+
+    fn text_center(app: &mut App, ctx: &egui::Context, text: &str) -> Pos2 {
+        let texts = frame_texts(app, ctx, Vec::new());
+        let found = texts.iter().find(|(t, _)| t == text);
+        return found.expect("the text is on screen").1.center();
+    }
+
+    #[test]
+    fn dropping_on_a_folder_and_on_the_other_pane() {
+        let folder = Folder::new("dropping");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+
+        // A file dropped on a folder on the same drive moves into it.
+        let file = text_center(&mut app, &ctx, "file.txt");
+        let alpha = text_center(&mut app, &ctx, "alpha");
+        drag_and_drop(&mut app, &ctx, file, alpha);
+        assert!(folder.0.join("alpha/file.txt").exists());
+        assert!(!folder.0.join("file.txt").exists());
+
+        // Let go on empty space in its own folder: nothing happens.
+        let beta = text_center(&mut app, &ctx, "beta");
+        drag_and_drop(&mut app, &ctx, beta, Pos2::new(400.0, 600.0));
+        assert!(folder.0.join("beta").exists());
+
+        // Split view, the right pane in alpha: beta dropped on the right
+        // pane's empty space moves into alpha.
+        app.run_command(Command::ToggleSplit);
+        settle(&mut app, &ctx);
+        app.tabs[app.active_tab].panes[1].navigate(folder.0.join("alpha"));
+        settle(&mut app, &ctx);
+        let beta = text_center(&mut app, &ctx, "beta");
+        drag_and_drop(&mut app, &ctx, beta, Pos2::new(1100.0, 600.0));
+        assert!(folder.0.join("alpha/beta").exists());
+        assert!(!folder.0.join("beta").exists());
+        assert!(app.drag_out.is_none() && app.drop_target.is_none());
+
+        // One pane, in alpha: file.txt dropped on the crumb of the folder
+        // above goes back there.
+        app.run_command(Command::ToggleSplit);
+        app.pane_mut().navigate(folder.0.join("alpha"));
+        settle(&mut app, &ctx);
+        let name = folder.0.file_name().expect("a name").to_string_lossy();
+        let crumb = text_center(&mut app, &ctx, &name);
+        let file = text_center(&mut app, &ctx, "file.txt");
+        drag_and_drop(&mut app, &ctx, file, crumb);
+        assert!(folder.0.join("file.txt").exists());
+        assert!(!folder.0.join("alpha/file.txt").exists());
+    }
+
+    #[test]
+    fn dropping_can_be_switched_off() {
+        let folder = Folder::new("nodrop");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let mut options = app.options();
+        options.drag_within = false;
+        app.apply_options(options);
+
+        let file = text_center(&mut app, &ctx, "file.txt");
+        let alpha = text_center(&mut app, &ctx, "alpha");
+        drag_and_drop(&mut app, &ctx, file, alpha);
+        assert!(folder.0.join("file.txt").exists());
+        assert!(!folder.0.join("alpha/file.txt").exists());
+    }
+
+    #[test]
+    fn where_items_can_be_dropped() {
+        let sources = [PathBuf::from("/a/x"), PathBuf::from("/a/dir")];
+        assert!(can_drop(&sources, Path::new("/b")));
+        assert!(can_drop(&sources, Path::new("/")));
+        // Not where they all are, nor into themselves.
+        assert!(!can_drop(&sources, Path::new("/a")));
+        assert!(!can_drop(&sources, Path::new("/a/dir")));
+        assert!(!can_drop(&sources, Path::new("/a/dir/sub")));
+        // Search results from several folders can be gathered into one.
+        let mixed = [PathBuf::from("/a/x"), PathBuf::from("/b/y")];
+        assert!(can_drop(&mixed, Path::new("/a")));
+    }
+
     #[test]
     fn trash_and_drag_can_be_switched_off() {
         let folder = Folder::new("switches");
@@ -3080,9 +3284,9 @@ mod tests {
         frame(&mut app, &ctx, key(Key::Escape, Modifiers::NONE));
         frame(&mut app, &ctx, Vec::new());
 
-        // Dragging doesn't start a drag out.
+        // Dragging doesn't hand the items to other apps (dropping them
+        // inside the window still works).
         drag_from(&mut app, &ctx, start, egui::vec2(-20.0, 0.0), 5);
-        assert!(app.drag_out.is_none());
         frame(
             &mut app,
             &ctx,

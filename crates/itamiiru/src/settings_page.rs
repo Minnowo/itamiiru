@@ -29,6 +29,7 @@ pub struct Options {
     pub use_trash: bool,
     pub drag_and_drop: bool,
     pub drag_select: bool,
+    pub drag_within: bool,
 }
 
 impl Options {
@@ -47,6 +48,7 @@ impl Options {
             use_trash: d.use_trash,
             drag_and_drop: d.drag_and_drop,
             drag_select: d.drag_select,
+            drag_within: d.drag_within,
         };
     }
 }
@@ -94,6 +96,13 @@ pub fn show(
                 section(ui, theme, "Files", |ui| {
                     ui.checkbox(&mut options.use_trash, "Move deleted items to the trash")
                         .on_hover_text("Off: Delete removes them for good, after asking");
+                    ui.checkbox(
+                        &mut options.drag_within,
+                        "Drag files onto folders and between panes",
+                    )
+                    .on_hover_text(
+                        "Moves them within a drive, copies to another; Ctrl copies, Shift moves",
+                    );
                     ui.checkbox(&mut options.drag_and_drop, "Drag files out to other apps")
                         .on_hover_text("Drop them in a browser, a terminal, an editor (X11 only)");
                     ui.checkbox(&mut options.drag_select, "Drag from empty space to select")

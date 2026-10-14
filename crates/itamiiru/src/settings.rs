@@ -143,6 +143,8 @@ pub struct Settings {
     pub drag_and_drop: bool,
     /// Dragging from empty space selects with a box.
     pub drag_select: bool,
+    /// Files can be dragged onto folders and between panes.
+    pub drag_within: bool,
 }
 
 impl Default for Settings {
@@ -173,6 +175,7 @@ impl Default for Settings {
             use_trash: true,
             drag_and_drop: true,
             drag_select: true,
+            drag_within: true,
         };
     }
 }
@@ -236,6 +239,7 @@ impl Settings {
             use_trash: config.get_bool("use_trash", d.use_trash),
             drag_and_drop: config.get_bool("drag_and_drop", d.drag_and_drop),
             drag_select: config.get_bool("drag_select", d.drag_select),
+            drag_within: config.get_bool("drag_within", d.drag_within),
         };
     }
 
@@ -254,6 +258,7 @@ impl Settings {
         config.set_bool("use_trash", self.use_trash);
         config.set_bool("drag_and_drop", self.drag_and_drop);
         config.set_bool("drag_select", self.drag_select);
+        config.set_bool("drag_within", self.drag_within);
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
         config.set_bool("thumbnails", self.thumbnails);
@@ -317,6 +322,7 @@ mod tests {
             use_trash: false,
             drag_and_drop: false,
             drag_select: false,
+            drag_within: false,
             // The rest keep their defaults.
             ..Settings::default()
         };

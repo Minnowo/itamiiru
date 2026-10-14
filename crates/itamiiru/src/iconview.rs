@@ -104,6 +104,9 @@ pub fn show_icons(
                 &mut action,
             );
             item_action(&response, index, modifiers, input.menu, &mut action);
+            if input.dragging && response.contains_pointer() {
+                action = Some(TableAction::DropHover(index));
+            }
         }
         band_select(
             ui,
@@ -182,6 +185,9 @@ pub fn show_list(
                 &mut action,
             );
             item_action(&response, index, modifiers, input.menu, &mut action);
+            if input.dragging && response.contains_pointer() {
+                action = Some(TableAction::DropHover(index));
+            }
         }
         band_select(
             ui,
@@ -323,7 +329,8 @@ fn icon_cell(
 ) -> egui::Response {
     let theme = input.theme;
     let response = ui.interact(rect, ui.id().with(("item", index)), Sense::click_and_drag());
-    let selected = input.selection.is_selected(&entry.path);
+    let selected =
+        input.selection.is_selected(&entry.path) || input.drop_target == Some(entry.path.as_path());
     item_background(ui, rect, &response, selected, theme);
 
     let faded = entry.hidden || input.cut.contains(&entry.path);
@@ -412,7 +419,8 @@ fn list_cell(
 ) -> egui::Response {
     let theme = input.theme;
     let response = ui.interact(rect, ui.id().with(("item", index)), Sense::click_and_drag());
-    let selected = input.selection.is_selected(&entry.path);
+    let selected =
+        input.selection.is_selected(&entry.path) || input.drop_target == Some(entry.path.as_path());
     item_background(ui, rect, &response, selected, theme);
 
     let faded = entry.hidden || input.cut.contains(&entry.path);
