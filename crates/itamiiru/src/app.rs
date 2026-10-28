@@ -431,6 +431,7 @@ impl App {
             can_paste: self.clipboard.is_some(),
             this_pc: self.pane().this_pc,
             view: self.view,
+            sort: self.sort,
             show_hidden: self.show_hidden,
             preview_pane: self.preview_pane,
             split,
@@ -804,6 +805,26 @@ impl App {
             Command::ActionOnFolder(index) => self.run_action(index, true),
             Command::CopyToOtherPane => self.send_to_other_pane(false),
             Command::MoveToOtherPane => self.send_to_other_pane(true),
+            Command::ToggleBookmark => self.toggle_bookmark(),
+        }
+    }
+
+    /// Toggles bookmark on the selected folder, or the current folder.
+    fn toggle_bookmark(&mut self) {
+        let target = self.selected_folder().or_else(|| {
+            if !self.pane().this_pc {
+                Some(self.pane().current.clone())
+            } else {
+                None
+            }
+        });
+        if let Some(path) = target {
+            if self.places.is_bookmarked(&path) {
+                let _ = itamiiru_core::places::remove_bookmark(&path);
+            } else {
+                let _ = itamiiru_core::places::add_bookmark(&path, None);
+            }
+            self.scan_places();
         }
     }
 
@@ -1122,6 +1143,7 @@ impl App {
         let mut next_tab = false;
         let mut previous_tab = false;
         let mut switch_pane = false;
+        let mut go_home = false;
 
         ctx.input_mut(|input| {
             // egui ignores an extra Shift or Alt when matching a key, so the
@@ -1133,6 +1155,9 @@ impl App {
             open = input.consume_key(Modifiers::NONE, Key::Enter);
             if input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::N) {
                 commands.push(Command::NewFolder);
+            }
+            if input.consume_key(Modifiers::COMMAND, Key::D) {
+                commands.push(Command::ToggleBookmark);
             }
             if input.consume_key(Modifiers::NONE, Key::F2) {
                 commands.push(Command::Rename);
@@ -1150,7 +1175,9 @@ impl App {
                 commands.push(Command::OpenSettings);
             }
             toggle_hidden = input.consume_key(Modifiers::COMMAND, Key::H);
-            refresh = input.consume_key(Modifiers::NONE, Key::F5);
+            refresh = input.consume_key(Modifiers::NONE, Key::F5)
+                || input.consume_key(Modifiers::COMMAND, Key::R);
+            go_home = input.consume_key(Modifiers::ALT, Key::Home);
             new_tab = input.consume_key(Modifiers::COMMAND, Key::T);
             close_tab = input.consume_key(Modifiers::COMMAND, Key::W);
             previous_tab = input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab);
@@ -1241,6 +1268,11 @@ impl App {
         }
         if escape && self.picker.is_some() {
             self.picker_cancel();
+            return;
+        }
+
+        if go_home && let Some(home) = itamiiru_core::platform::home_dir() {
+            self.pane_mut().navigate(home);
             return;
         }
 
@@ -1608,17 +1640,31 @@ impl App {
                 }
             }
         }
+        let selected_folder = selected_one_folder(pane);
+        let target_bookmark_path = selected_folder.clone().or_else(|| {
+            if !pane.this_pc {
+                Some(pane.current.clone())
+            } else {
+                None
+            }
+        });
+        let is_bookmarked = match &target_bookmark_path {
+            Some(p) => self.places.is_bookmarked(p),
+            None => false,
+        };
         let menu = MenuState {
             selected: pane.selection.count(),
             can_paste: self.clipboard.is_some(),
             show_hidden: self.show_hidden,
             trash_supported: trash_supported() && self.use_trash,
-            open_in_new_tab: self.picker.is_none() && selected_is_one_folder(pane),
+            open_in_new_tab: self.picker.is_none() && selected_folder.is_some(),
             other_pane: other_name,
             other_pane_same: other_same,
             actions_on_selection,
             actions_on_folder,
             sort: self.sort,
+            selected_folder: selected_folder.is_some(),
+            is_bookmarked,
         };
         let cut = match &self.clipboard {
             Some(clipboard) if clipboard.cut => &clipboard.set,
@@ -2125,6 +2171,10 @@ impl App {
             SidebarAction::CopyPath(path) => {
                 self.ctx.copy_text(path.to_string_lossy().into_owned());
             }
+            SidebarAction::RemoveBookmark(path) => {
+                let _ = itamiiru_core::places::remove_bookmark(&path);
+                self.scan_places();
+            }
             SidebarAction::Refresh => self.scan_places(),
             SidebarAction::Settings => self.settings_open = true,
         }
@@ -2277,10 +2327,13 @@ fn load_actions(config_path: Option<&Path>) -> Vec<Action> {
     return actions::load(&dir.join("actions"));
 }
 
-/// True when exactly one folder is selected.
-fn selected_is_one_folder(pane: &Pane) -> bool {
+/// The path of the one selected folder, if exactly one folder is selected.
+fn selected_one_folder(pane: &Pane) -> Option<PathBuf> {
     let selected = pane.selected_entries();
-    return selected.len() == 1 && selected[0].is_dir();
+    if selected.len() == 1 && selected[0].is_dir() {
+        return Some(selected[0].path.clone());
+    }
+    return None;
 }
 
 /// The config key for an app's last picker folder.
@@ -3667,8 +3720,8 @@ mod tests {
         settle(&mut app, &ctx);
         let texts = frame_texts(&mut app, &ctx, Vec::new());
         assert!(
-            !texts.iter().any(|(t, _)| t.starts_with("Sort:")),
-            "no toolbar dropdown"
+            texts.iter().any(|(t, _)| t.starts_with("Sort:")),
+            "toolbar sort dropdown is present"
         );
 
         // The icon views have no headers: sort from the empty-space menu.
@@ -3695,6 +3748,21 @@ mod tests {
             .1;
         click(&mut app, &ctx, header.center());
         assert_eq!(app.sort.column, SortColumn::Name);
+    }
+
+    #[test]
+    fn bookmarking_via_command() {
+        let folder = Folder::new("bookmark_test");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+
+        let alpha_path = folder.0.join("alpha");
+        select_named(&mut app, "alpha");
+        assert_eq!(app.selected_folder(), Some(alpha_path));
+
+        app.run_command(Command::ToggleBookmark);
+        assert!(app.places_scan_running);
     }
 
     /// Startup work that doesn't need a window, as the app does it.

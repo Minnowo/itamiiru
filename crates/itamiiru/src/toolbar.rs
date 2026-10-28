@@ -7,6 +7,7 @@ use eframe::egui::{self, Sense, StrokeKind, TextStyle};
 use crate::icons::{Arrow, paint_arrow};
 use crate::menus::Command;
 use crate::theme;
+use itamiiru_core::sort::{SortColumn, SortOrder};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ViewMode {
@@ -80,6 +81,7 @@ pub struct ToolbarState {
     /// On the This PC page there are no files to act on.
     pub this_pc: bool,
     pub view: ViewMode,
+    pub sort: SortOrder,
     pub show_hidden: bool,
     pub preview_pane: bool,
     /// Split view on or off; None hides the switch (the picker has no tabs).
@@ -139,12 +141,16 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
     ui.horizontal(|ui| {
         let spacing = ui.spacing().item_spacing.x;
         let view_label = format!("View: {}", state.view.label());
+        let sort_label = sort_label(state.sort);
         let switch_count = if state.split.is_some() { 3 } else { 2 };
+        let right_full =
+            dropdown_width(ui, &view_label) + spacing + dropdown_width(ui, &sort_label);
+        let right_short = dropdown_width(ui, "View") + spacing + dropdown_width(ui, "Sort");
         let fit = fit(
             &old_widths,
             switch_count,
-            dropdown_width(ui, &view_label),
-            dropdown_width(ui, "View"),
+            right_full,
+            right_short,
             spacing,
             ui.available_width(),
         );
@@ -182,6 +188,9 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
                     switch(ui, state, 1, &mut action);
                     switch(ui, state, 2, &mut action);
                 });
+                dropdown(ui, "Sort", |ui| {
+                    sort_choices(ui, state.sort, &mut action);
+                });
                 return;
             }
             widths.switches[2] = switch(ui, state, 2, &mut action);
@@ -189,6 +198,9 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
             widths.switches[0] = switch(ui, state, 0, &mut action);
             dropdown(ui, &view_label, |ui| {
                 view_choices(ui, state.view, &mut action);
+            });
+            dropdown(ui, &sort_label, |ui| {
+                sort_choices(ui, state.sort, &mut action);
             });
         });
     });
@@ -295,6 +307,64 @@ fn view_choices(ui: &mut egui::Ui, current: ViewMode, action: &mut Option<Toolba
             }
             ui.close();
         }
+    }
+}
+
+fn sort_label(sort: SortOrder) -> String {
+    let col = match sort.column {
+        SortColumn::Name => "Name",
+        SortColumn::Modified => "Date",
+        SortColumn::Created => "Created",
+        SortColumn::Type => "Type",
+        SortColumn::Size => "Size",
+    };
+    let arrow = if sort.ascending { "^" } else { "v" };
+    return format!("Sort: {col} {arrow}");
+}
+
+fn sort_choices(ui: &mut egui::Ui, current: SortOrder, action: &mut Option<ToolbarAction>) {
+    let columns = [
+        (SortColumn::Name, "Name"),
+        (SortColumn::Modified, "Date modified"),
+        (SortColumn::Created, "Date created"),
+        (SortColumn::Type, "Type"),
+        (SortColumn::Size, "Size"),
+    ];
+    for (col, label) in columns {
+        let selected = current.column == col;
+        if ui.selectable_label(selected, label).clicked() {
+            let ascending = if selected { !current.ascending } else { true };
+            *action = Some(ToolbarAction::Command(Command::SetSort(SortOrder {
+                column: col,
+                ascending,
+            })));
+            ui.close();
+        }
+    }
+    ui.separator();
+    if ui
+        .selectable_label(current.ascending, "Ascending")
+        .clicked()
+    {
+        if !current.ascending {
+            *action = Some(ToolbarAction::Command(Command::SetSort(SortOrder {
+                column: current.column,
+                ascending: true,
+            })));
+        }
+        ui.close();
+    }
+    if ui
+        .selectable_label(!current.ascending, "Descending")
+        .clicked()
+    {
+        if current.ascending {
+            *action = Some(ToolbarAction::Command(Command::SetSort(SortOrder {
+                column: current.column,
+                ascending: false,
+            })));
+        }
+        ui.close();
     }
 }
 

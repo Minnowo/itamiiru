@@ -36,6 +36,8 @@ pub enum Command {
     ActionOnFolder(usize),
     /// Sort by a column and direction (the "Sort by" menu).
     SetSort(SortOrder),
+    /// Toggle bookmark for the selected folder or current folder.
+    ToggleBookmark,
 }
 
 /// What the menus need to know to enable or label their items.
@@ -57,6 +59,10 @@ pub struct MenuState {
     pub actions_on_folder: Vec<(usize, String)>,
     /// How the folder is sorted now, for the "Sort by" menu.
     pub sort: SortOrder,
+    /// Whether the selection is a single folder.
+    pub selected_folder: bool,
+    /// Whether the target folder is currently bookmarked.
+    pub is_bookmarked: bool,
 }
 
 /// The menu for right-clicking a file or folder (which is then selected).
@@ -71,6 +77,21 @@ pub fn item_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> {
             "Middle-click",
             true,
             Command::OpenInNewTab,
+        );
+    }
+    if state.selected_folder {
+        let bookmark_label = if state.is_bookmarked {
+            "Unpin from Bookmarks"
+        } else {
+            "Pin to Bookmarks"
+        };
+        item(
+            ui,
+            &mut command,
+            bookmark_label,
+            "Ctrl+D",
+            true,
+            Command::ToggleBookmark,
         );
     }
     for (index, name) in &state.actions_on_selection {
@@ -164,6 +185,19 @@ pub fn background_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> 
         "Ctrl+Shift+N",
         true,
         Command::NewFolder,
+    );
+    let bookmark_label = if state.is_bookmarked {
+        "Unpin this folder from Bookmarks"
+    } else {
+        "Bookmark this folder"
+    };
+    item(
+        ui,
+        &mut command,
+        bookmark_label,
+        "Ctrl+D",
+        true,
+        Command::ToggleBookmark,
     );
     if !state.actions_on_folder.is_empty() {
         ui.separator();

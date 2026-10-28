@@ -109,6 +109,28 @@ impl Places {
         }
         return out;
     }
+
+    /// Whether `path` is currently bookmarked.
+    pub fn is_bookmarked(&self, path: &Path) -> bool {
+        for bookmark in &self.bookmarks {
+            if bookmark.path == path {
+                return true;
+            }
+        }
+        return false;
+    }
+}
+
+pub fn add_bookmark(path: &Path, label: Option<&str>) -> std::io::Result<()> {
+    return crate::platform::add_bookmark(path, label);
+}
+
+pub fn remove_bookmark(path: &Path) -> std::io::Result<()> {
+    return crate::platform::remove_bookmark(path);
+}
+
+pub fn is_bookmarked(path: &Path) -> bool {
+    return crate::platform::is_bookmarked(path);
 }
 
 #[derive(Debug)]

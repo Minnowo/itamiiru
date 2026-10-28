@@ -153,6 +153,18 @@ pub fn bookmarks() -> Vec<crate::places::Place> {
     return Vec::new();
 }
 
+pub fn add_bookmark(_path: &std::path::Path, _label: Option<&str>) -> std::io::Result<()> {
+    return Ok(());
+}
+
+pub fn remove_bookmark(_path: &std::path::Path) -> std::io::Result<()> {
+    return Ok(());
+}
+
+pub fn is_bookmarked(_path: &std::path::Path) -> bool {
+    return false;
+}
+
 /// No network place source yet.
 pub fn network_places() -> Vec<crate::places::Place> {
     return Vec::new();

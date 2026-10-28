@@ -134,7 +134,7 @@ fn main() {
     };
     let title = match &picker {
         Some(picker) => picker.window_title(),
-        None => "itamiiru".to_string(),
+        None => "File Explorer".to_string(),
     };
 
     let options = eframe::NativeOptions {

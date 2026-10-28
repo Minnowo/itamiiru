@@ -55,6 +55,7 @@ pub enum SidebarAction {
     /// From the right-click menu.
     OpenInNewTab(PathBuf),
     CopyPath(PathBuf),
+    RemoveBookmark(PathBuf),
     /// The buttons at the bottom: look for drives and bookmarks again,
     /// and open the settings page.
     Refresh,
@@ -112,7 +113,7 @@ pub fn show(
                 if row.clicked() {
                     action = Some(SidebarAction::GoTo(place.path.clone()));
                 }
-                place_menu(&row, &place.path, None, busy, tabs, &mut action);
+                place_menu(&row, &place.path, None, busy, tabs, false, &mut action);
             }
         });
         if !places.bookmarks.is_empty() {
@@ -124,7 +125,7 @@ pub fn show(
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
-                    place_menu(&row, &place.path, None, busy, tabs, &mut action);
+                    place_menu(&row, &place.path, None, busy, tabs, true, &mut action);
                 }
             });
         }
@@ -162,7 +163,15 @@ pub fn show(
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(drive.mount_point.clone()));
                     }
-                    place_menu(&row, &drive.mount_point, volume, busy, tabs, &mut action);
+                    place_menu(
+                        &row,
+                        &drive.mount_point,
+                        volume,
+                        busy,
+                        tabs,
+                        false,
+                        &mut action,
+                    );
                 }
                 // Plugged in, not mounted yet: a click mounts and opens it.
                 for volume in places.unmounted() {
@@ -190,7 +199,7 @@ pub fn show(
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
-                    place_menu(&row, &place.path, None, busy, tabs, &mut action);
+                    place_menu(&row, &place.path, None, busy, tabs, false, &mut action);
                 }
             });
         }
@@ -206,6 +215,7 @@ fn place_menu(
     eject: Option<&Volume>,
     busy: &HashSet<String>,
     tabs: bool,
+    is_bookmark: bool,
     action: &mut Option<SidebarAction>,
 ) {
     row.context_menu(|ui| {
@@ -220,6 +230,13 @@ fn place_menu(
         if ui.button("Copy path").clicked() {
             *action = Some(SidebarAction::CopyPath(path.to_path_buf()));
             ui.close();
+        }
+        if is_bookmark {
+            ui.separator();
+            if ui.button("Remove from Bookmarks").clicked() {
+                *action = Some(SidebarAction::RemoveBookmark(path.to_path_buf()));
+                ui.close();
+            }
         }
         if let Some(volume) = eject {
             ui.separator();

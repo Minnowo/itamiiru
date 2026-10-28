@@ -177,6 +177,131 @@ pub fn bookmarks() -> Vec<Place> {
     return parse_bookmarks(&text);
 }
 
+/// Adds `path` as a GTK bookmark with an optional label.
+pub fn add_bookmark(path: &Path, label: Option<&str>) -> std::io::Result<()> {
+    let Some(config) = super::config_home() else {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "cannot find config directory",
+        ));
+    };
+    let file_path = config.join("gtk-3.0").join("bookmarks");
+    let text = read_small(&file_path).unwrap_or_default();
+    let (new_text, changed) = add_bookmark_to_text(&text, path, label);
+    if changed {
+        return write_small_atomic(&file_path, new_text.as_bytes());
+    }
+    return Ok(());
+}
+
+/// Removes `path` from GTK bookmarks if present.
+pub fn remove_bookmark(path: &Path) -> std::io::Result<()> {
+    let Some(config) = super::config_home() else {
+        return Ok(());
+    };
+    let file_path = config.join("gtk-3.0").join("bookmarks");
+    let text = match read_small(&file_path) {
+        Some(t) => t,
+        None => return Ok(()),
+    };
+    let (new_text, changed) = remove_bookmark_from_text(&text, path);
+    if changed {
+        return write_small_atomic(&file_path, new_text.as_bytes());
+    }
+    return Ok(());
+}
+
+/// Checks whether `path` is in GTK bookmarks.
+pub fn is_bookmarked(path: &Path) -> bool {
+    let Some(config) = super::config_home() else {
+        return false;
+    };
+    let file_path = config.join("gtk-3.0").join("bookmarks");
+    let Some(text) = read_small(&file_path) else {
+        return false;
+    };
+    let uri = crate::percent::path_to_file_uri(path);
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (existing_uri, _) = match trimmed.split_once(' ') {
+            Some((u, l)) => (u, l.trim()),
+            None => (trimmed, ""),
+        };
+        if existing_uri == uri {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn add_bookmark_to_text(text: &str, path: &Path, label: Option<&str>) -> (String, bool) {
+    let uri = crate::percent::path_to_file_uri(path);
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (existing_uri, _) = match trimmed.split_once(' ') {
+            Some((u, l)) => (u, l.trim()),
+            None => (trimmed, ""),
+        };
+        if existing_uri == uri {
+            return (text.to_string(), false);
+        }
+    }
+    let mut new_text = text.to_string();
+    if !new_text.is_empty() && !new_text.ends_with('\n') {
+        new_text.push('\n');
+    }
+    new_text.push_str(&uri);
+    if let Some(lbl) = label {
+        let lbl = lbl.trim();
+        if !lbl.is_empty() {
+            new_text.push(' ');
+            new_text.push_str(lbl);
+        }
+    }
+    new_text.push('\n');
+    return (new_text, true);
+}
+
+pub fn remove_bookmark_from_text(text: &str, path: &Path) -> (String, bool) {
+    let uri = crate::percent::path_to_file_uri(path);
+    let mut new_text = String::new();
+    let mut changed = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (existing_uri, _) = match trimmed.split_once(' ') {
+            Some((u, l)) => (u, l.trim()),
+            None => (trimmed, ""),
+        };
+        if existing_uri == uri {
+            changed = true;
+            continue;
+        }
+        new_text.push_str(trimmed);
+        new_text.push('\n');
+    }
+    return (new_text, changed);
+}
+
+fn write_small_atomic(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut temp = path.as_os_str().to_os_string();
+    temp.push(".tmp");
+    let temp_path = PathBuf::from(temp);
+    std::fs::write(&temp_path, content)?;
+    return std::fs::rename(&temp_path, path);
+}
+
 /// Parses GTK bookmarks: `file:///path optional label` per line.
 /// Non-file URIs (sftp://, smb://) are skipped; they need gvfs.
 pub fn parse_bookmarks(text: &str) -> Vec<Place> {
@@ -490,6 +615,29 @@ not a line
         assert_eq!(places[0].path, Path::new("/home/me/work"));
         assert_eq!(places[1].name, "a b");
         assert_eq!(places[1].path, Path::new("/tmp/a b"));
+    }
+
+    #[test]
+    fn adding_and_removing_bookmarks() {
+        let text = "file:///home/me/work Work stuff\n";
+        let (added, changed) = add_bookmark_to_text(text, Path::new("/tmp/test"), Some("Test"));
+        assert!(changed);
+        assert_eq!(
+            added,
+            "file:///home/me/work Work stuff\nfile:///tmp/test Test\n"
+        );
+
+        let (dup, changed_dup) = add_bookmark_to_text(&added, Path::new("/tmp/test"), None);
+        assert!(!changed_dup);
+        assert_eq!(dup, added);
+
+        let (removed, changed_rem) = remove_bookmark_from_text(&added, Path::new("/home/me/work"));
+        assert!(changed_rem);
+        assert_eq!(removed, "file:///tmp/test Test\n");
+
+        let (not_found, changed_nf) = remove_bookmark_from_text(&removed, Path::new("/missing"));
+        assert!(!changed_nf);
+        assert_eq!(not_found, removed);
     }
 
     const MOUNTINFO: &str = "\

@@ -7,7 +7,10 @@ pub mod dbus;
 mod places;
 mod udisks;
 mod xdnd;
-pub use places::{bookmarks, disk_usage, drives, network_places, quick_access};
+pub use places::{
+    add_bookmark, bookmarks, disk_usage, drives, is_bookmarked, network_places, quick_access,
+    remove_bookmark,
+};
 pub use udisks::{eject_volume, mount_volume, removable_volumes, unmount_volume};
 
 /// Drags `paths` out of the window into another app (XDND on X11). Call
