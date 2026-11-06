@@ -539,9 +539,9 @@ impl Theme {
         v.warn_fg_color = self.yellow;
         v.error_fg_color = self.error;
         v.text_cursor.stroke = Stroke::new(2.0, self.primary);
-        // Selected rows and selected text: "selected but not the main action".
+        // Selected rows and selected text: Windows 11 accent selection styling.
         v.selection.bg_fill = self.secondary_container;
-        v.selection.stroke = Stroke::new(1.0, self.on_secondary_container);
+        v.selection.stroke = Stroke::new(1.0, self.primary);
 
         let radius = CornerRadius::same(RADIUS_SMALL);
         let w = &mut v.widgets;

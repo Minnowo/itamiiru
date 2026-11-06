@@ -272,7 +272,12 @@ fn section(ui: &mut egui::Ui, title: &str, add_contents: impl FnOnce(&mut egui::
 
 fn place_row(ui: &mut egui::Ui, place: &Place, selected: bool, theme: &Theme) -> egui::Response {
     let line = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
-    let (response, icon_rect, text_left) = row(ui, line + theme::GAP_SMALL, selected, theme);
+    let (response, icon_rect, text_left) = row(
+        ui,
+        (line + theme::GAP_SMALL * 2.5).max(28.0),
+        selected,
+        theme,
+    );
     if ui.is_rect_visible(response.rect) {
         paint_quick_access_icon(ui.painter(), icon_rect, &place.name, place.kind, theme);
         let text_pos = egui::pos2(text_left, response.rect.center().y);
@@ -405,20 +410,23 @@ fn row(
 ) -> (egui::Response, Rect, f32) {
     let size = egui::vec2(ui.available_width(), height);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    let fill = if selected {
-        Some(theme.secondary_container)
+    let pill_rect = rect.shrink2(egui::vec2(theme::GAP_SMALL, 1.0));
+    if selected {
+        ui.painter()
+            .rect_filled(pill_rect, theme::RADIUS_SMALL, theme.secondary_container);
+        let bar = Rect::from_min_max(
+            egui::pos2(rect.left(), rect.center().y - 8.0),
+            egui::pos2(rect.left() + 3.0, rect.center().y + 8.0),
+        );
+        ui.painter().rect_filled(bar, 1.5, theme.primary);
     } else if response.hovered() {
-        Some(theme.on_surface_hover_tint)
-    } else {
-        None
-    };
-    if let Some(fill) = fill {
-        ui.painter().rect_filled(rect, theme::RADIUS_SMALL, fill);
+        ui.painter()
+            .rect_filled(pill_rect, theme::RADIUS_SMALL, theme.on_surface_hover_tint);
     }
     let icon_rect = Rect::from_min_size(
         egui::pos2(
             rect.left() + theme::GAP_SMALL,
-            rect.top() + theme::GAP_SMALL,
+            rect.center().y - theme::ICON_SIZE / 2.0,
         ),
         egui::vec2(theme::ICON_SIZE, theme::ICON_SIZE),
     );
