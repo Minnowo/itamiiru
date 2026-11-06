@@ -97,7 +97,7 @@ pub fn arrow_button(ui: &mut egui::Ui, arrow: Arrow) -> egui::Response {
 pub enum ButtonIcon {
     /// A magnifying glass.
     Search,
-    /// A plus, for a new tab.
+    /// A plus, for a new tab or new item.
     Plus,
     /// A funnel, for filtering names.
     Filter,
@@ -105,6 +105,268 @@ pub enum ButtonIcon {
     Refresh,
     /// A gear, for the settings page.
     Settings,
+    /// Scissors, for Cut.
+    Cut,
+    /// Two overlapping sheets, for Copy.
+    Copy,
+    /// Clipboard with document, for Paste.
+    Paste,
+    /// Diagonal pencil with baseline, for Rename.
+    Rename,
+    /// Trash bin with lid, for Delete.
+    Delete,
+    /// Three horizontal lines with arrow, for Sort.
+    Sort,
+    /// 2x2 grid, for View.
+    View,
+    /// Split window, for Preview pane.
+    PreviewPane,
+    /// Three rows with bullets, for Details view.
+    DetailsView,
+    /// Two large tiles, for Large icons view.
+    LargeIconsView,
+}
+
+/// Paints the given button icon into `area` using `color`.
+pub fn paint_button_icon(painter: &egui::Painter, area: Rect, icon: ButtonIcon, color: Color32) {
+    let stroke = Stroke::new(1.5, color);
+    match icon {
+        ButtonIcon::Search => {
+            let radius = area.width() * 0.32;
+            let center = area.left_top() + egui::vec2(radius, radius);
+            painter.circle_stroke(center, radius, stroke);
+            let start = center + egui::vec2(radius, radius) * 0.7;
+            painter.line_segment([start, area.right_bottom()], stroke);
+        }
+        ButtonIcon::Plus => {
+            let c = area.center();
+            painter.line_segment(
+                [Pos2::new(area.left(), c.y), Pos2::new(area.right(), c.y)],
+                stroke,
+            );
+            painter.line_segment(
+                [Pos2::new(c.x, area.top()), Pos2::new(c.x, area.bottom())],
+                stroke,
+            );
+        }
+        ButtonIcon::Refresh => {
+            let center = area.center();
+            let radius = area.width() * 0.45;
+            let start = 0.35 * std::f32::consts::PI;
+            let end = 1.85 * std::f32::consts::PI;
+            let steps = 20;
+            let mut points = Vec::new();
+            for i in 0..=steps {
+                let angle = start + (end - start) * i as f32 / steps as f32;
+                points.push(center + radius * egui::vec2(angle.cos(), angle.sin()));
+            }
+            let tip = points[steps];
+            painter.add(Shape::line(points, stroke));
+            let size = area.width() * 0.3;
+            let head = vec![
+                tip + egui::vec2(size * 0.6, 0.0),
+                tip + egui::vec2(-size * 0.4, -size * 0.7),
+                tip + egui::vec2(-size * 0.4, size * 0.5),
+            ];
+            painter.add(Shape::convex_polygon(head, color, Stroke::NONE));
+        }
+        ButtonIcon::Settings => {
+            let center = area.center();
+            let outer = area.width() * 0.5;
+            let inner = area.width() * 0.3;
+            for i in 0..8 {
+                let angle = i as f32 * std::f32::consts::PI / 4.0;
+                let direction = egui::vec2(angle.cos(), angle.sin());
+                painter.line_segment(
+                    [center + direction * inner, center + direction * outer],
+                    Stroke::new(stroke.width * 1.6, color),
+                );
+            }
+            painter.circle_stroke(center, inner, stroke);
+            painter.circle_stroke(center, inner * 0.35, stroke);
+        }
+        ButtonIcon::Filter => {
+            let c = area.center().x;
+            let stem = area.width() * 0.12;
+            let neck = area.top() + area.height() * 0.5;
+            let points = vec![
+                area.left_top(),
+                area.right_top(),
+                Pos2::new(c + stem, neck),
+                Pos2::new(c + stem, area.bottom()),
+                Pos2::new(c - stem, area.bottom() - area.height() * 0.15),
+                Pos2::new(c - stem, neck),
+            ];
+            painter.add(Shape::closed_line(points, stroke));
+        }
+        ButtonIcon::Cut => {
+            let r = area.width() * 0.16;
+            let p_left = Pos2::new(area.left() + r, area.bottom() - r);
+            let p_right = Pos2::new(area.right() - r, area.bottom() - r);
+            painter.circle_stroke(p_left, r, stroke);
+            painter.circle_stroke(p_right, r, stroke);
+            let pivot = Pos2::new(area.center().x, area.center().y + area.height() * 0.08);
+            painter.line_segment([p_left + egui::vec2(r * 0.7, -r * 0.7), pivot], stroke);
+            painter.line_segment([p_right + egui::vec2(-r * 0.7, -r * 0.7), pivot], stroke);
+            painter.line_segment(
+                [
+                    pivot,
+                    Pos2::new(area.right() - r * 0.4, area.top() + r * 0.4),
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    pivot,
+                    Pos2::new(area.left() + r * 0.4, area.top() + r * 0.4),
+                ],
+                stroke,
+            );
+        }
+        ButtonIcon::Copy => {
+            let back = Rect::from_min_max(area.left_top(), at(area, 0.72, 0.72));
+            painter.rect_stroke(back, 1.0, stroke, StrokeKind::Inside);
+            let front = Rect::from_min_max(at(area, 0.28, 0.28), area.right_bottom());
+            painter.rect_filled(front, 1.0, color.gamma_multiply(0.2));
+            painter.rect_stroke(front, 1.0, stroke, StrokeKind::Inside);
+        }
+        ButtonIcon::Paste => {
+            let board = Rect::from_min_max(at(area, 0.15, 0.18), at(area, 0.85, 0.95));
+            painter.rect_stroke(board, 1.0, stroke, StrokeKind::Inside);
+            let clip = Rect::from_min_max(at(area, 0.35, 0.08), at(area, 0.65, 0.26));
+            painter.rect_filled(clip, 1.0, color);
+            let doc = Rect::from_min_max(at(area, 0.28, 0.34), at(area, 0.72, 0.84));
+            painter.line_segment([at(doc, 0.2, 0.35), at(doc, 0.8, 0.35)], stroke);
+            painter.line_segment([at(doc, 0.2, 0.65), at(doc, 0.8, 0.65)], stroke);
+        }
+        ButtonIcon::Rename => {
+            let p1 = at(area, 0.18, 0.82);
+            let p2 = at(area, 0.82, 0.18);
+            painter.line_segment([p1, p2], Stroke::new(stroke.width * 2.0, color));
+            painter.line_segment([at(area, 0.1, 0.92), at(area, 0.9, 0.92)], stroke);
+        }
+        ButtonIcon::Delete => {
+            painter.line_segment([at(area, 0.15, 0.25), at(area, 0.85, 0.25)], stroke);
+            let handle = Rect::from_min_max(at(area, 0.40, 0.12), at(area, 0.60, 0.25));
+            painter.rect_stroke(handle, 1.0, stroke, StrokeKind::Inside);
+            let body = vec![
+                at(area, 0.22, 0.25),
+                at(area, 0.78, 0.25),
+                at(area, 0.72, 0.92),
+                at(area, 0.28, 0.92),
+            ];
+            painter.add(Shape::closed_line(body, stroke));
+            painter.line_segment([at(area, 0.42, 0.38), at(area, 0.42, 0.80)], stroke);
+            painter.line_segment([at(area, 0.58, 0.38), at(area, 0.58, 0.80)], stroke);
+        }
+        ButtonIcon::Sort => {
+            painter.line_segment([at(area, 0.1, 0.25), at(area, 0.60, 0.25)], stroke);
+            painter.line_segment([at(area, 0.1, 0.50), at(area, 0.45, 0.50)], stroke);
+            painter.line_segment([at(area, 0.1, 0.75), at(area, 0.30, 0.75)], stroke);
+            let ax = area.right() - area.width() * 0.18;
+            painter.line_segment(
+                [
+                    Pos2::new(ax, area.top() + area.height() * 0.2),
+                    Pos2::new(ax, area.bottom() - area.height() * 0.2),
+                ],
+                stroke,
+            );
+            let tip = Pos2::new(ax, area.bottom() - area.height() * 0.2);
+            painter.line_segment(
+                [
+                    Pos2::new(ax - area.width() * 0.12, tip.y - area.height() * 0.18),
+                    tip,
+                ],
+                stroke,
+            );
+            painter.line_segment(
+                [
+                    Pos2::new(ax + area.width() * 0.12, tip.y - area.height() * 0.18),
+                    tip,
+                ],
+                stroke,
+            );
+        }
+        ButtonIcon::View => {
+            let sz = 0.34;
+            painter.rect_stroke(
+                Rect::from_min_size(
+                    at(area, 0.10, 0.10),
+                    egui::vec2(area.width() * sz, area.height() * sz),
+                ),
+                1.0,
+                stroke,
+                StrokeKind::Inside,
+            );
+            painter.rect_stroke(
+                Rect::from_min_size(
+                    at(area, 0.56, 0.10),
+                    egui::vec2(area.width() * sz, area.height() * sz),
+                ),
+                1.0,
+                stroke,
+                StrokeKind::Inside,
+            );
+            painter.rect_stroke(
+                Rect::from_min_size(
+                    at(area, 0.10, 0.56),
+                    egui::vec2(area.width() * sz, area.height() * sz),
+                ),
+                1.0,
+                stroke,
+                StrokeKind::Inside,
+            );
+            painter.rect_stroke(
+                Rect::from_min_size(
+                    at(area, 0.56, 0.56),
+                    egui::vec2(area.width() * sz, area.height() * sz),
+                ),
+                1.0,
+                stroke,
+                StrokeKind::Inside,
+            );
+        }
+        ButtonIcon::PreviewPane => {
+            let win = Rect::from_min_max(at(area, 0.08, 0.15), at(area, 0.92, 0.85));
+            painter.rect_stroke(win, 1.0, stroke, StrokeKind::Inside);
+            let split_x = win.left() + win.width() * 0.65;
+            painter.line_segment(
+                [
+                    Pos2::new(split_x, win.top()),
+                    Pos2::new(split_x, win.bottom()),
+                ],
+                stroke,
+            );
+            let pane_rect = Rect::from_min_max(Pos2::new(split_x, win.top()), win.right_bottom());
+            painter.rect_filled(pane_rect, 0.0, color.gamma_multiply(0.25));
+        }
+        ButtonIcon::DetailsView => {
+            for fy in [0.25, 0.50, 0.75] {
+                painter.rect_filled(
+                    Rect::from_center_size(at(area, 0.18, fy), egui::vec2(2.5, 2.5)),
+                    0.5,
+                    color,
+                );
+                painter.line_segment([at(area, 0.35, fy), at(area, 0.90, fy)], stroke);
+            }
+        }
+        ButtonIcon::LargeIconsView => {
+            let h = area.height() * 0.65;
+            let w = area.width() * 0.36;
+            painter.rect_stroke(
+                Rect::from_min_size(at(area, 0.10, 0.18), egui::vec2(w, h)),
+                1.0,
+                stroke,
+                StrokeKind::Inside,
+            );
+            painter.rect_stroke(
+                Rect::from_min_size(at(area, 0.54, 0.18), egui::vec2(w, h)),
+                1.0,
+                stroke,
+                StrokeKind::Inside,
+            );
+        }
+    }
 }
 
 /// A square button like `arrow_button`, with a painted icon. `selected`
@@ -124,82 +386,7 @@ pub fn icon_button(ui: &mut egui::Ui, icon: ButtonIcon, selected: bool) -> egui:
         );
         let color = visuals.fg_stroke.color;
         let area = rect.shrink(side * 0.3);
-        let stroke = Stroke::new(1.5, color);
-        match icon {
-            ButtonIcon::Search => {
-                // A ring at the top left, and a handle to the bottom right.
-                let radius = area.width() * 0.32;
-                let center = area.left_top() + egui::vec2(radius, radius);
-                painter.circle_stroke(center, radius, stroke);
-                let start = center + egui::vec2(radius, radius) * 0.7;
-                painter.line_segment([start, area.right_bottom()], stroke);
-            }
-            ButtonIcon::Plus => {
-                let c = area.center();
-                painter.line_segment(
-                    [Pos2::new(area.left(), c.y), Pos2::new(area.right(), c.y)],
-                    stroke,
-                );
-                painter.line_segment(
-                    [Pos2::new(c.x, area.top()), Pos2::new(c.x, area.bottom())],
-                    stroke,
-                );
-            }
-            ButtonIcon::Refresh => {
-                // Most of a circle, with an arrowhead where it ends.
-                let center = area.center();
-                let radius = area.width() * 0.45;
-                let start = 0.35 * std::f32::consts::PI;
-                let end = 1.85 * std::f32::consts::PI;
-                let steps = 20;
-                let mut points = Vec::new();
-                for i in 0..=steps {
-                    let angle = start + (end - start) * i as f32 / steps as f32;
-                    points.push(center + radius * egui::vec2(angle.cos(), angle.sin()));
-                }
-                let tip = points[steps];
-                painter.add(Shape::line(points, stroke));
-                // The arrowhead points along the circle, clockwise on screen.
-                let size = area.width() * 0.3;
-                let head = vec![
-                    tip + egui::vec2(size * 0.6, 0.0),
-                    tip + egui::vec2(-size * 0.4, -size * 0.7),
-                    tip + egui::vec2(-size * 0.4, size * 0.5),
-                ];
-                painter.add(Shape::convex_polygon(head, color, Stroke::NONE));
-            }
-            ButtonIcon::Settings => {
-                // A ring with eight teeth around it.
-                let center = area.center();
-                let outer = area.width() * 0.5;
-                let inner = area.width() * 0.3;
-                for i in 0..8 {
-                    let angle = i as f32 * std::f32::consts::PI / 4.0;
-                    let direction = egui::vec2(angle.cos(), angle.sin());
-                    painter.line_segment(
-                        [center + direction * inner, center + direction * outer],
-                        Stroke::new(stroke.width * 1.6, color),
-                    );
-                }
-                painter.circle_stroke(center, inner, stroke);
-                painter.circle_stroke(center, inner * 0.35, stroke);
-            }
-            ButtonIcon::Filter => {
-                // The funnel's outline: wide at the top, then a short stem.
-                let c = area.center().x;
-                let stem = area.width() * 0.12;
-                let neck = area.top() + area.height() * 0.5;
-                let points = vec![
-                    area.left_top(),
-                    area.right_top(),
-                    Pos2::new(c + stem, neck),
-                    Pos2::new(c + stem, area.bottom()),
-                    Pos2::new(c - stem, area.bottom() - area.height() * 0.15),
-                    Pos2::new(c - stem, neck),
-                ];
-                painter.add(Shape::closed_line(points, stroke));
-            }
-        }
+        paint_button_icon(painter, area, icon, color);
     }
     return response;
 }
@@ -235,11 +422,15 @@ fn at(rect: Rect, fx: f32, fy: f32) -> Pos2 {
     );
 }
 
-fn paint_folder(painter: &egui::Painter, rect: Rect, theme: &Theme) {
+pub fn paint_folder(painter: &egui::Painter, rect: Rect, theme: &Theme) {
     let tab = Rect::from_min_max(at(rect, 0.05, 0.12), at(rect, 0.45, 0.35));
-    painter.rect_filled(tab, 1.5, theme.d_yellow);
-    let body = Rect::from_min_max(at(rect, 0.05, 0.25), at(rect, 0.95, 0.88));
-    painter.rect_filled(body, 2.0, theme.yellow);
+    painter.rect_filled(tab, 2.0, theme.d_yellow);
+    let back = Rect::from_min_max(at(rect, 0.05, 0.22), at(rect, 0.95, 0.85));
+    painter.rect_filled(back, 2.5, theme.d_yellow);
+    let inside = Rect::from_min_max(at(rect, 0.12, 0.25), at(rect, 0.88, 0.50));
+    painter.rect_filled(inside, 1.5, theme.l_yellow);
+    let body = Rect::from_min_max(at(rect, 0.05, 0.32), at(rect, 0.95, 0.88));
+    painter.rect_filled(body, 2.5, theme.yellow);
 }
 
 /// A sheet of paper with a folded corner, with a mark showing its kind.
@@ -355,25 +546,93 @@ pub fn paint_drive_icon(painter: &egui::Painter, rect: Rect, kind: DriveKind, th
     paint_drive(painter, rect, body, light);
 }
 
+/// Icons for places in the navigation pane. Recognized names get their
+/// dedicated Windows 11 category icon.
+pub fn paint_quick_access_icon(
+    painter: &egui::Painter,
+    rect: Rect,
+    name: &str,
+    kind: PlaceKind,
+    theme: &Theme,
+) {
+    if kind == PlaceKind::Home || name.eq_ignore_ascii_case("Home") {
+        paint_home(painter, rect, theme);
+        return;
+    }
+    if name.eq_ignore_ascii_case("Desktop") {
+        let screen = Rect::from_min_max(at(rect, 0.12, 0.15), at(rect, 0.88, 0.70));
+        painter.rect_filled(screen, 2.0, theme.blue);
+        let inner = Rect::from_min_max(at(rect, 0.18, 0.21), at(rect, 0.82, 0.64));
+        painter.rect_filled(inner, 1.0, theme.surface);
+        let stand = Stroke::new((rect.height() / 12.0).max(1.5), theme.on_surface_variant);
+        painter.line_segment([at(rect, 0.5, 0.70), at(rect, 0.5, 0.85)], stand);
+        painter.line_segment([at(rect, 0.35, 0.85), at(rect, 0.65, 0.85)], stand);
+        return;
+    }
+    if name.eq_ignore_ascii_case("Downloads") {
+        paint_folder(painter, rect, theme);
+        let badge = Rect::from_min_max(at(rect, 0.45, 0.45), at(rect, 0.95, 0.95));
+        painter.circle_filled(badge.center(), badge.width() * 0.45, theme.blue);
+        let tip = badge.center() + egui::vec2(0.0, badge.height() * 0.25);
+        let stroke = Stroke::new(1.5, theme.on_blue);
+        painter.line_segment(
+            [badge.center() - egui::vec2(0.0, badge.height() * 0.25), tip],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                tip - egui::vec2(badge.width() * 0.2, badge.height() * 0.2),
+                tip,
+            ],
+            stroke,
+        );
+        painter.line_segment(
+            [
+                tip + egui::vec2(badge.width() * 0.2, -badge.height() * 0.2),
+                tip,
+            ],
+            stroke,
+        );
+        return;
+    }
+    if name.eq_ignore_ascii_case("Documents") {
+        paint_page(painter, rect, FileKind::Document, theme);
+        return;
+    }
+    if name.eq_ignore_ascii_case("Pictures") {
+        paint_page(painter, rect, FileKind::Image, theme);
+        return;
+    }
+    if name.eq_ignore_ascii_case("Music") {
+        paint_page(painter, rect, FileKind::Audio, theme);
+        return;
+    }
+    if name.eq_ignore_ascii_case("Videos") {
+        paint_page(painter, rect, FileKind::Video, theme);
+        return;
+    }
+    paint_place_icon(painter, rect, kind, theme);
+}
+
 /// A house: a roof over a box with a door.
-fn paint_home(painter: &egui::Painter, rect: Rect, theme: &Theme) {
+pub fn paint_home(painter: &egui::Painter, rect: Rect, theme: &Theme) {
     let roof = vec![
-        at(rect, 0.5, 0.08),
-        at(rect, 0.95, 0.5),
-        at(rect, 0.05, 0.5),
+        at(rect, 0.5, 0.10),
+        at(rect, 0.92, 0.46),
+        at(rect, 0.08, 0.46),
     ];
-    painter.add(Shape::convex_polygon(roof, theme.d_yellow, Stroke::NONE));
-    let body = Rect::from_min_max(at(rect, 0.18, 0.45), at(rect, 0.82, 0.92));
-    painter.rect_filled(body, 1.0, theme.yellow);
-    let door = Rect::from_min_max(at(rect, 0.42, 0.62), at(rect, 0.58, 0.92));
-    painter.rect_filled(door, 0.0, theme.on_yellow);
+    painter.add(Shape::convex_polygon(roof, theme.primary, Stroke::NONE));
+    let body = Rect::from_min_max(at(rect, 0.18, 0.44), at(rect, 0.82, 0.90));
+    painter.rect_filled(body, 1.5, theme.blue);
+    let door = Rect::from_min_max(at(rect, 0.40, 0.60), at(rect, 0.60, 0.90));
+    painter.rect_filled(door, 1.0, theme.surface);
 }
 
 /// A drive: a flat box with a small status light.
-fn paint_drive(painter: &egui::Painter, rect: Rect, body: Color32, light: Color32) {
-    let case = Rect::from_min_max(at(rect, 0.05, 0.3), at(rect, 0.95, 0.75));
-    painter.rect_filled(case, 2.0, body);
-    painter.circle_filled(at(rect, 0.78, 0.525), rect.width() * 0.07, light);
-    let slot = Stroke::new((rect.height() / 16.0).max(1.0), light.gamma_multiply(0.6));
-    painter.line_segment([at(rect, 0.18, 0.525), at(rect, 0.55, 0.525)], slot);
+pub fn paint_drive(painter: &egui::Painter, rect: Rect, body: Color32, light: Color32) {
+    let case = Rect::from_min_max(at(rect, 0.06, 0.26), at(rect, 0.94, 0.74));
+    painter.rect_filled(case, 2.5, body);
+    let bar = Rect::from_min_max(at(rect, 0.16, 0.54), at(rect, 0.62, 0.62));
+    painter.rect_filled(bar, 1.0, light);
+    painter.circle_filled(at(rect, 0.78, 0.58), rect.width() * 0.06, light);
 }

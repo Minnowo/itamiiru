@@ -3,7 +3,7 @@
 
 use eframe::egui::{self, CornerRadius, Rect, Sense, Stroke, TextStyle};
 
-use crate::icons::{ButtonIcon, icon_button};
+use crate::icons::{ButtonIcon, icon_button, paint_drive_icon, paint_folder, paint_home};
 use crate::pane::Pane;
 use crate::theme::{self, Theme};
 
@@ -128,8 +128,9 @@ fn tab_button(
         .painter()
         .layout_no_wrap(short_title(&pane.title()), font, text_color);
     let padding = theme::PADDING as f32;
+    let icon_size = theme::ICON_SIZE;
     let close_side = theme::ICON_SIZE;
-    let mut width = padding + galley.size().x + padding;
+    let mut width = padding + icon_size + theme::GAP_SMALL + galley.size().x + padding;
     if closable {
         width += close_side;
     }
@@ -172,10 +173,26 @@ fn tab_button(
             painter.rect_filled(rect, corners, theme.surface_container_1);
         } else if response.hovered() {
             let pill = rect.shrink2(egui::vec2(0.0, theme::GAP_SMALL));
-            painter.rect_filled(pill, theme::RADIUS_MEDIUM, theme.surface_container_1);
+            painter.rect_filled(pill, theme::RADIUS_MEDIUM, theme.surface_container_1_hover);
+        }
+        let icon_rect = Rect::from_min_size(
+            egui::pos2(rect.left() + padding, rect.center().y - icon_size / 2.0),
+            egui::vec2(icon_size, icon_size),
+        );
+        if pane.this_pc {
+            paint_drive_icon(
+                painter,
+                icon_rect,
+                itamiiru_core::places::DriveKind::System,
+                theme,
+            );
+        } else if pane.current == itamiiru_core::platform::home_dir().unwrap_or_default() {
+            paint_home(painter, icon_rect, theme);
+        } else {
+            paint_folder(painter, icon_rect, theme);
         }
         let text_pos = egui::pos2(
-            rect.left() + padding,
+            rect.left() + padding + icon_size + theme::GAP_SMALL,
             rect.center().y - galley.size().y / 2.0,
         );
         painter
