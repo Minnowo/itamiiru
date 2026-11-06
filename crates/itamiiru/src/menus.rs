@@ -68,6 +68,68 @@ pub struct MenuState {
 /// The menu for right-clicking a file or folder (which is then selected).
 pub fn item_menu(ui: &mut egui::Ui, state: &MenuState) -> Option<Command> {
     let mut command = None;
+    // Windows 11 style quick action icons row at top of context menu:
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = crate::theme::GAP_SMALL;
+        let side =
+            ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
+        let icons = [
+            (
+                crate::icons::ButtonIcon::Cut,
+                "Cut (Ctrl+X)",
+                true,
+                Command::Cut,
+            ),
+            (
+                crate::icons::ButtonIcon::Copy,
+                "Copy (Ctrl+C)",
+                true,
+                Command::Copy,
+            ),
+            (
+                crate::icons::ButtonIcon::Rename,
+                "Rename (F2)",
+                state.selected == 1,
+                Command::Rename,
+            ),
+            (
+                crate::icons::ButtonIcon::Delete,
+                "Delete",
+                true,
+                Command::Trash,
+            ),
+        ];
+        for (icon, tip, enabled, cmd) in icons {
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
+            if ui.is_rect_visible(rect) {
+                let visuals = if enabled {
+                    ui.style().interact(&resp)
+                } else {
+                    &ui.visuals().widgets.inactive
+                };
+                let painter = ui.painter();
+                painter.rect(
+                    rect,
+                    visuals.corner_radius,
+                    visuals.weak_bg_fill,
+                    visuals.bg_stroke,
+                    egui::StrokeKind::Inside,
+                );
+                let color = if enabled {
+                    visuals.fg_stroke.color
+                } else {
+                    ui.visuals().weak_text_color()
+                };
+                crate::icons::paint_button_icon(painter, rect.shrink(side * 0.26), icon, color);
+            }
+            if enabled && resp.on_hover_text(tip).clicked() {
+                command = Some(cmd);
+                ui.close();
+            }
+        }
+    });
+    ui.separator();
+
     item(ui, &mut command, "Open", "Enter", true, Command::Open);
     if state.open_in_new_tab {
         item(

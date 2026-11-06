@@ -2,9 +2,9 @@
 //! and delete commands, View and the hidden-files toggle, like the
 //! Windows 11 Explorer command bar.
 
-use eframe::egui::{self, Sense, StrokeKind, TextStyle};
+use eframe::egui::{self, Pos2, Rect, Sense, StrokeKind, TextStyle};
 
-use crate::icons::{Arrow, paint_arrow};
+use crate::icons::{Arrow, ButtonIcon, paint_arrow, paint_button_icon};
 use crate::menus::Command;
 use crate::theme;
 use itamiiru_core::sort::{SortColumn, SortOrder};
@@ -143,9 +143,12 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
         let view_label = format!("View: {}", state.view.label());
         let sort_label = sort_label(state.sort);
         let switch_count = if state.split.is_some() { 3 } else { 2 };
-        let right_full =
-            dropdown_width(ui, &view_label) + spacing + dropdown_width(ui, &sort_label);
-        let right_short = dropdown_width(ui, "View") + spacing + dropdown_width(ui, "Sort");
+        let right_full = dropdown_width(ui, Some(ButtonIcon::View), &view_label)
+            + spacing
+            + dropdown_width(ui, Some(ButtonIcon::Sort), &sort_label);
+        let right_short = dropdown_width(ui, Some(ButtonIcon::View), "View")
+            + spacing
+            + dropdown_width(ui, Some(ButtonIcon::Sort), "Sort");
         let fit = fit(
             &old_widths,
             switch_count,
@@ -155,11 +158,22 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
             ui.available_width(),
         );
 
-        for (i, (label, shortcut, enabled, value)) in commands.iter().enumerate().take(fit.shown) {
+        for (i, (_label, shortcut, enabled, value)) in commands.iter().enumerate().take(fit.shown) {
             if i == 1 {
                 widths.separator = ui.separator().rect.width();
             }
-            let response = ui.add_enabled(*enabled, egui::Button::new(*label));
+            let response = if i == 0 {
+                new_button(ui, *enabled)
+            } else {
+                let icon = match i {
+                    1 => ButtonIcon::Cut,
+                    2 => ButtonIcon::Copy,
+                    3 => ButtonIcon::Paste,
+                    4 => ButtonIcon::Rename,
+                    _ => ButtonIcon::Delete,
+                };
+                toolbar_icon_button(ui, icon, *enabled)
+            };
             widths.commands[i] = response.rect.width();
             if response.on_hover_text(*shortcut).clicked() {
                 action = Some(ToolbarAction::Command(*value));
@@ -181,14 +195,14 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
         // Laid out from the right edge, so added in reverse order.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if fit.compact {
-                dropdown(ui, "View", |ui| {
+                dropdown_with_icon(ui, Some(ButtonIcon::View), "View", |ui| {
                     view_choices(ui, state.view, &mut action);
                     ui.separator();
                     switch(ui, state, 0, &mut action);
                     switch(ui, state, 1, &mut action);
                     switch(ui, state, 2, &mut action);
                 });
-                dropdown(ui, "Sort", |ui| {
+                dropdown_with_icon(ui, Some(ButtonIcon::Sort), "Sort", |ui| {
                     sort_choices(ui, state.sort, &mut action);
                 });
                 return;
@@ -196,10 +210,10 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
             widths.switches[2] = switch(ui, state, 2, &mut action);
             widths.switches[1] = switch(ui, state, 1, &mut action);
             widths.switches[0] = switch(ui, state, 0, &mut action);
-            dropdown(ui, &view_label, |ui| {
+            dropdown_with_icon(ui, Some(ButtonIcon::View), &view_label, |ui| {
                 view_choices(ui, state.view, &mut action);
             });
-            dropdown(ui, &sort_label, |ui| {
+            dropdown_with_icon(ui, Some(ButtonIcon::Sort), &sort_label, |ui| {
                 sort_choices(ui, state.sort, &mut action);
             });
         });
@@ -268,18 +282,37 @@ fn switch(
     which: usize,
     action: &mut Option<ToolbarAction>,
 ) -> f32 {
+    if which == 1 {
+        let side = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
+        if ui.is_rect_visible(rect) {
+            let visuals = ui
+                .style()
+                .interact_selectable(&response, state.preview_pane);
+            let painter = ui.painter();
+            painter.rect(
+                rect,
+                visuals.corner_radius,
+                visuals.weak_bg_fill,
+                visuals.bg_stroke,
+                StrokeKind::Inside,
+            );
+            let color = visuals.fg_stroke.color;
+            let area = rect.shrink(side * 0.26);
+            paint_button_icon(painter, area, ButtonIcon::PreviewPane, color);
+        }
+        let width = response.rect.width();
+        if response.on_hover_text("Preview pane (Alt+P)").clicked() {
+            *action = Some(ToolbarAction::Command(Command::TogglePreview));
+        }
+        return width;
+    }
     let (mut value, label, tip, command) = match which {
         0 => (
             state.show_hidden,
             "Hidden files",
             "Ctrl+H",
             Command::ToggleHidden,
-        ),
-        1 => (
-            state.preview_pane,
-            "Preview pane",
-            "Alt+P",
-            Command::TogglePreview,
         ),
         _ => match state.split {
             Some(split) => (
@@ -368,14 +401,105 @@ fn sort_choices(ui: &mut egui::Ui, current: SortOrder, action: &mut Option<Toolb
     }
 }
 
+fn new_button(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
+    let padding = ui.spacing().button_padding;
+    let font = TextStyle::Button.resolve(ui.style());
+    let text_color = if enabled {
+        ui.visuals().text_color()
+    } else {
+        ui.visuals().weak_text_color()
+    };
+    let galley = ui
+        .painter()
+        .layout_no_wrap("New".to_string(), font, text_color);
+    let icon_size = theme::ICON_SIZE;
+    let arrow_size = DROPDOWN_ARROW;
+    let height = (galley.size().y + 2.0 * padding.y).max(ui.spacing().interact_size.y);
+    let width = padding.x
+        + icon_size
+        + theme::GAP_SMALL
+        + galley.size().x
+        + padding.x
+        + arrow_size
+        + padding.x;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let visuals = if enabled {
+            ui.style().interact(&response)
+        } else {
+            &ui.visuals().widgets.inactive
+        };
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            visuals.corner_radius,
+            visuals.weak_bg_fill,
+            visuals.bg_stroke,
+            StrokeKind::Inside,
+        );
+        let icon_rect = Rect::from_center_size(
+            Pos2::new(rect.left() + padding.x + icon_size / 2.0, rect.center().y),
+            egui::vec2(icon_size * 0.8, icon_size * 0.8),
+        );
+        let plus_color = if enabled {
+            ui.visuals().hyperlink_color
+        } else {
+            ui.visuals().weak_text_color()
+        };
+        paint_button_icon(painter, icon_rect, ButtonIcon::Plus, plus_color);
+        let text_pos = Pos2::new(
+            rect.left() + padding.x + icon_size + theme::GAP_SMALL,
+            rect.center().y - galley.size().y / 2.0,
+        );
+        painter.galley(text_pos, galley, text_color);
+        let arrow_center = Pos2::new(rect.right() - padding.x - arrow_size / 2.0, rect.center().y);
+        let arrow_rect = Rect::from_center_size(arrow_center, egui::vec2(arrow_size, arrow_size));
+        paint_arrow(painter, arrow_rect, Arrow::Down, plus_color);
+    }
+    return response;
+}
+
+fn toolbar_icon_button(ui: &mut egui::Ui, icon: ButtonIcon, enabled: bool) -> egui::Response {
+    let side = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
+    let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
+    if ui.is_rect_visible(rect) {
+        let visuals = if enabled {
+            ui.style().interact(&response)
+        } else {
+            &ui.visuals().widgets.inactive
+        };
+        let painter = ui.painter();
+        painter.rect(
+            rect,
+            visuals.corner_radius,
+            visuals.weak_bg_fill,
+            visuals.bg_stroke,
+            StrokeKind::Inside,
+        );
+        let color = if enabled {
+            visuals.fg_stroke.color
+        } else {
+            ui.visuals().weak_text_color()
+        };
+        let area = rect.shrink(side * 0.26);
+        paint_button_icon(painter, area, icon, color);
+    }
+    return response;
+}
+
 /// The width `dropdown` gives a button showing `text`.
-fn dropdown_width(ui: &egui::Ui, text: &str) -> f32 {
+fn dropdown_width(ui: &egui::Ui, icon: Option<ButtonIcon>, text: &str) -> f32 {
     let padding = ui.spacing().button_padding;
     let font = TextStyle::Button.resolve(ui.style());
     let galley = ui
         .painter()
         .layout_no_wrap(text.to_string(), font, ui.visuals().text_color());
-    return padding.x + galley.size().x + padding.x + DROPDOWN_ARROW + padding.x;
+    let icon_w = if icon.is_some() {
+        theme::ICON_SIZE + theme::GAP_SMALL
+    } else {
+        0.0
+    };
+    return padding.x + icon_w + galley.size().x + padding.x + DROPDOWN_ARROW + padding.x;
 }
 
 const DROPDOWN_ARROW: f32 = 8.0;
@@ -384,6 +508,15 @@ const DROPDOWN_ARROW: f32 = 8.0;
 /// opens a menu below it. Used instead of egui's ComboBox, whose list sits
 /// in a scroll area that showed a needless scroll bar on hover.
 pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut egui::Ui)) {
+    dropdown_with_icon(ui, None, text, add_contents);
+}
+
+pub fn dropdown_with_icon(
+    ui: &mut egui::Ui,
+    icon: Option<ButtonIcon>,
+    text: &str,
+    add_contents: impl FnOnce(&mut egui::Ui),
+) {
     let padding = ui.spacing().button_padding;
     let font = TextStyle::Button.resolve(ui.style());
     let text_color = ui.visuals().text_color();
@@ -392,7 +525,7 @@ pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut eg
         .layout_no_wrap(text.to_string(), font, text_color);
     let arrow_size = DROPDOWN_ARROW;
     let height = (galley.size().y + 2.0 * padding.y).max(ui.spacing().interact_size.y);
-    let width = dropdown_width(ui, text);
+    let width = dropdown_width(ui, icon, text);
     let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
 
     if ui.is_rect_visible(rect) {
@@ -405,10 +538,16 @@ pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut eg
             visuals.bg_stroke,
             StrokeKind::Inside,
         );
-        let text_pos = egui::pos2(
-            rect.left() + padding.x,
-            rect.center().y - galley.size().y / 2.0,
-        );
+        let mut text_left = rect.left() + padding.x;
+        if let Some(btn_icon) = icon {
+            let icon_rect = Rect::from_center_size(
+                Pos2::new(text_left + theme::ICON_SIZE / 2.0, rect.center().y),
+                egui::vec2(theme::ICON_SIZE * 0.8, theme::ICON_SIZE * 0.8),
+            );
+            paint_button_icon(painter, icon_rect, btn_icon, visuals.fg_stroke.color);
+            text_left += theme::ICON_SIZE + theme::GAP_SMALL;
+        }
+        let text_pos = egui::pos2(text_left, rect.center().y - galley.size().y / 2.0);
         painter.galley(text_pos, galley, visuals.text_color());
         let arrow_center = egui::pos2(rect.right() - padding.x - arrow_size / 2.0, rect.center().y);
         let arrow_rect =
@@ -416,8 +555,6 @@ pub fn dropdown(ui: &mut egui::Ui, text: &str, add_contents: impl FnOnce(&mut eg
         paint_arrow(painter, arrow_rect, Arrow::Down, visuals.fg_stroke.color);
     }
 
-    // At least as wide as the button, wider when the items need it (the
-    // short "View" button's menu holds the switches too).
     egui::Popup::menu(&response).show(|ui| {
         ui.set_min_width(rect.width());
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);

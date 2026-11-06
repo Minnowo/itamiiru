@@ -1347,10 +1347,28 @@ impl App {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let pane = self.tabs[self.active_tab].pane();
-        // Zoom controls first, from the right edge, so a long selection
+        // Zoom controls and view toggles from the right edge, so a long selection
         // summary is cut short instead of pushing them off the window.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             zoom::controls_right_to_left(ui);
+            ui.separator();
+            let details = crate::icons::icon_button(
+                ui,
+                crate::icons::ButtonIcon::DetailsView,
+                self.view == ViewMode::Details,
+            );
+            if details.on_hover_text("Details view").clicked() {
+                self.view = ViewMode::Details;
+            }
+            let large = crate::icons::icon_button(
+                ui,
+                crate::icons::ButtonIcon::LargeIconsView,
+                self.view == ViewMode::LargeIcons,
+            );
+            if large.on_hover_text("Large icons view").clicked() {
+                self.view = ViewMode::LargeIcons;
+            }
+            ui.separator();
             ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 let now = ui.input(|i| i.time);
                 if let Some((text, shown_at)) = &self.notice
@@ -3759,10 +3777,11 @@ mod tests {
 
         let alpha_path = folder.0.join("alpha");
         select_named(&mut app, "alpha");
-        assert_eq!(app.selected_folder(), Some(alpha_path));
+        assert_eq!(app.selected_folder(), Some(alpha_path.clone()));
 
         app.run_command(Command::ToggleBookmark);
         assert!(app.places_scan_running);
+        let _ = itamiiru_core::places::remove_bookmark(&alpha_path);
     }
 
     /// Startup work that doesn't need a window, as the app does it.

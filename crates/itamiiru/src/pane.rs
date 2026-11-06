@@ -985,27 +985,44 @@ impl Pane {
             Some(name) => format!("Search {}", name.to_string_lossy()),
             None => "Search".to_string(),
         };
-        let edit = egui::TextEdit::singleline(&mut self.search_text)
-            .id(ui.id().with("search-box"))
-            .hint_text(hint)
-            .desired_width(f32::INFINITY);
-        let response = ui.add(edit);
-        if self.focus_search {
-            self.focus_search = false;
-            response.request_focus();
-        }
-        let now = ui.input(|i| i.time);
-        if response.changed() {
-            self.search_edited_at = Some(now);
-        }
-        if response.lost_focus() {
-            if ui.input(|i| i.key_pressed(Key::Escape)) {
-                self.close_search();
-            } else if ui.input(|i| i.key_pressed(Key::Enter)) {
-                // Enter searches right away.
-                self.search_edited_at = Some(now - SEARCH_DELAY);
+        ui.horizontal(|ui| {
+            let icon_sz = theme::ICON_SIZE;
+            let (icon_rect, _) =
+                ui.allocate_exact_size(egui::vec2(icon_sz, icon_sz), egui::Sense::hover());
+            crate::icons::paint_button_icon(
+                ui.painter(),
+                icon_rect,
+                ButtonIcon::Search,
+                ui.visuals().weak_text_color(),
+            );
+            let edit = egui::TextEdit::singleline(&mut self.search_text)
+                .id(ui.id().with("search-box"))
+                .hint_text(hint)
+                .desired_width(f32::INFINITY);
+            let response = ui.add(edit);
+            if self.focus_search {
+                self.focus_search = false;
+                response.request_focus();
             }
-        }
+            if !self.search_text.is_empty()
+                && ui.button("x").on_hover_text("Clear search").clicked()
+            {
+                self.search_text.clear();
+                self.close_search();
+            }
+            let now = ui.input(|i| i.time);
+            if response.changed() {
+                self.search_edited_at = Some(now);
+            }
+            if response.lost_focus() {
+                if ui.input(|i| i.key_pressed(Key::Escape)) {
+                    self.close_search();
+                } else if ui.input(|i| i.key_pressed(Key::Enter)) {
+                    // Enter searches right away.
+                    self.search_edited_at = Some(now - SEARCH_DELAY);
+                }
+            }
+        });
     }
 }
 

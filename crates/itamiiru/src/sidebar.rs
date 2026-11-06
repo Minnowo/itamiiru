@@ -8,7 +8,9 @@ use eframe::egui::{self, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::format::format_size;
 use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, Places, Volume};
 
-use crate::icons::{ButtonIcon, icon_button, paint_drive_icon, paint_eject, paint_place_icon};
+use crate::icons::{
+    ButtonIcon, icon_button, paint_drive_icon, paint_eject, paint_quick_access_icon,
+};
 use crate::theme::{self, Theme};
 
 /// Height of a drive's usage bar, in points.
@@ -272,7 +274,7 @@ fn place_row(ui: &mut egui::Ui, place: &Place, selected: bool, theme: &Theme) ->
     let line = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
     let (response, icon_rect, text_left) = row(ui, line + theme::GAP_SMALL, selected, theme);
     if ui.is_rect_visible(response.rect) {
-        paint_place_icon(ui.painter(), icon_rect, place.kind, theme);
+        paint_quick_access_icon(ui.painter(), icon_rect, &place.name, place.kind, theme);
         let text_pos = egui::pos2(text_left, response.rect.center().y);
         row_text(ui, response.rect, text_pos, &place.name, selected, theme);
     }
