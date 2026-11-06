@@ -110,7 +110,7 @@ pub fn show(
 ) -> Option<TableAction> {
     let mut action = None;
     let line_height = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
-    let row_height = line_height + theme::GAP_SMALL;
+    let row_height = (line_height + theme::GAP * 1.75).max(30.0);
     // `command` is Ctrl on Linux and Windows, Cmd on macOS.
     let modifiers = ui.input(|i| i.modifiers);
     let sort = input.sort;
@@ -135,7 +135,7 @@ pub fn show(
     let step = row_height + ui.spacing().item_spacing.y;
     let mut table = TableBuilder::new(ui)
         .id_salt(table_id)
-        .striped(true)
+        .striped(false)
         // Drag too, so items can be dragged out to other apps.
         .sense(Sense::click_and_drag())
         // Shrink to the rows, so the empty space below can take clicks.
@@ -158,7 +158,7 @@ pub fn show(
     let mut body_clip = Rect::NOTHING;
     let mut band_started = false;
     table
-        .header(row_height + theme::GAP_SMALL, |mut header| {
+        .header(row_height, |mut header| {
             // None means the column can't be sorted by.
             let mut headers = vec![("Name", Some(SortColumn::Name))];
             if input.show_folder {
@@ -169,11 +169,12 @@ pub fn show(
             }
             for (title, column) in headers {
                 header.col(|ui| {
+                    let weak = ui.visuals().weak_text_color();
                     let Some(column) = column else {
-                        ui.label(RichText::new(title).strong());
+                        ui.label(RichText::new(title).color(weak));
                         return;
                     };
-                    let button = egui::Button::new(RichText::new(title).strong()).frame(false);
+                    let button = egui::Button::new(RichText::new(title).color(weak)).frame(false);
                     if ui.add(button).clicked() {
                         action = Some(TableAction::Sort(column));
                     }
@@ -212,6 +213,7 @@ pub fn show(
                         painter.multiply_opacity(0.5);
                     }
                     paint_entry_icon(&painter, icon_rect, entry, input.theme);
+                    ui.add_space(theme::GAP);
 
                     if let Some(editing) = rename
                         && editing.path == entry.path
@@ -230,7 +232,8 @@ pub fn show(
                 if input.show_folder {
                     row.col(|ui| {
                         if let Some(parent) = entry.path.parent() {
-                            cell_text(ui, RichText::new(parent.to_string_lossy()));
+                            let weak = ui.visuals().weak_text_color();
+                            cell_text(ui, RichText::new(parent.to_string_lossy()).color(weak));
                         }
                     });
                 }
@@ -392,22 +395,23 @@ fn select_stem(ctx: &egui::Context, id: egui::Id, text: &str) {
 
 /// One cell of a column after Name.
 fn cell(ui: &mut egui::Ui, column: DetailColumn, entry: &Entry) {
+    let weak = ui.visuals().weak_text_color();
     match column {
         DetailColumn::Modified => {
             if let Some(time) = entry.mtime {
-                cell_text(ui, RichText::new(format_local_time(time)));
+                cell_text(ui, RichText::new(format_local_time(time)).color(weak));
             }
         }
         DetailColumn::Created => {
             if let Some(time) = entry.created {
-                cell_text(ui, RichText::new(format_local_time(time)));
+                cell_text(ui, RichText::new(format_local_time(time)).color(weak));
             }
         }
-        DetailColumn::Type => cell_text(ui, RichText::new(type_label(entry))),
+        DetailColumn::Type => cell_text(ui, RichText::new(type_label(entry)).color(weak)),
         DetailColumn::Size => {
             if !entry.is_dir() {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    cell_text(ui, RichText::new(format_size(entry.size)));
+                    cell_text(ui, RichText::new(format_size(entry.size)).color(weak));
                 });
             }
         }
