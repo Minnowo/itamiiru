@@ -158,12 +158,12 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
             ui.available_width(),
         );
 
-        for (i, (_label, shortcut, enabled, value)) in commands.iter().enumerate().take(fit.shown) {
+        for (i, (label, shortcut, enabled, value)) in commands.iter().enumerate().take(fit.shown) {
             if i == 1 {
                 widths.separator = ui.separator().rect.width();
             }
             let response = if i == 0 {
-                new_button(ui, *enabled)
+                ui.add_enabled(*enabled, egui::Button::new(*label))
             } else {
                 let icon = match i {
                     1 => ButtonIcon::Cut,
@@ -399,64 +399,6 @@ fn sort_choices(ui: &mut egui::Ui, current: SortOrder, action: &mut Option<Toolb
         }
         ui.close();
     }
-}
-
-fn new_button(ui: &mut egui::Ui, enabled: bool) -> egui::Response {
-    let padding = ui.spacing().button_padding;
-    let font = TextStyle::Button.resolve(ui.style());
-    let text_color = if enabled {
-        ui.visuals().text_color()
-    } else {
-        ui.visuals().weak_text_color()
-    };
-    let galley = ui
-        .painter()
-        .layout_no_wrap("New".to_string(), font, text_color);
-    let icon_size = theme::ICON_SIZE;
-    let arrow_size = DROPDOWN_ARROW;
-    let height = (galley.size().y + 2.0 * padding.y).max(ui.spacing().interact_size.y);
-    let width = padding.x
-        + icon_size
-        + theme::GAP_SMALL
-        + galley.size().x
-        + padding.x
-        + arrow_size
-        + padding.x;
-    let (rect, response) = ui.allocate_exact_size(egui::vec2(width, height), Sense::click());
-    if ui.is_rect_visible(rect) {
-        let visuals = if enabled {
-            ui.style().interact(&response)
-        } else {
-            &ui.visuals().widgets.inactive
-        };
-        let painter = ui.painter();
-        painter.rect(
-            rect,
-            visuals.corner_radius,
-            visuals.weak_bg_fill,
-            visuals.bg_stroke,
-            StrokeKind::Inside,
-        );
-        let icon_rect = Rect::from_center_size(
-            Pos2::new(rect.left() + padding.x + icon_size / 2.0, rect.center().y),
-            egui::vec2(icon_size * 0.8, icon_size * 0.8),
-        );
-        let plus_color = if enabled {
-            ui.visuals().hyperlink_color
-        } else {
-            ui.visuals().weak_text_color()
-        };
-        paint_button_icon(painter, icon_rect, ButtonIcon::Plus, plus_color);
-        let text_pos = Pos2::new(
-            rect.left() + padding.x + icon_size + theme::GAP_SMALL,
-            rect.center().y - galley.size().y / 2.0,
-        );
-        painter.galley(text_pos, galley, text_color);
-        let arrow_center = Pos2::new(rect.right() - padding.x - arrow_size / 2.0, rect.center().y);
-        let arrow_rect = Rect::from_center_size(arrow_center, egui::vec2(arrow_size, arrow_size));
-        paint_arrow(painter, arrow_rect, Arrow::Down, plus_color);
-    }
-    return response;
 }
 
 fn toolbar_icon_button(ui: &mut egui::Ui, icon: ButtonIcon, enabled: bool) -> egui::Response {
