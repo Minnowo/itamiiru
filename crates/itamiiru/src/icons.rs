@@ -547,7 +547,7 @@ pub fn paint_drive_icon(painter: &egui::Painter, rect: Rect, kind: DriveKind, th
 }
 
 /// Icons for places in the navigation pane. Recognized names get their
-/// dedicated Windows 11 category icon.
+/// dedicated Windows 10 style icon.
 pub fn paint_quick_access_icon(
     painter: &egui::Painter,
     rect: Rect,
