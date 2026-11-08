@@ -43,6 +43,42 @@ pub enum Accent {
     Error,
 }
 
+/// The built-in color themes. A theme file's colors go on top of the
+/// chosen one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThemeName {
+    Ponkotsu,
+    Windows10,
+}
+
+impl ThemeName {
+    pub const ALL: [ThemeName; 2] = [ThemeName::Ponkotsu, ThemeName::Windows10];
+
+    pub fn label(self) -> &'static str {
+        return match self {
+            ThemeName::Ponkotsu => "ponkotsu",
+            ThemeName::Windows10 => "Windows 10",
+        };
+    }
+
+    /// The name used in the config file.
+    pub fn key(self) -> &'static str {
+        return match self {
+            ThemeName::Ponkotsu => "ponkotsu",
+            ThemeName::Windows10 => "windows10",
+        };
+    }
+
+    pub fn from_key(key: &str) -> Option<ThemeName> {
+        for name in ThemeName::ALL {
+            if name.key() == key {
+                return Some(name);
+            }
+        }
+        return None;
+    }
+}
+
 /// Every color role. Field names match ponkotsu's role names with `-` as `_`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Theme {
@@ -139,134 +175,239 @@ pub struct Theme {
 }
 
 impl Default for Theme {
-    /// A Windows 10 style dark palette.
+    /// ponkotsu's default dark palette.
     fn default() -> Self {
-        return Theme {
-            primary: Color32::from_rgb(0x4c, 0xc2, 0xff),
-            on_primary: Color32::from_rgb(0x00, 0x00, 0x00),
-            primary_container: Color32::from_rgb(0x00, 0x5f, 0xb8),
-            on_primary_container: Color32::from_rgb(0xff, 0xff, 0xff),
-            secondary: Color32::from_rgb(0x60, 0xcd, 0xff),
-            on_secondary: Color32::from_rgb(0x00, 0x22, 0x38),
-            secondary_container: Color32::from_rgba_unmultiplied(0x4c, 0xc2, 0xff, 0x33),
-            on_secondary_container: Color32::from_rgb(0xff, 0xff, 0xff),
-            tertiary: Color32::from_rgb(0xd1, 0x9a, 0xff),
-            on_tertiary: Color32::from_rgb(0x38, 0x00, 0x66),
-            tertiary_container: Color32::from_rgb(0x64, 0x32, 0x8c),
-            on_tertiary_container: Color32::from_rgb(0xff, 0xff, 0xff),
-            error: Color32::from_rgb(0xff, 0x6b, 0x6b),
-            on_error: Color32::from_rgb(0x40, 0x00, 0x00),
-            error_container: Color32::from_rgb(0x8c, 0x24, 0x24),
-            on_error_container: Color32::from_rgb(0xff, 0xff, 0xff),
-            success: Color32::from_rgb(0x6c, 0xcb, 0x5f),
-            on_success: Color32::from_rgb(0x0a, 0x33, 0x05),
-            success_container: Color32::from_rgb(0x27, 0x5e, 0x20),
-            on_success_container: Color32::from_rgb(0xff, 0xff, 0xff),
-            surface: Color32::from_rgb(0x19, 0x19, 0x19),
-            on_surface: Color32::from_rgb(0xf2, 0xf2, 0xf2),
-            on_surface_variant: Color32::from_rgb(0xa6, 0xa6, 0xa6),
-            surface_container_1: Color32::from_rgb(0x20, 0x20, 0x20),
-            surface_container_2: Color32::from_rgb(0x26, 0x26, 0x26),
-            surface_container_3: Color32::from_rgb(0x2c, 0x2c, 0x2c),
-            surface_container_4: Color32::from_rgb(0x38, 0x38, 0x38),
-            surface_container_5: Color32::from_rgb(0x44, 0x44, 0x44),
-            surface_container_6: Color32::from_rgb(0x50, 0x50, 0x50),
-            surface_dim: Color32::from_rgb(0x14, 0x14, 0x14),
-            surface_bright: Color32::from_rgb(0x30, 0x30, 0x30),
-            outline: Color32::from_rgb(0x38, 0x38, 0x38),
-            outline_variant: Color32::from_rgb(0x28, 0x28, 0x28),
-            inverse_surface: Color32::from_rgb(0xff, 0xff, 0xff),
-            inverse_on_surface: Color32::from_rgb(0x19, 0x19, 0x19),
-            inverse_primary: Color32::from_rgb(0x00, 0x67, 0xc0),
-            pink: Color32::from_rgb(0xf0, 0x6c, 0x9b),
-            on_pink: Color32::from_rgb(0x38, 0x05, 0x1c),
-            d_pink: Color32::from_rgb(0xe3, 0x00, 0x8c),
-            on_d_pink: Color32::from_rgb(0x33, 0x00, 0x1e),
-            l_pink: Color32::from_rgb(0xf8, 0xa3, 0xc4),
-            on_l_pink: Color32::from_rgb(0x38, 0x05, 0x1c),
-            red: Color32::from_rgb(0xe8, 0x11, 0x23),
-            on_red: Color32::from_rgb(0xff, 0xff, 0xff),
-            d_red: Color32::from_rgb(0xc4, 0x10, 0x20),
-            on_d_red: Color32::from_rgb(0xff, 0xff, 0xff),
-            l_red: Color32::from_rgb(0xf1, 0x5c, 0x69),
-            on_l_red: Color32::from_rgb(0x38, 0x05, 0x08),
-            yellow: Color32::from_rgb(0xfc, 0xd1, 0x16),
-            on_yellow: Color32::from_rgb(0x3b, 0x2d, 0x00),
-            d_yellow: Color32::from_rgb(0xe5, 0xb8, 0x00),
-            on_d_yellow: Color32::from_rgb(0x33, 0x25, 0x00),
-            l_yellow: Color32::from_rgb(0xff, 0xdf, 0x4a),
-            on_l_yellow: Color32::from_rgb(0x3b, 0x2d, 0x00),
-            green: Color32::from_rgb(0x10, 0x7c, 0x41),
-            on_green: Color32::from_rgb(0xff, 0xff, 0xff),
-            d_green: Color32::from_rgb(0x0c, 0x5e, 0x31),
-            on_d_green: Color32::from_rgb(0xff, 0xff, 0xff),
-            l_green: Color32::from_rgb(0x3b, 0x9b, 0x64),
-            on_l_green: Color32::from_rgb(0x02, 0x26, 0x11),
-            blue: Color32::from_rgb(0x00, 0x78, 0xd4),
-            on_blue: Color32::from_rgb(0xff, 0xff, 0xff),
-            d_blue: Color32::from_rgb(0x00, 0x5a, 0x9e),
-            on_d_blue: Color32::from_rgb(0xff, 0xff, 0xff),
-            l_blue: Color32::from_rgb(0x4c, 0xc2, 0xff),
-            on_l_blue: Color32::from_rgb(0x00, 0x22, 0x38),
-            primary_hover: Color32::from_rgb(0x60, 0xcd, 0xff),
-            primary_focus: Color32::from_rgb(0x78, 0xd4, 0xff),
-            secondary_hover: Color32::from_rgb(0x78, 0xd4, 0xff),
-            secondary_focus: Color32::from_rgb(0x90, 0xdc, 0xff),
-            tertiary_hover: Color32::from_rgb(0xdc, 0xad, 0xff),
-            tertiary_focus: Color32::from_rgb(0xe4, 0xbf, 0xff),
-            error_hover: Color32::from_rgb(0xff, 0x82, 0x82),
-            error_focus: Color32::from_rgb(0xff, 0x99, 0x99),
-            success_hover: Color32::from_rgb(0x7e, 0xd5, 0x72),
-            success_focus: Color32::from_rgb(0x90, 0xdf, 0x85),
-            surface_container_1_hover: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x14),
-            surface_container_1_focus: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x20),
-            primary_hover_tint: Color32::from_rgba_unmultiplied(0x4c, 0xc2, 0xff, 0x1f),
-            primary_focus_tint: Color32::from_rgba_unmultiplied(0x4c, 0xc2, 0xff, 0x3d),
-            secondary_hover_tint: Color32::from_rgba_unmultiplied(0x60, 0xcd, 0xff, 0x1f),
-            secondary_focus_tint: Color32::from_rgba_unmultiplied(0x60, 0xcd, 0xff, 0x3d),
-            tertiary_hover_tint: Color32::from_rgba_unmultiplied(0xd1, 0x9a, 0xff, 0x1f),
-            tertiary_focus_tint: Color32::from_rgba_unmultiplied(0xd1, 0x9a, 0xff, 0x3d),
-            error_hover_tint: Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x6b, 0x1f),
-            error_focus_tint: Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x6b, 0x3d),
-            success_hover_tint: Color32::from_rgba_unmultiplied(0x6c, 0xcb, 0x5f, 0x1f),
-            success_focus_tint: Color32::from_rgba_unmultiplied(0x6c, 0xcb, 0x5f, 0x3d),
-            on_surface_hover_tint: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x12),
-            on_surface_focus_tint: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x24),
-        };
+        return ponkotsu();
     }
 }
 
+/// ponkotsu's default dark palette.
+fn ponkotsu() -> Theme {
+    return Theme {
+        primary: Color32::from_rgb(0xdc, 0xc4, 0x96),
+        on_primary: Color32::from_rgb(0x40, 0x2d, 0x00),
+        primary_container: Color32::from_rgb(0x6e, 0x5c, 0x36),
+        on_primary_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        secondary: Color32::from_rgb(0xa7, 0xca, 0xec),
+        on_secondary: Color32::from_rgb(0x00, 0x33, 0x51),
+        secondary_container: Color32::from_rgb(0x3f, 0x62, 0x7f),
+        on_secondary_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        tertiary: Color32::from_rgb(0xe1, 0xb6, 0xfd),
+        on_tertiary: Color32::from_rgb(0x4c, 0x00, 0x7b),
+        tertiary_container: Color32::from_rgb(0x73, 0x4f, 0x8e),
+        on_tertiary_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        error: Color32::from_rgb(0xed, 0xbc, 0xa4),
+        on_error: Color32::from_rgb(0x52, 0x23, 0x05),
+        error_container: Color32::from_rgb(0x7b, 0x56, 0x42),
+        on_error_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        success: Color32::from_rgb(0xb7, 0xcd, 0xb0),
+        on_success: Color32::from_rgb(0x15, 0x37, 0x14),
+        success_container: Color32::from_rgb(0x51, 0x63, 0x4c),
+        on_success_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        surface: Color32::from_rgb(0x2a, 0x27, 0x24),
+        on_surface: Color32::from_rgb(0xe8, 0xe1, 0xdb),
+        on_surface_variant: Color32::from_rgb(0xce, 0xc5, 0xb9),
+        surface_container_1: Color32::from_rgb(0x35, 0x32, 0x2e),
+        surface_container_2: Color32::from_rgb(0x40, 0x3d, 0x39),
+        surface_container_3: Color32::from_rgb(0x4c, 0x49, 0x44),
+        surface_container_4: Color32::from_rgb(0x58, 0x54, 0x50),
+        surface_container_5: Color32::from_rgb(0x64, 0x60, 0x5b),
+        surface_container_6: Color32::from_rgb(0x70, 0x6c, 0x67),
+        surface_dim: Color32::from_rgb(0x2a, 0x27, 0x24),
+        surface_bright: Color32::from_rgb(0x53, 0x4f, 0x4b),
+        outline: Color32::from_rgb(0xb2, 0xaa, 0x9f),
+        outline_variant: Color32::from_rgb(0x64, 0x5e, 0x54),
+        inverse_surface: Color32::from_rgb(0xff, 0xff, 0xff),
+        inverse_on_surface: Color32::from_rgb(0x4a, 0x46, 0x42),
+        inverse_primary: Color32::from_rgb(0x91, 0x73, 0x2c),
+        pink: Color32::from_rgb(0xd8, 0x9d, 0xbd),
+        on_pink: Color32::from_rgb(0x33, 0x0c, 0x26),
+        d_pink: Color32::from_rgb(0xba, 0x84, 0xb8),
+        on_d_pink: Color32::from_rgb(0x32, 0x08, 0x36),
+        l_pink: Color32::from_rgb(0xe8, 0xba, 0xd1),
+        on_l_pink: Color32::from_rgb(0x2e, 0x12, 0x23),
+        red: Color32::from_rgb(0xe2, 0x9e, 0x7b),
+        on_red: Color32::from_rgb(0x34, 0x11, 0x00),
+        d_red: Color32::from_rgb(0xd2, 0x80, 0x6f),
+        on_d_red: Color32::from_rgb(0x3a, 0x0a, 0x03),
+        l_red: Color32::from_rgb(0xf1, 0xbb, 0x9f),
+        on_l_red: Color32::from_rgb(0x30, 0x14, 0x04),
+        yellow: Color32::from_rgb(0xc2, 0xad, 0x67),
+        on_yellow: Color32::from_rgb(0x23, 0x1b, 0x00),
+        d_yellow: Color32::from_rgb(0xbb, 0x8e, 0x41),
+        on_d_yellow: Color32::from_rgb(0x28, 0x19, 0x00),
+        l_yellow: Color32::from_rgb(0xd7, 0xc6, 0x90),
+        on_l_yellow: Color32::from_rgb(0x23, 0x1b, 0x00),
+        green: Color32::from_rgb(0x91, 0xb8, 0x89),
+        on_green: Color32::from_rgb(0x01, 0x22, 0x03),
+        d_green: Color32::from_rgb(0x85, 0x9f, 0x5a),
+        on_d_green: Color32::from_rgb(0x12, 0x1f, 0x00),
+        l_green: Color32::from_rgb(0xb2, 0xce, 0xaa),
+        on_l_green: Color32::from_rgb(0x0a, 0x20, 0x09),
+        blue: Color32::from_rgb(0x84, 0xb4, 0xd2),
+        on_blue: Color32::from_rgb(0x00, 0x1e, 0x2d),
+        d_blue: Color32::from_rgb(0x52, 0xa0, 0xb7),
+        on_d_blue: Color32::from_rgb(0x00, 0x1f, 0x27),
+        l_blue: Color32::from_rgb(0xab, 0xcb, 0xe1),
+        on_l_blue: Color32::from_rgb(0x00, 0x1e, 0x2d),
+        primary_hover: Color32::from_rgb(0xc8, 0xb0, 0x83),
+        primary_focus: Color32::from_rgb(0xb4, 0x9d, 0x71),
+        secondary_hover: Color32::from_rgb(0x92, 0xb6, 0xd8),
+        secondary_focus: Color32::from_rgb(0x7e, 0xa3, 0xc5),
+        tertiary_hover: Color32::from_rgb(0xce, 0xa2, 0xed),
+        tertiary_focus: Color32::from_rgb(0xba, 0x8d, 0xdd),
+        error_hover: Color32::from_rgb(0xd9, 0xa8, 0x90),
+        error_focus: Color32::from_rgb(0xc6, 0x95, 0x7c),
+        success_hover: Color32::from_rgb(0xa2, 0xba, 0x9b),
+        success_focus: Color32::from_rgb(0x8d, 0xa6, 0x87),
+        surface_container_1_hover: Color32::from_rgb(0x48, 0x44, 0x40),
+        surface_container_1_focus: Color32::from_rgb(0x5c, 0x58, 0x53),
+        primary_hover_tint: Color32::from_rgba_unmultiplied(0xdc, 0xc4, 0x96, 0x1f),
+        primary_focus_tint: Color32::from_rgba_unmultiplied(0xdc, 0xc4, 0x96, 0x3d),
+        secondary_hover_tint: Color32::from_rgba_unmultiplied(0xa7, 0xca, 0xec, 0x1f),
+        secondary_focus_tint: Color32::from_rgba_unmultiplied(0xa7, 0xca, 0xec, 0x3d),
+        tertiary_hover_tint: Color32::from_rgba_unmultiplied(0xe1, 0xb6, 0xfd, 0x1f),
+        tertiary_focus_tint: Color32::from_rgba_unmultiplied(0xe1, 0xb6, 0xfd, 0x3d),
+        error_hover_tint: Color32::from_rgba_unmultiplied(0xed, 0xbc, 0xa4, 0x1f),
+        error_focus_tint: Color32::from_rgba_unmultiplied(0xed, 0xbc, 0xa4, 0x3d),
+        success_hover_tint: Color32::from_rgba_unmultiplied(0xb7, 0xcd, 0xb0, 0x1f),
+        success_focus_tint: Color32::from_rgba_unmultiplied(0xb7, 0xcd, 0xb0, 0x3d),
+        on_surface_hover_tint: Color32::from_rgba_unmultiplied(0xe8, 0xe1, 0xdb, 0x1f),
+        on_surface_focus_tint: Color32::from_rgba_unmultiplied(0xe8, 0xe1, 0xdb, 0x3d),
+    };
+}
+
+/// A Windows 10 style dark palette: grays with a blue accent. The
+/// surfaces, text, borders, selection and accent are measured from
+/// Windows 10's dark File Explorer; hover and pressed shades are guesses.
+fn windows10() -> Theme {
+    return Theme {
+        primary: Color32::from_rgb(0x00, 0x66, 0xce),
+        on_primary: Color32::from_rgb(0xff, 0xff, 0xff),
+        primary_container: Color32::from_rgb(0x00, 0x4c, 0x99),
+        on_primary_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        secondary: Color32::from_rgb(0x60, 0xcd, 0xff),
+        on_secondary: Color32::from_rgb(0x00, 0x22, 0x38),
+        secondary_container: Color32::from_rgb(0x62, 0x62, 0x62),
+        on_secondary_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        tertiary: Color32::from_rgb(0xd1, 0x9a, 0xff),
+        on_tertiary: Color32::from_rgb(0x38, 0x00, 0x66),
+        tertiary_container: Color32::from_rgb(0x64, 0x32, 0x8c),
+        on_tertiary_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        error: Color32::from_rgb(0xff, 0x6b, 0x6b),
+        on_error: Color32::from_rgb(0x40, 0x00, 0x00),
+        error_container: Color32::from_rgb(0x8c, 0x24, 0x24),
+        on_error_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        success: Color32::from_rgb(0x6c, 0xcb, 0x5f),
+        on_success: Color32::from_rgb(0x0a, 0x33, 0x05),
+        success_container: Color32::from_rgb(0x27, 0x5e, 0x20),
+        on_success_container: Color32::from_rgb(0xff, 0xff, 0xff),
+        surface: Color32::from_rgb(0x20, 0x20, 0x20),
+        on_surface: Color32::from_rgb(0xff, 0xff, 0xff),
+        on_surface_variant: Color32::from_rgb(0xde, 0xde, 0xde),
+        surface_container_1: Color32::from_rgb(0x19, 0x19, 0x19),
+        surface_container_2: Color32::from_rgb(0x2b, 0x2b, 0x2b),
+        surface_container_3: Color32::from_rgb(0x33, 0x33, 0x33),
+        surface_container_4: Color32::from_rgb(0x4d, 0x4d, 0x4d),
+        surface_container_5: Color32::from_rgb(0x62, 0x62, 0x62),
+        surface_container_6: Color32::from_rgb(0x77, 0x77, 0x77),
+        surface_dim: Color32::from_rgb(0x00, 0x00, 0x00),
+        surface_bright: Color32::from_rgb(0x33, 0x33, 0x33),
+        outline: Color32::from_rgb(0x53, 0x53, 0x53),
+        outline_variant: Color32::from_rgb(0x2b, 0x2b, 0x2b),
+        inverse_surface: Color32::from_rgb(0xff, 0xff, 0xff),
+        inverse_on_surface: Color32::from_rgb(0x20, 0x20, 0x20),
+        inverse_primary: Color32::from_rgb(0x00, 0x67, 0xc0),
+        pink: Color32::from_rgb(0xf0, 0x6c, 0x9b),
+        on_pink: Color32::from_rgb(0x38, 0x05, 0x1c),
+        d_pink: Color32::from_rgb(0xe3, 0x00, 0x8c),
+        on_d_pink: Color32::from_rgb(0x33, 0x00, 0x1e),
+        l_pink: Color32::from_rgb(0xf8, 0xa3, 0xc4),
+        on_l_pink: Color32::from_rgb(0x38, 0x05, 0x1c),
+        red: Color32::from_rgb(0xe8, 0x11, 0x23),
+        on_red: Color32::from_rgb(0xff, 0xff, 0xff),
+        d_red: Color32::from_rgb(0xc4, 0x10, 0x20),
+        on_d_red: Color32::from_rgb(0xff, 0xff, 0xff),
+        l_red: Color32::from_rgb(0xf1, 0x5c, 0x69),
+        on_l_red: Color32::from_rgb(0x38, 0x05, 0x08),
+        yellow: Color32::from_rgb(0xfc, 0xd1, 0x16),
+        on_yellow: Color32::from_rgb(0x3b, 0x2d, 0x00),
+        d_yellow: Color32::from_rgb(0xe5, 0xb8, 0x00),
+        on_d_yellow: Color32::from_rgb(0x33, 0x25, 0x00),
+        l_yellow: Color32::from_rgb(0xff, 0xdf, 0x4a),
+        on_l_yellow: Color32::from_rgb(0x3b, 0x2d, 0x00),
+        green: Color32::from_rgb(0x10, 0x7c, 0x41),
+        on_green: Color32::from_rgb(0xff, 0xff, 0xff),
+        d_green: Color32::from_rgb(0x0c, 0x5e, 0x31),
+        on_d_green: Color32::from_rgb(0xff, 0xff, 0xff),
+        l_green: Color32::from_rgb(0x3b, 0x9b, 0x64),
+        on_l_green: Color32::from_rgb(0x02, 0x26, 0x11),
+        blue: Color32::from_rgb(0x00, 0x78, 0xd4),
+        on_blue: Color32::from_rgb(0xff, 0xff, 0xff),
+        d_blue: Color32::from_rgb(0x00, 0x5a, 0x9e),
+        on_d_blue: Color32::from_rgb(0xff, 0xff, 0xff),
+        l_blue: Color32::from_rgb(0x4c, 0xc2, 0xff),
+        on_l_blue: Color32::from_rgb(0x00, 0x22, 0x38),
+        primary_hover: Color32::from_rgb(0x1a, 0x75, 0xd2),
+        primary_focus: Color32::from_rgb(0x33, 0x85, 0xd6),
+        secondary_hover: Color32::from_rgb(0x78, 0xd4, 0xff),
+        secondary_focus: Color32::from_rgb(0x90, 0xdc, 0xff),
+        tertiary_hover: Color32::from_rgb(0xdc, 0xad, 0xff),
+        tertiary_focus: Color32::from_rgb(0xe4, 0xbf, 0xff),
+        error_hover: Color32::from_rgb(0xff, 0x82, 0x82),
+        error_focus: Color32::from_rgb(0xff, 0x99, 0x99),
+        success_hover: Color32::from_rgb(0x7e, 0xd5, 0x72),
+        success_focus: Color32::from_rgb(0x90, 0xdf, 0x85),
+        surface_container_1_hover: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x14),
+        surface_container_1_focus: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x20),
+        primary_hover_tint: Color32::from_rgba_unmultiplied(0x00, 0x66, 0xce, 0x1f),
+        primary_focus_tint: Color32::from_rgba_unmultiplied(0x00, 0x66, 0xce, 0x3d),
+        secondary_hover_tint: Color32::from_rgba_unmultiplied(0x60, 0xcd, 0xff, 0x1f),
+        secondary_focus_tint: Color32::from_rgba_unmultiplied(0x60, 0xcd, 0xff, 0x3d),
+        tertiary_hover_tint: Color32::from_rgba_unmultiplied(0xd1, 0x9a, 0xff, 0x1f),
+        tertiary_focus_tint: Color32::from_rgba_unmultiplied(0xd1, 0x9a, 0xff, 0x3d),
+        error_hover_tint: Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x6b, 0x1f),
+        error_focus_tint: Color32::from_rgba_unmultiplied(0xff, 0x6b, 0x6b, 0x3d),
+        success_hover_tint: Color32::from_rgba_unmultiplied(0x6c, 0xcb, 0x5f, 0x1f),
+        success_focus_tint: Color32::from_rgba_unmultiplied(0x6c, 0xcb, 0x5f, 0x3d),
+        on_surface_hover_tint: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x12),
+        on_surface_focus_tint: Color32::from_rgba_unmultiplied(0xff, 0xff, 0xff, 0x24),
+    };
+}
+
 impl Theme {
-    /// The built-in theme, with `$ITAMI_THEME` (a file path) or
-    /// `<config dir>/theme` applied on top if either exists.
-    /// Problems are logged and the built-in colors are kept.
-    pub fn load() -> Theme {
-        let mut theme = Theme::default();
-        let path = match std::env::var_os("ITAMI_THEME") {
-            Some(path) => std::path::PathBuf::from(path),
-            None => match itamiiru_core::platform::config_dir() {
-                Some(dir) => dir.join("theme"),
-                None => return theme,
-            },
+    /// The built-in theme `name` with the theme file's text (from
+    /// `read_file`) applied on top. Touches no files, so the theme can be
+    /// switched while the app runs.
+    pub fn new(name: ThemeName, file_text: Option<&str>) -> Theme {
+        let mut theme = match name {
+            ThemeName::Ponkotsu => ponkotsu(),
+            ThemeName::Windows10 => windows10(),
         };
-        if let Err(err) = theme.apply_file(&path) {
-            itamiiru_core::debug!("theme: not using {}: {}", path.display(), err);
+        if let Some(text) = file_text {
+            theme.apply_text(text);
         }
         return theme;
     }
 
-    /// Reads a theme file and applies its colors to `self`.
-    pub fn apply_file(&mut self, path: &Path) -> Result<(), String> {
-        let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-        if size > MAX_THEME_FILE_SIZE {
-            return Err(format!(
-                "file is {size} bytes, the limit is {MAX_THEME_FILE_SIZE}"
-            ));
-        }
-        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        self.apply_text(&text);
-        itamiiru_core::debug!("theme: loaded {}", path.display());
-        return Ok(());
+    /// Reads the theme file: `$ITAMI_THEME` (a file path), or
+    /// `<config dir>/theme`. None if there is none or it can't be used;
+    /// problems are logged. Reads from disk: call at startup only.
+    pub fn read_file() -> Option<String> {
+        let path = match std::env::var_os("ITAMI_THEME") {
+            Some(path) => std::path::PathBuf::from(path),
+            None => itamiiru_core::platform::config_dir()?.join("theme"),
+        };
+        return match read_theme_file(&path) {
+            Ok(text) => {
+                itamiiru_core::debug!("theme: loaded {}", path.display());
+                Some(text)
+            }
+            Err(err) => {
+                itamiiru_core::debug!("theme: not using {}: {}", path.display(), err);
+                None
+            }
+        };
     }
 
     /// Applies every `role = #hex` or `--color-c-role: #hex;` line in `text`.
@@ -539,9 +680,9 @@ impl Theme {
         v.warn_fg_color = self.yellow;
         v.error_fg_color = self.error;
         v.text_cursor.stroke = Stroke::new(2.0, self.primary);
-        // Selected rows and selected text: Windows 10 style accent selection.
+        // Selected rows and selected text: "selected but not the main action".
         v.selection.bg_fill = self.secondary_container;
-        v.selection.stroke = Stroke::new(1.0, self.primary);
+        v.selection.stroke = Stroke::new(1.0, self.on_secondary_container);
 
         let radius = CornerRadius::same(RADIUS_SMALL);
         let w = &mut v.widgets;
@@ -608,6 +749,17 @@ fn button_with_colors(
     return scoped.inner;
 }
 
+/// The text of a theme file, if it's small enough to be one.
+fn read_theme_file(path: &Path) -> Result<String, String> {
+    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
+    if size > MAX_THEME_FILE_SIZE {
+        return Err(format!(
+            "file is {size} bytes, the limit is {MAX_THEME_FILE_SIZE}"
+        ));
+    }
+    return std::fs::read_to_string(path).map_err(|e| e.to_string());
+}
+
 /// Parses `#rrggbb` or `#rrggbbaa`. The alpha is not premultiplied, as in CSS.
 pub fn parse_hex_color(value: &str) -> Option<Color32> {
     let hex = value.strip_prefix('#')?;
@@ -656,6 +808,28 @@ mod tests {
         assert_eq!(parse_hex_color("#+1+2+3"), None);
         assert_eq!(parse_hex_color("#\u{e9}\u{e9}34"), None);
         assert_eq!(parse_hex_color(""), None);
+    }
+
+    #[test]
+    fn built_in_themes() {
+        let ponkotsu = Theme::new(ThemeName::Ponkotsu, None);
+        assert_eq!(ponkotsu, Theme::default());
+        assert_eq!(ponkotsu.primary, Color32::from_rgb(0xdc, 0xc4, 0x96));
+        let windows = Theme::new(ThemeName::Windows10, None);
+        assert_ne!(windows, ponkotsu);
+
+        // The theme file's colors go on top of either one.
+        let file = "primary = #112233\n";
+        for name in ThemeName::ALL {
+            let theme = Theme::new(name, Some(file));
+            assert_eq!(theme.primary, Color32::from_rgb(0x11, 0x22, 0x33));
+            assert_eq!(theme.secondary, Theme::new(name, None).secondary);
+        }
+
+        for name in ThemeName::ALL {
+            assert_eq!(ThemeName::from_key(name.key()), Some(name));
+        }
+        assert_eq!(ThemeName::from_key("nope"), None);
     }
 
     #[test]

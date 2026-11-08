@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{self, Align2, Rect, RichText, Sense, Stroke, StrokeKind, TextStyle};
+use eframe::egui::{self, Align2, Rect, RichText, Sense, TextStyle};
 use itamiiru_core::format::format_size;
 use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, PlaceKind, Places, Volume};
 
@@ -334,21 +334,14 @@ fn tile(
     theme: &Theme,
 ) -> (egui::Response, Rect, f32) {
     let (rect, response) = ui.allocate_exact_size(egui::vec2(TILE_WIDTH, height), Sense::click());
-    let (fill, stroke) = if selected {
-        (theme.secondary_container, Stroke::new(1.0, theme.primary))
+    let fill = if selected {
+        theme.secondary_container
     } else if response.hovered() {
-        (
-            theme.surface_container_1_hover,
-            Stroke::new(1.0, theme.outline),
-        )
+        theme.surface_container_1_hover
     } else {
-        (
-            theme.surface_container_1,
-            Stroke::new(1.0, theme.outline_variant),
-        )
+        theme.surface_container_1
     };
-    ui.painter()
-        .rect(rect, theme::RADIUS_MEDIUM, fill, stroke, StrokeKind::Inside);
+    ui.painter().rect_filled(rect, theme::RADIUS_MEDIUM, fill);
     let padding = theme::PADDING as f32;
     let icon_rect = Rect::from_min_size(
         egui::pos2(rect.left() + padding, rect.center().y - TILE_ICON / 2.0),

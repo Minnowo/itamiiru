@@ -5,7 +5,7 @@
 use std::ops::Range;
 
 use eframe::egui::text::LayoutJob;
-use eframe::egui::{self, Align, Align2, Rect, Sense, Stroke, StrokeKind, TextStyle};
+use eframe::egui::{self, Align, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::entry::Entry;
 use itamiiru_core::thumbcache::ThumbSize;
 
@@ -303,24 +303,15 @@ fn item_background(
     selected: bool,
     theme: &Theme,
 ) {
-    if selected {
-        ui.painter()
-            .rect_filled(rect, theme::RADIUS_SMALL, theme.secondary_container);
-        ui.painter().rect_stroke(
-            rect,
-            theme::RADIUS_SMALL,
-            Stroke::new(1.0, theme.primary),
-            StrokeKind::Inside,
-        );
+    let fill = if selected {
+        Some(theme.secondary_container)
     } else if response.hovered() {
-        ui.painter()
-            .rect_filled(rect, theme::RADIUS_SMALL, theme.on_surface_hover_tint);
-        ui.painter().rect_stroke(
-            rect,
-            theme::RADIUS_SMALL,
-            Stroke::new(1.0, theme.outline_variant),
-            StrokeKind::Inside,
-        );
+        Some(theme.on_surface_hover_tint)
+    } else {
+        None
+    };
+    if let Some(fill) = fill {
+        ui.painter().rect_filled(rect, theme::RADIUS_SMALL, fill);
     }
 }
 

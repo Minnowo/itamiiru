@@ -31,7 +31,7 @@ use crate::settings_page::{self, Options};
 use crate::sidebar::{self, SidebarAction, SidebarDrop};
 use crate::startup;
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
-use crate::theme::{self, Theme};
+use crate::theme::{self, Theme, ThemeName};
 use crate::thispc::{self, TileAction};
 use crate::thumbs::Thumbs;
 use crate::toolbar::{self, ToolbarAction, ToolbarState, ViewMode};
@@ -66,6 +66,11 @@ struct PaneOutput {
 
 pub struct App {
     theme: Theme,
+    /// The built-in theme `theme` starts from (setting `theme`).
+    theme_name: ThemeName,
+    /// The theme file's text, read at startup, so switching themes
+    /// doesn't read it again.
+    theme_file: Option<String>,
 
     tabs: Vec<Tab>,
     active_tab: usize,
@@ -195,9 +200,11 @@ fn make_filter(sort: SortOrder, show_hidden: bool, picker: &Option<Picker>) -> F
 }
 
 impl App {
+    /// `theme_file` is the theme file's text (`Theme::read_file`), applied
+    /// on top of the chosen built-in theme. Installs the theme into `ctx`.
     pub fn new(
         ctx: egui::Context,
-        theme: Theme,
+        theme_file: Option<String>,
         start: PathBuf,
         select: Vec<PathBuf>,
         config: Config,
@@ -205,6 +212,8 @@ impl App {
         picker: Option<Picker>,
     ) -> App {
         let settings = Settings::from_config(&config);
+        let theme = Theme::new(settings.theme, theme_file.as_deref());
+        theme.install(&ctx);
         let (places_tx, places_rx) = mpsc::channel();
         let thumbs = Thumbs::new(&ctx, settings.thumbnails);
         let actions = load_actions(config_path.as_deref());
@@ -213,6 +222,8 @@ impl App {
         first.after_listing.select = select;
         let mut app = App {
             theme,
+            theme_name: settings.theme,
+            theme_file,
             tabs: vec![Tab::new(first)],
             active_tab: 0,
             next_pane_id: 1,
@@ -1965,6 +1976,7 @@ impl App {
             drag_within: self.drag_within,
             toolbar_icons: self.toolbar_icons,
             striped_rows: self.striped_rows,
+            theme: self.theme_name,
         };
     }
 
@@ -2248,6 +2260,7 @@ impl App {
             drag_within: self.drag_within,
             toolbar_icons: self.toolbar_icons,
             striped_rows: self.striped_rows,
+            theme: self.theme_name,
         };
     }
 
@@ -2273,6 +2286,11 @@ impl App {
         self.drag_within = options.drag_within;
         self.toolbar_icons = options.toolbar_icons;
         self.striped_rows = options.striped_rows;
+        if options.theme != self.theme_name {
+            self.theme_name = options.theme;
+            self.theme = Theme::new(options.theme, self.theme_file.as_deref());
+            self.theme.install(&self.ctx);
+        }
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {
@@ -2486,7 +2504,7 @@ mod tests {
         config.set("thumbnails", "false");
         let mut app = App::new(
             ctx.clone(),
-            Theme::default(),
+            None,
             start.to_path_buf(),
             Vec::new(),
             config,
@@ -3708,6 +3726,144 @@ mod tests {
     }
 
     #[test]
+    fn theme_can_be_switched() {
+        let folder = Folder::new("theme");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let ponkotsu = Theme::new(ThemeName::Ponkotsu, None);
+        assert_eq!(app.theme, ponkotsu, "ponkotsu by default");
+        assert_eq!(ctx.global_style().visuals.panel_fill, ponkotsu.surface);
+
+        let mut options = app.options();
+        options.theme = ThemeName::Windows10;
+        app.apply_options(options);
+        let windows = Theme::new(ThemeName::Windows10, None);
+        assert_eq!(app.theme, windows);
+        assert_eq!(ctx.global_style().visuals.panel_fill, windows.surface);
+        assert_eq!(app.current_settings(&ctx).theme, ThemeName::Windows10);
+    }
+
+    #[test]
+    fn themes_change_colors_not_shapes() {
+        let folder = Folder::new("theme-shapes");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        app.view = ViewMode::LargeIcons;
+        settle(&mut app, &ctx);
+        select_named(&mut app, "alpha");
+        let name = folder
+            .0
+            .file_name()
+            .expect("name")
+            .to_string_lossy()
+            .into_owned();
+
+        for theme_name in ThemeName::ALL {
+            let mut options = app.options();
+            options.theme = theme_name;
+            app.apply_options(options);
+            let theme = Theme::new(theme_name, None);
+            let selection = ctx.global_style().visuals.selection.stroke;
+            assert_eq!(
+                selection.color, theme.on_secondary_container,
+                "{theme_name:?}"
+            );
+            assert!(
+                !outlined(&mut app, &ctx, "alpha"),
+                "{theme_name:?}: no outline"
+            );
+            let bar = theme.surface_container_3;
+            assert!(
+                !rounded_bar(&mut app, &ctx, &name, bar),
+                "{theme_name:?}: bar"
+            );
+        }
+    }
+
+    /// Whether a wide box filled with `fill` and rounded like a container
+    /// is drawn behind the text `name` (the address bar's last crumb).
+    fn rounded_bar(app: &mut App, ctx: &egui::Context, name: &str, fill: egui::Color32) -> bool {
+        let input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            ..Default::default()
+        };
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut output = ctx.run_ui(input, |ui| eframe::App::ui(app, ui, &mut frame));
+        output.textures_delta.clear();
+        let mut texts = Vec::new();
+        let mut boxes = Vec::new();
+        for clipped in &output.shapes {
+            collect_texts(&clipped.shape, &mut texts);
+            collect_boxes(&clipped.shape, &mut boxes);
+        }
+        let radius = egui::CornerRadius::same(theme::RADIUS_MEDIUM);
+        for (text, text_rect) in &texts {
+            if text != name {
+                continue;
+            }
+            for shape in &boxes {
+                if shape.fill == fill
+                    && shape.corner_radius == radius
+                    && shape.rect.contains(text_rect.center())
+                    && shape.rect.width() > 300.0
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    fn collect_boxes(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+        match shape {
+            egui::Shape::Rect(rect) => out.push(rect.clone()),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_boxes(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether the item named `name` has an outline drawn around it.
+    fn outlined(app: &mut App, ctx: &egui::Context, name: &str) -> bool {
+        let input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            ..Default::default()
+        };
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut output = ctx.run_ui(input, |ui| eframe::App::ui(app, ui, &mut frame));
+        output.textures_delta.clear();
+        let mut texts = Vec::new();
+        let mut strokes = Vec::new();
+        for clipped in &output.shapes {
+            collect_texts(&clipped.shape, &mut texts);
+            collect_outlines(&clipped.shape, &mut strokes);
+        }
+        let Some((_, text)) = texts.iter().find(|(t, _)| t == name) else {
+            panic!("{name} is listed");
+        };
+        return strokes
+            .iter()
+            .any(|rect| rect.contains(text.center()) && rect.width() > text.width());
+    }
+
+    /// Rectangles drawn with an outline.
+    fn collect_outlines(shape: &egui::Shape, out: &mut Vec<Rect>) {
+        match shape {
+            egui::Shape::Rect(rect) if rect.stroke.width > 0.0 => out.push(rect.rect),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_outlines(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
     fn details_rows_can_be_striped() {
         let folder = Folder::new("striped");
         let ctx = egui::Context::default();
@@ -3960,13 +4116,20 @@ mod tests {
             Some(path) => Config::load(path),
             None => Config::default(),
         };
-        let theme = Theme::load();
+        let theme_file = Theme::read_file();
         let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
         println!("{:7.1} ms  config, theme, time zone", ms(t));
         let ctx = egui::Context::default();
         let t = std::time::Instant::now();
-        theme.install(&ctx);
-        let mut app = App::new(ctx.clone(), theme, home, Vec::new(), config, None, None);
+        let mut app = App::new(
+            ctx.clone(),
+            theme_file,
+            home,
+            Vec::new(),
+            config,
+            None,
+            None,
+        );
         println!("{:7.1} ms  App::new", ms(t));
         let t = std::time::Instant::now();
         frame(&mut app, &ctx, Vec::new());
