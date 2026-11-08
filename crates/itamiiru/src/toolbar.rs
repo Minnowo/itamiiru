@@ -1,6 +1,6 @@
 //! The command row under the address bar: New folder, the clipboard
 //! and delete commands, View and the hidden-files toggle, like the
-//! Windows 11 Explorer command bar.
+//! Windows 10 Explorer command bar.
 
 use eframe::egui::{self, Pos2, Rect, Sense, StrokeKind, TextStyle};
 

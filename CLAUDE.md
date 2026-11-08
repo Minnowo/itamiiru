@@ -9,7 +9,7 @@ two goals:
 2. **A cross-platform file explorer** with the same UI. Linux first, then
    Windows and macOS.
 
-The layout copies the Windows 10/11 file dialog.
+The layout copies the Windows 10 file dialog.
 
 ## Read this first
 

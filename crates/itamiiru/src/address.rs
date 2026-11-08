@@ -95,7 +95,7 @@ impl AddressBar {
         let size = egui::vec2(ui.available_width().max(0.0), height);
         let (frame_rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
-        // Looks like the text field it turns into with Windows 11 rounding.
+        // Looks like the text field it turns into, with Windows 10 style rounding.
         let visuals = ui.visuals().widgets.inactive;
         ui.painter().rect(
             frame_rect,

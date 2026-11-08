@@ -139,7 +139,7 @@ pub struct Theme {
 }
 
 impl Default for Theme {
-    /// Windows 11 Fluent dark palette.
+    /// A Windows 10 style dark palette.
     fn default() -> Self {
         return Theme {
             primary: Color32::from_rgb(0x4c, 0xc2, 0xff),
@@ -539,7 +539,7 @@ impl Theme {
         v.warn_fg_color = self.yellow;
         v.error_fg_color = self.error;
         v.text_cursor.stroke = Stroke::new(2.0, self.primary);
-        // Selected rows and selected text: Windows 11 accent selection styling.
+        // Selected rows and selected text: Windows 10 style accent selection.
         v.selection.bg_fill = self.secondary_container;
         v.selection.stroke = Stroke::new(1.0, self.primary);
 

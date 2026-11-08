@@ -5,7 +5,7 @@ Phases 0-7 and 10 are done, Phase 8 (Windows, macOS) is deferred, and Phase 9 (p
 ## Goals
 
 - One file picker for as many Linux apps as possible, as an xdg-desktop-portal FileChooser backend.
-- A file explorer with the same UI on Linux, Windows and macOS, laid out like the Windows 10/11 dialog.
+- A file explorer with the same UI on Linux, Windows and macOS, laid out like the Windows 10 dialog.
 - Few crates, small helpers vendored, image thumbnails decoded in pure Rust.
 - A UI that never freezes, even on hung network mounts.
 

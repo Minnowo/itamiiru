@@ -1,6 +1,6 @@
 # itamiiru
 
-A file picker and file explorer with a similar feel to the Windows 10/11 file
+A file picker and file explorer with a similar feel to the Windows 10 file
 dialog.
 
 - [x] xdg-desktop-portal backend (can be used as Save As, Open File, Choose Folder dialogs, etc)
