@@ -30,6 +30,7 @@ pub struct Options {
     pub drag_and_drop: bool,
     pub drag_select: bool,
     pub drag_within: bool,
+    pub toolbar_icons: bool,
 }
 
 impl Options {
@@ -49,6 +50,7 @@ impl Options {
             drag_and_drop: d.drag_and_drop,
             drag_select: d.drag_select,
             drag_within: d.drag_within,
+            toolbar_icons: d.toolbar_icons,
         };
     }
 }
@@ -116,6 +118,13 @@ pub fn show(
                             "Draws a box; the items it touches get selected, Ctrl adds them. \
                              In the Details view, drags beside the names count too.",
                         );
+                });
+                section(ui, theme, "Toolbar", |ui| {
+                    ui.checkbox(
+                        &mut options.toolbar_icons,
+                        "Show Cut, Copy, Paste, Rename and Delete as icons",
+                    )
+                    .on_hover_text("Off: the buttons show their names");
                 });
                 section(ui, theme, "Pictures", |ui| {
                     ui.checkbox(&mut options.thumbnails, "Show thumbnails in the icon views");

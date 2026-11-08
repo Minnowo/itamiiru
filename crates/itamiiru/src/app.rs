@@ -134,6 +134,8 @@ pub struct App {
     use_trash: bool,
     /// Files can be dragged out to other apps (setting `drag_and_drop`).
     drag_and_drop: bool,
+    /// Toolbar commands as icons instead of names (setting `toolbar_icons`).
+    toolbar_icons: bool,
     /// Dragging from empty space selects with a box (setting `drag_select`).
     drag_select: bool,
     /// Dragged files can be dropped onto folders and the other pane
@@ -252,6 +254,7 @@ impl App {
             settings_open: false,
             use_trash: settings.use_trash,
             drag_and_drop: settings.drag_and_drop,
+            toolbar_icons: settings.toolbar_icons,
             drag_select: settings.drag_select,
             drag_within: settings.drag_within,
             actions,
@@ -438,6 +441,7 @@ impl App {
             show_hidden: self.show_hidden,
             preview_pane: self.preview_pane,
             split,
+            icons: self.toolbar_icons,
         };
         match toolbar::show(ui, &state) {
             Some(ToolbarAction::Command(command)) => self.run_command(command),
@@ -1955,6 +1959,7 @@ impl App {
             drag_and_drop: self.drag_and_drop,
             drag_select: self.drag_select,
             drag_within: self.drag_within,
+            toolbar_icons: self.toolbar_icons,
         };
     }
 
@@ -2236,6 +2241,7 @@ impl App {
             drag_and_drop: self.drag_and_drop,
             drag_select: self.drag_select,
             drag_within: self.drag_within,
+            toolbar_icons: self.toolbar_icons,
         };
     }
 
@@ -2259,6 +2265,7 @@ impl App {
         self.drag_and_drop = options.drag_and_drop;
         self.drag_select = options.drag_select;
         self.drag_within = options.drag_within;
+        self.toolbar_icons = options.toolbar_icons;
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {
@@ -3691,6 +3698,32 @@ mod tests {
         // Search results from several folders can be gathered into one.
         let mixed = [PathBuf::from("/a/x"), PathBuf::from("/b/y")];
         assert!(can_drop(&mixed, Path::new("/a")));
+    }
+
+    #[test]
+    fn toolbar_shows_names_or_icons() {
+        let folder = Folder::new("toolbar-icons");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let names = ["Cut", "Copy", "Paste", "Rename", "Delete"];
+        let shown = |texts: &[(String, Rect)], name: &str| texts.iter().any(|(t, _)| t == name);
+
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        assert!(shown(&texts, "New folder"));
+        for name in names {
+            assert!(shown(&texts, name), "{name} is written out by default");
+        }
+
+        let mut options = app.options();
+        options.toolbar_icons = true;
+        app.apply_options(options);
+        frame(&mut app, &ctx, Vec::new());
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        assert!(shown(&texts, "New folder"), "New folder keeps its name");
+        for name in names {
+            assert!(!shown(&texts, name), "{name} is an icon");
+        }
     }
 
     #[test]

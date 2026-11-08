@@ -153,6 +153,7 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | `drag_within` | on | `App::panes` looks for a drop target only when on; with both off, `App::drag_start` starts nothing |
 | `drag_select` | on | `TableInput::drag_select`: the views' empty space (and Details cells other than Name) sense drags and start a box (`band.rs`) |
 | `thumbnails` | on | `Thumbs::new` starts no pool when off |
+| `toolbar_icons` | off | `toolbar::show`: Cut, Copy, Paste, Rename and Delete are painted icons (`ButtonIcon`) instead of their names; New folder keeps its name |
 
 **Theme:** egui's global style is set from the theme at startup, so plain widgets follow it. Selected rows use `secondary-container`; categorical colors (`pink`, `red`, `yellow`, `green`, `blue`) are for file-type icons and drive bars, never errors. The rest of the rules are in CLAUDE.md.
 

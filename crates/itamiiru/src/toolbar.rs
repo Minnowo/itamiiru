@@ -86,6 +86,8 @@ pub struct ToolbarState {
     pub preview_pane: bool,
     /// Split view on or off; None hides the switch (the picker has no tabs).
     pub split: Option<bool>,
+    /// Cut, Copy, Paste, Rename and Delete as icons instead of names.
+    pub icons: bool,
 }
 
 /// Widths of the toolbar's items as last drawn, so the next frame can
@@ -162,9 +164,9 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
             if i == 1 {
                 widths.separator = ui.separator().rect.width();
             }
-            let response = if i == 0 {
-                ui.add_enabled(*enabled, egui::Button::new(*label))
-            } else {
+            // New folder always shows its name; an icon alone would say less.
+            let as_icon = state.icons && i > 0;
+            let response = if as_icon {
                 let icon = match i {
                     1 => ButtonIcon::Cut,
                     2 => ButtonIcon::Copy,
@@ -173,9 +175,16 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
                     _ => ButtonIcon::Delete,
                 };
                 toolbar_icon_button(ui, icon, *enabled)
+            } else {
+                ui.add_enabled(*enabled, egui::Button::new(*label))
             };
             widths.commands[i] = response.rect.width();
-            if response.on_hover_text(*shortcut).clicked() {
+            let tip = if as_icon {
+                format!("{label} ({shortcut})")
+            } else {
+                shortcut.to_string()
+            };
+            if response.on_hover_text(tip).clicked() {
                 action = Some(ToolbarAction::Command(*value));
             }
         }
