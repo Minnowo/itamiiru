@@ -65,6 +65,7 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D27 | Drag and drop inside the window | Drop on a folder item, an address bar crumb, a side pane place or drive, or a pane (its folder); held over a tab for 0.5 s, that tab opens. Explorer's rule: move within a drive, copy across, Ctrl copies, Shift moves; "same drive" is the longest mount point from the last drive scan, so the UI thread never stats | Drops on tabs are wanted |
 | D28 | Drops from other apps | winit's hovered and dropped files; winit says nothing of the pointer then, so `platform::pointer_position` (X11: QueryPointer on a second connection) is asked each frame and fed to egui as a pointer move, and the drop lands where our own drops would. Always copied. No position: the active pane's folder | winit reports drop positions (0.31), or Wayland drops are wanted |
 | D29 | Releases | Manual `release` GitHub workflow (Actions -> Run workflow, version must match Cargo.toml) runs `scripts/package.sh` in an Ubuntu 20.04 container (Debian 11's mirrors broke after its LTS) and publishes both tarballs plus SHA256SUMS. The portal is static musl; itami links glibc 2.31 because winit and glow `dlopen` X11, Wayland and GL, which a static binary can't | Ubuntu 20.04's archive goes away, or more architectures are wanted |
+| D30 | Built-in themes | Two built-in palettes, ponkotsu (default) and Windows 10, picked by the `theme` setting on the settings page; the theme file's colors go on top of either. The file is read once at startup and its text kept, so switching rebuilds the theme and reinstalls egui's style without touching the disk. A theme is values only (colors, and sizes if it ever has them); drawing code never branches on which theme is chosen | Another built-in palette is wanted, or themes should be files only |
 
 ## Threading model
 
@@ -137,7 +138,7 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | Escape | Cancel dialog / close menu / cancel a drag |
 | F2, Delete, Shift+Delete, Ctrl+C/X/V | Explorer: rename, trash, delete, clipboard |
 
-**Config** (`~/.config/itamiiru/config`, `key=value`): view, sort, `details_columns`, sidebar width, window size, zoom, hidden files, `status_fields`, `last_folder.<app_id>`, and the optional features below. Most are on the settings page.
+**Config** (`~/.config/itamiiru/config`, `key=value`): view, sort, `details_columns`, sidebar width, window size, zoom, hidden files, `theme`, `status_fields`, `last_folder.<app_id>`, and the optional features below. Most are on the settings page.
 
 **Optional features.** Each lives in its own module and hooks in at one call site that checks the setting; off means the hook is skipped.
 
@@ -156,7 +157,7 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | `toolbar_icons` | off | `toolbar::show`: Cut, Copy, Paste, Rename and Delete are painted icons (`ButtonIcon`) instead of their names; New folder keeps its name |
 | `striped_rows` | off | `TableInput::striped`: passed to the Details table's `striped`, which shades every other row |
 
-**Theme:** egui's global style is set from the theme at startup, so plain widgets follow it. Selected rows use `secondary-container`; categorical colors (`pink`, `red`, `yellow`, `green`, `blue`) are for file-type icons and drive bars, never errors. The rest of the rules are in CLAUDE.md.
+**Theme:** egui's global style is set from the theme at startup and again when the theme setting changes, so plain widgets follow it. Selected rows use `secondary-container`; categorical colors (`pink`, `red`, `yellow`, `green`, `blue`) are for file-type icons and drive bars, never errors. The rest of the rules are in CLAUDE.md.
 
 **Fonts:** a font thread starts before the window; setup waits up to 200 ms for the main fonts. On Linux, `fc-match sans-serif`/`monospace` pick the main fonts and `fc-match -s ... 'sans-serif:lang=ja'` (and zh-cn, zh-tw, ko, th, he, ar, hi) the fallbacks, keeping fonts whose `lang` really covers the language. Each file is test-loaded inside `catch_unwind` because egui panics on fonts it can't parse. `itami --font-info` prints what was picked.
 

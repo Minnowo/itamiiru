@@ -95,12 +95,12 @@ impl AddressBar {
         let size = egui::vec2(ui.available_width().max(0.0), height);
         let (frame_rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
-        // Looks like the text field it turns into, with Windows 10 style rounding.
+        // Looks like the text field it turns into (ponkotsu's `input-like`).
         let visuals = ui.visuals().widgets.inactive;
         ui.painter().rect(
             frame_rect,
-            theme::RADIUS_MEDIUM,
-            theme.surface_container_3,
+            theme::RADIUS_SMALL,
+            visuals.bg_fill,
             visuals.bg_stroke,
             StrokeKind::Inside,
         );

@@ -113,7 +113,7 @@ fn main() {
         None => Config::default(),
     };
     let settings = Settings::from_config(&config);
-    let theme = Theme::load();
+    let theme_file = Theme::read_file();
     let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
 
     startup::mark("config, theme and time zone loaded");
@@ -162,12 +162,11 @@ fn main() {
         options,
         Box::new(|cc| {
             startup::mark("window and OpenGL ready");
-            theme.install(&cc.egui_ctx);
             cc.egui_ctx.set_zoom_factor(settings.zoom);
             fonts::install(&cc.egui_ctx, font_rx);
             startup::mark("fonts installed");
             let ctx = cc.egui_ctx.clone();
-            let app = app::App::new(ctx, theme, start, select, config, config_path, picker);
+            let app = app::App::new(ctx, theme_file, start, select, config, config_path, picker);
             startup::mark("app built");
             return Ok(Box::new(app));
         }),

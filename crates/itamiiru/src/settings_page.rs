@@ -11,7 +11,7 @@ use itamiiru_core::entry::{Entry, EntryKind};
 
 use crate::icons::{Arrow, arrow_button};
 use crate::settings::{DetailColumn, Settings, StatusField};
-use crate::theme::{self, Accent, Theme};
+use crate::theme::{self, Accent, Theme, ThemeName};
 
 const DIALOG_WIDTH: f32 = 460.0;
 
@@ -32,6 +32,7 @@ pub struct Options {
     pub drag_within: bool,
     pub toolbar_icons: bool,
     pub striped_rows: bool,
+    pub theme: ThemeName,
 }
 
 impl Options {
@@ -53,6 +54,7 @@ impl Options {
             drag_within: d.drag_within,
             toolbar_icons: d.toolbar_icons,
             striped_rows: d.striped_rows,
+            theme: d.theme,
         };
     }
 }
@@ -75,6 +77,12 @@ pub fn show(
         egui::ScrollArea::vertical()
             .max_height(max_height)
             .show(ui, |ui| {
+                section(ui, theme, "Theme", |ui| {
+                    for name in ThemeName::ALL {
+                        ui.radio_value(&mut options.theme, name, name.label());
+                    }
+                    ui.weak("Colors in the theme file, if there is one, go on top.");
+                });
                 section(ui, theme, "Folders", |ui| {
                     ui.checkbox(&mut options.show_hidden, "Show hidden files")
                         .on_hover_text("Ctrl+H");

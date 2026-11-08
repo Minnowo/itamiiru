@@ -4,6 +4,7 @@
 use itamiiru_core::config::Config;
 use itamiiru_core::sort::{SortColumn, SortOrder};
 
+use crate::theme::ThemeName;
 use crate::toolbar::ViewMode;
 
 /// A Details view column besides Name (always first) and Folder (search
@@ -191,6 +192,8 @@ pub struct Settings {
     pub toolbar_icons: bool,
     /// Every other row of the Details view is shaded.
     pub striped_rows: bool,
+    /// The built-in color theme; a theme file's colors go on top.
+    pub theme: ThemeName,
 }
 
 impl Default for Settings {
@@ -224,6 +227,7 @@ impl Default for Settings {
             drag_within: true,
             toolbar_icons: false,
             striped_rows: false,
+            theme: ThemeName::Ponkotsu,
         };
     }
 }
@@ -235,6 +239,10 @@ impl Settings {
         let view = match config.get("view").and_then(ViewMode::from_key) {
             Some(view) => view,
             None => d.view,
+        };
+        let theme = match config.get("theme").and_then(ThemeName::from_key) {
+            Some(theme) => theme,
+            None => d.theme,
         };
         let sort_column = match config.get("sort_column").and_then(sort_column_from_key) {
             Some(column) => column,
@@ -290,6 +298,7 @@ impl Settings {
             drag_within: config.get_bool("drag_within", d.drag_within),
             toolbar_icons: config.get_bool("toolbar_icons", d.toolbar_icons),
             striped_rows: config.get_bool("striped_rows", d.striped_rows),
+            theme,
         };
     }
 
@@ -311,6 +320,7 @@ impl Settings {
         config.set_bool("drag_within", self.drag_within);
         config.set_bool("toolbar_icons", self.toolbar_icons);
         config.set_bool("striped_rows", self.striped_rows);
+        config.set("theme", self.theme.key());
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
         config.set_bool("thumbnails", self.thumbnails);
@@ -375,6 +385,7 @@ mod tests {
             drag_within: false,
             toolbar_icons: true,
             striped_rows: true,
+            theme: ThemeName::Windows10,
             // The rest keep their defaults.
             ..Settings::default()
         };
@@ -388,9 +399,12 @@ mod tests {
 
     #[test]
     fn bad_values_fall_back() {
-        let config = Config::parse("view=huge\nsort_column=color\nzoom=1000\nsidebar_width=-5\n");
+        let config = Config::parse(
+            "view=huge\nsort_column=color\nzoom=1000\nsidebar_width=-5\ntheme=neon\n",
+        );
         let settings = Settings::from_config(&config);
         assert_eq!(settings.view, ViewMode::Details);
+        assert_eq!(settings.theme, ThemeName::Ponkotsu);
         assert_eq!(settings.sort.column, SortColumn::Name);
         assert_eq!(settings.zoom, 5.0);
         assert_eq!(settings.sidebar_width, 80.0);
