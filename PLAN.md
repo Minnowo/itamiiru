@@ -48,7 +48,7 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D10 | Accessibility | AccessKit off: on Linux it pulls in zbus and atspi | Before any public release |
 | D11 | Details table | `egui_extras::TableBuilder` (virtualized rows) | It gets limiting |
 | D12 | JPEG crate | `jpeg-decoder` 0.3, no default features. Its `scale()` decodes 12 MP at 1/8 in 35 ms into 0.5 MB; zune-jpeg has no downscaled decode | jpeg-decoder (maintenance mode) stops building or has an unfixed security issue |
-| D13 | Look | ponkotsu design system in `theme.rs`; dark palette built in; a theme file (`$ITAMI_THEME` or `<config dir>/theme`) overrides roles as `role = #hex` or pasted ponkotsu CSS | egui can't express something the design needs |
+| D13 | Look | ponkotsu design system in `theme.rs`; dark palette built in; config.toml's `[colors]` (or `$ITAMI_THEME`, a TOML file with its own `[colors]`) overrides roles as `role = "#hex"`; ponkotsu's CSS names (`--color-c-role`) work as keys | egui can't express something the design needs |
 | D14 | Text sizes | ponkotsu scaled to a 14 px body (heading 19, small 12) | Feels wrong in use |
 | D15 | Natural sort | ASCII case-insensitive, other letters by raw bytes | Non-English names sort badly |
 | D16 | UI scaling | egui zoom (Ctrl+Plus/Minus/0, 10% steps) plus status-bar buttons | - |
@@ -58,15 +58,16 @@ Separate processes keep the portal small and free of GUI crates, a UI crash can'
 | D20 | Details columns | Name fills the leftover width; others sized to their longest possible text; `details_columns` picks which show and their order (Date modified, Date created, Type, Size; Name always first) | A column with very variable content is added |
 | D21 | Removable drives | UDisks2 on the system bus with our D-Bus client: list, `Filesystem.Mount`, eject = unmount all then `PowerOff`/`Eject`; polkit decides (interactive auth flag) | Encrypted volumes are wanted, or polling is too slow |
 | D22 | Fonts | System fonts first (fontconfig on Linux), egui's built-in next (emoji), script fallbacks last | A system font renders badly in egui |
-| D23 | Custom actions | `actions` file next to the config, `.desktop`-like sections, hand-parsed; commands run directly, never through a shell; `%f %F %d %n %%` | Actions need more structure |
+| D23 | Custom actions | `[[action]]` tables in config.toml (name, command, for); commands run directly, never through a shell; `%f %F %d %n %%` | Actions need more structure |
 | D24 | Drag out | XDND on `x11rb` (already in the tree via winit) in `platform/linux/xdnd.rs`, own connection and thread, pointer polled every 10 ms | Wayland support is wanted |
 | D25 | Renderer | Build-time feature: `glow` (default, 180 crates) or `wgpu` (Vulkan, 217 crates; first frame in 83-88 ms vs 115-176 ms). Releases ship both | glow is dropped by egui, or wgpu's crate count comes down |
 | D26 | Installing | A short manual guide in docs/linux-setup/README.md instead of an install script; packages ship per-user files in `/usr/share/itamiiru/` | Many users struggle with the manual steps |
 | D27 | Drag and drop inside the window | Drop on a folder item, an address bar crumb, a side pane place or drive, or a pane (its folder); held over a tab for 0.5 s, that tab opens. Explorer's rule: move within a drive, copy across, Ctrl copies, Shift moves; "same drive" is the longest mount point from the last drive scan, so the UI thread never stats | Drops on tabs are wanted |
 | D28 | Drops from other apps | winit's hovered and dropped files; winit says nothing of the pointer then, so `platform::pointer_position` (X11: QueryPointer on a second connection) is asked each frame and fed to egui as a pointer move, and the drop lands where our own drops would. Always copied. No position: the active pane's folder | winit reports drop positions (0.31), or Wayland drops are wanted |
 | D29 | Releases | Manual `release` GitHub workflow (Actions -> Run workflow, version must match Cargo.toml) runs `scripts/package.sh` in an Ubuntu 20.04 container (Debian 11's mirrors broke after its LTS) and publishes both tarballs plus SHA256SUMS. The portal is static musl; itami links glibc 2.31 because winit and glow `dlopen` X11, Wayland and GL, which a static binary can't | Ubuntu 20.04's archive goes away, or more architectures are wanted |
-| D30 | Built-in themes | Two built-in palettes, ponkotsu (default) and Windows 10, picked by the `theme` setting on the settings page; the theme file's colors go on top of either. The file is read once at startup and its text kept, so switching rebuilds the theme and reinstalls egui's style without touching the disk. A theme is values only (colors, and sizes if it ever has them); drawing code never branches on which theme is chosen | Another built-in palette is wanted, or themes should be files only |
+| D30 | Built-in themes | Two built-in palettes, ponkotsu (default) and Windows 10, picked by the `theme` setting on the settings page; config.toml's `[colors]` go on top of either. They're read once at startup and kept, so switching rebuilds the theme and reinstalls egui's style without touching the disk. A theme is values only (colors, and sizes if it ever has them); drawing code never branches on which theme is chosen | Another built-in palette is wanted, or themes should be files only |
 | D31 | What makes typed text a filter | Only `*` or `?` in the name field (or the pane filter, or an action's `for`) makes it a glob; `[...]` works inside one but a `[` alone doesn't count, since names like `video [id].mp4` are common. Matches the Windows dialog, where `*` and `?` are the wildcards | People want to filter by `[...]` alone |
+| D32 | Config files | `config.toml` holds the user's settings, `[colors]` and `[[action]]`, and itami never writes it. `live.toml` next to it holds what was changed in the app, only where it differs from config.toml (or the defaults), and wins over it. Parsed with `toml_edit` (no serde), so comments in live.toml survive saves. The old `config`, `actions` and `theme` files are moved over once at startup by `migrate.rs` (to be deleted later) when neither new file exists | Settings need to sync between machines, or live.toml grows past a few settings |
 
 ## Threading model
 
@@ -139,7 +140,7 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | Escape | Cancel dialog / close menu / cancel a drag |
 | F2, Delete, Shift+Delete, Ctrl+C/X/V | Explorer: rename, trash, delete, clipboard |
 
-**Config** (`~/.config/itamiiru/config`, `key=value`): view, sort, `details_columns`, sidebar width, window size, zoom, hidden files, `theme`, `status_fields`, `last_folder.<app_id>`, and the optional features below. Most are on the settings page.
+**Config** (`~/.config/itamiiru/`, D32): `config.toml` (the user's: settings, `[colors]`, `[[action]]`) and `live.toml` (the app's: settings that differ from config.toml, and `[last_folder]` per app id). Settings: view, sort, `details_columns`, sidebar width, window size, zoom, hidden files, `theme`, `status_fields`, and the optional features below. Most are on the settings page; `data/config.example.toml` lists them all with defaults.
 
 **Optional features.** Each lives in its own module and hooks in at one call site that checks the setting; off means the hook is skipped.
 
@@ -209,6 +210,7 @@ Session variables: Wayland/systemd sessions use `~/.config/environment.d/`; X11 
 - [ ] P9.2 Accessibility decision (D10).
 - [ ] P9.4 inotify live updates via libc, replacing polling (D9).
 - [ ] P9.7 Packaging: an Arch PKGBUILD lives in the separate `kutsubako` repo; deb/rpm not done.
+- [ ] P9.8 Delete `crates/itamiiru-core/src/migrate.rs` and its call in `main.rs` once nobody has the old `config`, `actions` and `theme` files (added 2026-11-08, D32).
 - Known gaps: encrypted volumes, drags on Wayland (winit 0.30 has no drops there), the pointer during drops on Windows and macOS (they go into the active pane), custom actions in the sidebar and This PC menus, a properties dialog for ShowItemProperties.
 
 **Deferred: Windows and macOS.** The code keeps compiling for both (`cargo check` stays in the checklist). To do: the Windows platform module, fonts and cache location; the macOS platform module and trash; testing on real machines.
@@ -260,5 +262,6 @@ journalctl --user -f | grep -i itamiiru
 
 | Date | After | Unique crates | Notes |
 |---|---|---|---|
-| 2026-10-12 | D25 | 180 (glow) / 217 (wgpu) | Current |
+| 2026-11-08 | D32 | 188 (glow) / 219 (wgpu) | Current; `toml_edit` |
+| 2026-10-12 | D25 | 180 (glow) / 217 (wgpu) | |
 | 2026-10-11 | P0.4 baseline | 168 | eframe 0.36.2 (glow, wayland, x11, default_fonts) |

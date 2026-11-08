@@ -1,166 +1,279 @@
-//! The config file: `key=value` lines.
+//! The config files: `config.toml`, written by hand and only ever read,
+//! and `live.toml` next to it, where the app keeps what was changed while
+//! it ran (zoom, window size, the settings page). A setting in
+//! `live.toml` wins over the same one in `config.toml`.
 //!
-//! Lines that aren't `key=value` (comments, blanks) and keys we don't know
-//! are kept as they are, so hand edits survive a save. Typed getters fall
-//! back to a default when a value is missing or doesn't parse.
+//! Comments, ordering and keys we don't know survive a save of
+//! `live.toml`. Typed getters fall back to a default when a value is
+//! missing or has the wrong type.
 
 use std::io;
 use std::path::{Path, PathBuf};
 
+use toml_edit::{DocumentMut, Item, Table};
+
 /// Config files bigger than this are ignored.
 const MAX_CONFIG_SIZE: u64 = 64 * 1024;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum Line {
-    Pair {
-        key: String,
-        value: String,
-    },
-    /// A comment, blank or unparseable line, kept as written.
-    Other(String),
+pub const CONFIG_FILE: &str = "config.toml";
+pub const LIVE_FILE: &str = "live.toml";
+
+/// Put at the top of a new `live.toml`.
+const LIVE_HEADER: &str = "\
+# Written by itami: the settings changed in the app, on top of config.toml.
+# Delete a line to go back to the value in config.toml (or the default).
+";
+
+#[derive(Clone, Debug, Default)]
+pub struct Config {
+    /// `config.toml`.
+    base: DocumentMut,
+    /// `live.toml`.
+    live: DocumentMut,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Config {
-    lines: Vec<Line>,
+/// A setting's value, as `Config::set` writes it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Bool(bool),
+    Number(f64),
+    Text(String),
+    List(Vec<String>),
 }
 
 impl Config {
-    pub fn parse(text: &str) -> Config {
-        let mut lines = Vec::new();
-        for raw in text.lines() {
-            let trimmed = raw.trim();
-            if trimmed.starts_with('#') {
-                lines.push(Line::Other(raw.to_string()));
-                continue;
-            }
-            match trimmed.split_once('=') {
-                Some((key, value)) if !key.trim().is_empty() => lines.push(Line::Pair {
-                    key: key.trim().to_string(),
-                    value: value.trim().to_string(),
-                }),
-                _ => lines.push(Line::Other(raw.to_string())),
-            }
-        }
-        return Config { lines };
+    /// Parses both files' text. A file that isn't valid TOML counts as
+    /// empty; the error is logged.
+    pub fn parse(base_text: &str, live_text: &str) -> Config {
+        return Config {
+            base: parse_document(CONFIG_FILE, base_text),
+            live: parse_document(LIVE_FILE, live_text),
+        };
     }
 
-    pub fn to_text(&self) -> String {
-        let mut text = String::new();
-        for line in &self.lines {
-            match line {
-                Line::Pair { key, value } => {
-                    text.push_str(key);
-                    text.push('=');
-                    text.push_str(value);
-                }
-                Line::Other(raw) => text.push_str(raw),
-            }
-            text.push('\n');
-        }
-        return text;
+    /// Reads `config.toml` and `live.toml` from `dir`. Missing, unreadable,
+    /// oversized or broken files count as empty. Reads from disk: call at
+    /// startup only.
+    pub fn load(dir: &Path) -> Config {
+        let base = read_small(&dir.join(CONFIG_FILE)).unwrap_or_default();
+        let live = read_small(&dir.join(LIVE_FILE)).unwrap_or_default();
+        return Config::parse(&base, &live);
     }
 
-    /// The value of `key`; the last one wins if it's there twice.
-    pub fn get(&self, key: &str) -> Option<&str> {
-        let mut found = None;
-        for line in &self.lines {
-            if let Line::Pair { key: k, value } = line
-                && k == key
-            {
-                found = Some(value.as_str());
-            }
-        }
-        return found;
+    /// Reads one file as `config.toml`, with nothing on top.
+    pub fn load_file(path: &Path) -> Config {
+        let text = read_small(path).unwrap_or_default();
+        return Config::parse(&text, "");
     }
 
-    /// `true`/`false`, `1`/`0`, `on`/`off`, `yes`/`no`.
+    /// The same `config.toml`, without what `live.toml` changed.
+    pub fn base_only(&self) -> Config {
+        return Config {
+            base: self.base.clone(),
+            live: DocumentMut::new(),
+        };
+    }
+
+    /// A top-level string.
+    pub fn get_str(&self, key: &str) -> Option<&str> {
+        return self.get(key)?.as_str();
+    }
+
     pub fn get_bool(&self, key: &str, default: bool) -> bool {
-        let Some(value) = self.get(key) else {
-            return default;
-        };
-        return match value.to_ascii_lowercase().as_str() {
-            "true" | "1" | "on" | "yes" => true,
-            "false" | "0" | "off" | "no" => false,
-            _ => default,
+        return match self.get(key).and_then(Item::as_bool) {
+            Some(value) => value,
+            None => default,
         };
     }
 
-    /// A finite number, or `default`.
+    /// A finite number (`1` and `1.0` both work), or `default`.
     pub fn get_f32(&self, key: &str, default: f32) -> f32 {
-        let Some(value) = self.get(key) else {
+        let Some(item) = self.get(key) else {
             return default;
         };
-        return match value.parse::<f32>() {
-            Ok(number) if number.is_finite() => number,
-            _ => default,
+        let number = if let Some(float) = item.as_float() {
+            float as f32
+        } else if let Some(integer) = item.as_integer() {
+            integer as f32
+        } else {
+            return default;
         };
+        if !number.is_finite() {
+            return default;
+        }
+        return number;
     }
 
-    /// Sets `key`, replacing its value in place, or adding it at the end.
-    pub fn set(&mut self, key: &str, value: &str) {
-        // Newlines would break the file format.
-        let value = value.replace(['\n', '\r'], " ");
-        for line in self.lines.iter_mut() {
-            if let Line::Pair { key: k, value: v } = line
-                && k == key
-            {
-                *v = value;
-                return;
+    /// An array's strings; anything in it that isn't a string is skipped.
+    /// None if the key is missing or isn't an array.
+    pub fn get_list(&self, key: &str) -> Option<Vec<String>> {
+        let array = self.get(key)?.as_array()?;
+        let mut list = Vec::new();
+        for value in array.iter() {
+            if let Some(text) = value.as_str() {
+                list.push(text.to_string());
             }
         }
-        self.lines.push(Line::Pair {
-            key: key.to_string(),
-            value,
-        });
+        return Some(list);
     }
 
-    pub fn set_bool(&mut self, key: &str, value: bool) {
-        self.set(key, if value { "true" } else { "false" });
-    }
-
-    pub fn set_f32(&mut self, key: &str, value: f32) {
-        // Whole points are plenty for sizes and widths; zoom keeps two decimals.
-        self.set(key, &format!("{}", (value * 100.0).round() / 100.0));
-    }
-
-    /// Reads a config file. Missing, unreadable or oversized files give an
-    /// empty config (everything at its default).
-    pub fn load(path: &Path) -> Config {
-        let size = match std::fs::metadata(path) {
-            Ok(meta) => meta.len(),
-            Err(_) => return Config::default(),
-        };
-        if size > MAX_CONFIG_SIZE {
-            crate::debug!("config: {} is too big, ignoring it", path.display());
-            return Config::default();
+    /// A string in a table, e.g. `[last_folder]`.
+    pub fn get_in(&self, table: &str, key: &str) -> Option<&str> {
+        if let Some(value) = string_in(&self.live, table, key) {
+            return Some(value);
         }
-        return match std::fs::read_to_string(path) {
-            Ok(text) => Config::parse(&text),
-            Err(err) => {
-                crate::debug!("config: can't read {}: {err}", path.display());
-                Config::default()
+        return string_in(&self.base, table, key);
+    }
+
+    /// The string pairs of a table in `config.toml` only, in file order,
+    /// e.g. `[colors]`. Pairs whose value isn't a string are logged and
+    /// skipped.
+    pub fn base_strings(&self, table: &str) -> Vec<(String, String)> {
+        let mut pairs = Vec::new();
+        let Some(table_like) = self.base.get(table).and_then(Item::as_table_like) else {
+            return pairs;
+        };
+        for (key, item) in table_like.iter() {
+            match item.as_str() {
+                Some(value) => pairs.push((key.to_string(), value.to_string())),
+                None => crate::debug!("config: [{table}] {key} is not a string"),
             }
-        };
+        }
+        return pairs;
     }
 
-    /// Writes the file atomically: a temporary file next to it, then a
-    /// rename, so a crash never leaves half a config.
-    pub fn save(&self, path: &Path) -> io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+    /// `[[name]]` tables in `config.toml`, e.g. the actions.
+    pub fn base_tables(&self, name: &str) -> Vec<&Table> {
+        let mut tables = Vec::new();
+        if let Some(array) = self.base.get(name).and_then(Item::as_array_of_tables) {
+            for table in array.iter() {
+                tables.push(table);
+            }
         }
-        let mut temp_name = path.as_os_str().to_os_string();
-        temp_name.push(".tmp");
-        let temp = PathBuf::from(temp_name);
-        std::fs::write(&temp, self.to_text())?;
-        return std::fs::rename(&temp, path);
+        return tables;
+    }
+
+    /// Sets a top-level key in `live.toml`, in place if it's there.
+    pub fn set(&mut self, key: &str, value: &Value) {
+        let new = toml_value(value);
+        // Assigning to the value (not the item) keeps the line's comments.
+        if let Some(item) = self.live.get_mut(key)
+            && let Some(old) = item.as_value_mut()
+        {
+            let decor = old.decor().clone();
+            *old = new;
+            *old.decor_mut() = decor;
+            return;
+        }
+        self.live.insert(key, Item::Value(new));
+    }
+
+    /// Removes a top-level key from `live.toml`, so `config.toml` decides.
+    pub fn unset(&mut self, key: &str) {
+        self.live.remove(key);
+    }
+
+    /// Sets a string in a table of `live.toml`, making the table if needed.
+    pub fn set_in(&mut self, table: &str, key: &str, value: &str) {
+        if self.live.get(table).and_then(Item::as_table).is_none() {
+            self.live.insert(table, Item::Table(Table::new()));
+        }
+        let Some(table) = self.live.get_mut(table).and_then(Item::as_table_mut) else {
+            return;
+        };
+        table.insert(key, toml_edit::value(value));
+    }
+
+    /// What `live.toml` holds, as text.
+    pub fn live_text(&self) -> String {
+        let text = self.live.to_string();
+        if text.starts_with('#') {
+            return text;
+        }
+        return format!("{LIVE_HEADER}\n{text}");
+    }
+
+    /// Writes `live.toml` in `dir` atomically: a temporary file next to
+    /// it, then a rename, so a crash never leaves half a file.
+    pub fn save_live(&self, dir: &Path) -> io::Result<()> {
+        return write_atomic(&dir.join(LIVE_FILE), &self.live_text());
+    }
+
+    /// A top-level value: `live.toml`'s, else `config.toml`'s.
+    fn get(&self, key: &str) -> Option<&Item> {
+        if let Some(item) = self.live.get(key)
+            && item.is_value()
+        {
+            return Some(item);
+        }
+        return self.base.get(key).filter(|item| item.is_value());
     }
 }
 
-/// `<config dir>/config`.
-pub fn default_path() -> Option<PathBuf> {
-    return Some(crate::platform::config_dir()?.join("config"));
+/// The folder the config files are in.
+pub fn default_dir() -> Option<PathBuf> {
+    return crate::platform::config_dir();
+}
+
+/// Writes `text` to `path` through a temporary file and a rename.
+pub fn write_atomic(path: &Path, text: &str) -> io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut temp_name = path.as_os_str().to_os_string();
+    temp_name.push(".tmp");
+    let temp = PathBuf::from(temp_name);
+    std::fs::write(&temp, text)?;
+    return std::fs::rename(&temp, path);
+}
+
+/// Reads a small text file. None if it's missing, too big or unreadable;
+/// all but missing are logged.
+pub fn read_small(path: &Path) -> Option<String> {
+    let size = match std::fs::metadata(path) {
+        Ok(meta) => meta.len(),
+        Err(_) => return None,
+    };
+    if size > MAX_CONFIG_SIZE {
+        crate::debug!("config: {} is too big, ignoring it", path.display());
+        return None;
+    }
+    return match std::fs::read_to_string(path) {
+        Ok(text) => Some(text),
+        Err(err) => {
+            crate::debug!("config: can't read {}: {err}", path.display());
+            None
+        }
+    };
+}
+
+fn parse_document(name: &str, text: &str) -> DocumentMut {
+    return match text.parse::<DocumentMut>() {
+        Ok(document) => document,
+        Err(err) => {
+            crate::debug!("config: {name} is not valid TOML, ignoring it: {err}");
+            DocumentMut::new()
+        }
+    };
+}
+
+fn string_in<'a>(document: &'a DocumentMut, table: &str, key: &str) -> Option<&'a str> {
+    return document.get(table)?.as_table_like()?.get(key)?.as_str();
+}
+
+fn toml_value(value: &Value) -> toml_edit::Value {
+    return match value {
+        Value::Bool(flag) => toml_edit::Value::from(*flag),
+        Value::Number(number) => toml_edit::Value::from(*number),
+        Value::Text(text) => toml_edit::Value::from(text.as_str()),
+        Value::List(list) => {
+            let mut array = toml_edit::Array::new();
+            for text in list {
+                array.push(text.as_str());
+            }
+            toml_edit::Value::Array(array)
+        }
+    };
 }
 
 #[cfg(test)]
@@ -169,49 +282,106 @@ mod tests {
     use crate::test_dir::TestDir;
 
     #[test]
-    fn keeps_comments_and_unknown_keys() {
-        let text = "# my settings\nview=list\n\nfuture_key = something\nnot a pair\n";
-        let mut config = Config::parse(text);
-        assert_eq!(config.get("view"), Some("list"));
-        assert_eq!(config.get("future_key"), Some("something"));
-        config.set("view", "details");
-        config.set("zoom", "1.5");
-        assert_eq!(
-            config.to_text(),
-            "# my settings\nview=details\n\nfuture_key=something\nnot a pair\nzoom=1.5\n"
+    fn live_wins_over_base() {
+        let config = Config::parse(
+            "view = \"list\"\nzoom = 1.5\n[last_folder]\na = \"/base\"\n",
+            "zoom = 2\n[last_folder]\nb = \"/live\"\n",
         );
+        assert_eq!(config.get_str("view"), Some("list"));
+        assert_eq!(config.get_f32("zoom", 0.0), 2.0, "integers work too");
+        assert_eq!(config.get_in("last_folder", "a"), Some("/base"));
+        assert_eq!(config.get_in("last_folder", "b"), Some("/live"));
+        assert_eq!(config.base_only().get_f32("zoom", 0.0), 1.5);
     }
 
     #[test]
     fn typed_values() {
-        let config = Config::parse("a=true\nb=OFF\nc=maybe\nx=1.25\ny=NaN\nz=abc\nx=2\n");
+        let config = Config::parse(
+            "a = true\nb = \"yes\"\nx = nan\nz = \"abc\"\nl = [\"one\", 2, \"three\"]\n",
+            "",
+        );
         assert!(config.get_bool("a", false));
-        assert!(!config.get_bool("b", true));
-        assert!(config.get_bool("c", true), "bad values give the default");
+        assert!(!config.get_bool("b", false), "strings aren't booleans");
         assert!(!config.get_bool("missing", false));
-        assert_eq!(config.get_f32("x", 0.0), 2.0, "the last one wins");
-        assert_eq!(config.get_f32("y", 7.0), 7.0, "NaN is rejected");
+        assert_eq!(config.get_f32("x", 7.0), 7.0, "NaN is rejected");
         assert_eq!(config.get_f32("z", 7.0), 7.0);
+        assert_eq!(
+            config.get_list("l"),
+            Some(vec!["one".into(), "three".into()])
+        );
+        assert_eq!(config.get_list("z"), None);
+        assert_eq!(config.get_str("l"), None);
     }
 
     #[test]
-    fn set_rounds_and_strips_newlines() {
-        let mut config = Config::default();
-        config.set_f32("w", 123.4567);
-        config.set_bool("b", true);
-        config.set("s", "two\nlines");
-        assert_eq!(config.to_text(), "w=123.46\nb=true\ns=two lines\n");
+    fn broken_files_count_as_empty() {
+        let config = Config::parse("view = \"list", "zoom = [");
+        assert_eq!(config.get_str("view"), None);
+        assert_eq!(config.get_f32("zoom", 1.0), 1.0);
+    }
+
+    #[test]
+    fn saving_keeps_comments_and_unknown_keys() {
+        let mut config = Config::parse(
+            "view = \"list\"\n",
+            "# mine\nzoom = 1.5 # not too big\nfuture = \"x\"\n",
+        );
+        config.set("zoom", &Value::Number(2.0));
+        config.set("view", &Value::Text("details".into()));
+        config.set("cols", &Value::List(vec!["a".into(), "b".into()]));
+        config.unset("future");
+        config.set_in("last_folder", "org.example \"odd\"", "/x");
+        assert_eq!(
+            config.live_text(),
+            "# mine\nzoom = 2.0 # not too big\nview = \"details\"\ncols = [\"a\", \"b\"]\n\
+             \n[last_folder]\n'org.example \"odd\"' = \"/x\"\n"
+        );
+        let again = Config::parse("", &config.live_text());
+        assert_eq!(
+            again.get_in("last_folder", "org.example \"odd\""),
+            Some("/x")
+        );
+    }
+
+    #[test]
+    fn base_tables_and_strings() {
+        let config = Config::parse(
+            "[colors]\nsurface = \"#000000\"\nbad = 3\n\n[[action]]\nname = \"A\"\n\n[[action]]\nname = \"B\"\n",
+            "[colors]\nsurface = \"#ffffff\"\n",
+        );
+        assert_eq!(
+            config.base_strings("colors"),
+            vec![("surface".to_string(), "#000000".to_string())],
+            "only config.toml's, and only strings"
+        );
+        let names: Vec<_> = config
+            .base_tables("action")
+            .iter()
+            .map(|table| table.get("name").and_then(Item::as_str).unwrap_or(""))
+            .collect();
+        assert_eq!(names, ["A", "B"]);
     }
 
     #[test]
     fn save_and_load() {
         let dir = TestDir::new("config");
-        let path = dir.path().join("sub").join("config");
-        assert_eq!(Config::load(&path), Config::default(), "missing file");
-        let mut config = Config::default();
-        config.set("view", "list");
-        config.save(&path).unwrap();
-        assert_eq!(Config::load(&path).get("view"), Some("list"));
-        assert!(!dir.path().join("sub").join("config.tmp").exists());
+        let sub = dir.path().join("sub");
+        let empty = Config::load(&sub);
+        assert_eq!(empty.get_str("view"), None, "missing files");
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join(CONFIG_FILE), "view = \"list\"\nzoom = 3\n").unwrap();
+        let mut config = Config::load(&sub);
+        config.set("zoom", &Value::Number(1.25));
+        config.save_live(&sub).unwrap();
+        let loaded = Config::load(&sub);
+        assert_eq!(loaded.get_str("view"), Some("list"));
+        assert_eq!(loaded.get_f32("zoom", 0.0), 1.25);
+        assert!(loaded.live_text().starts_with(LIVE_HEADER));
+        assert_eq!(
+            std::fs::read_to_string(sub.join(CONFIG_FILE)).unwrap(),
+            "view = \"list\"\nzoom = 3\n",
+            "config.toml is never written"
+        );
+        assert!(!sub.join("live.toml.tmp").exists());
     }
 }

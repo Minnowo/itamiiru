@@ -68,9 +68,9 @@ pub struct App {
     theme: Theme,
     /// The built-in theme `theme` starts from (setting `theme`).
     theme_name: ThemeName,
-    /// The theme file's text, read at startup, so switching themes
-    /// doesn't read it again.
-    theme_file: Option<String>,
+    /// config.toml's `[colors]`, kept so switching themes can apply them
+    /// again.
+    theme_colors: Vec<(String, String)>,
 
     tabs: Vec<Tab>,
     active_tab: usize,
@@ -112,9 +112,11 @@ pub struct App {
     /// A short message for the status bar, and when it was shown.
     notice: Option<(String, f64)>,
 
-    /// The config file's contents, kept so unknown keys and comments survive.
+    /// config.toml and live.toml, kept so comments and unknown keys in
+    /// live.toml survive a save.
     config: Config,
-    config_path: Option<PathBuf>,
+    /// The folder they're in; None where there is no config folder.
+    config_dir: Option<PathBuf>,
     /// The settings as last written, and as of this frame.
     saved_settings: Settings,
     latest_settings: Settings,
@@ -148,8 +150,7 @@ pub struct App {
     /// Dragged files can be dropped onto folders and the other pane
     /// (setting `drag_within`).
     drag_within: bool,
-    /// Custom right-click actions, from the `actions` file next to the
-    /// config file (read at startup).
+    /// Custom right-click actions, from config.toml (read at startup).
     actions: Vec<Action>,
     /// Items being dragged. Let go over a folder or the other pane, they
     /// move or copy there; once the pointer leaves the window with the
@@ -200,30 +201,33 @@ fn make_filter(sort: SortOrder, show_hidden: bool, picker: &Option<Picker>) -> F
 }
 
 impl App {
-    /// `theme_file` is the theme file's text (`Theme::read_file`), applied
-    /// on top of the chosen built-in theme. Installs the theme into `ctx`.
+    /// `theme_colors` (`theme::colors`) go on top of the chosen built-in
+    /// theme. Installs the theme into `ctx`.
     pub fn new(
         ctx: egui::Context,
-        theme_file: Option<String>,
+        theme_colors: Vec<(String, String)>,
         start: PathBuf,
         select: Vec<PathBuf>,
         config: Config,
-        config_path: Option<PathBuf>,
+        config_dir: Option<PathBuf>,
         picker: Option<Picker>,
     ) -> App {
         let settings = Settings::from_config(&config);
-        let theme = Theme::new(settings.theme, theme_file.as_deref());
+        let theme = Theme::new(settings.theme, &theme_colors);
         theme.install(&ctx);
         let (places_tx, places_rx) = mpsc::channel();
         let thumbs = Thumbs::new(&ctx, settings.thumbnails);
-        let actions = load_actions(config_path.as_deref());
+        let (actions, problems) = actions::from_config(&config);
+        for problem in problems {
+            itamiiru_core::debug!("actions: {problem}");
+        }
         let mut first = Pane::new(0, ctx.clone(), start, false);
         // Items from `--select` get selected when the first listing is done.
         first.after_listing.select = select;
         let mut app = App {
             theme,
             theme_name: settings.theme,
-            theme_file,
+            theme_colors,
             tabs: vec![Tab::new(first)],
             active_tab: 0,
             next_pane_id: 1,
@@ -249,7 +253,7 @@ impl App {
             bookmarks_file: places::bookmarks_file(),
             notice: None,
             config,
-            config_path,
+            config_dir,
             saved_settings: settings.clone(),
             latest_settings: settings.clone(),
             settings_changed_at: None,
@@ -1887,15 +1891,14 @@ impl App {
         picker.finish(&paths);
         let app_id = picker.request.app_id.clone();
         if !app_id.is_empty() {
-            let key = last_folder_key(&app_id);
             let current = self.pane().current.as_os_str().as_encoded_bytes();
             let value = itamiiru_core::percent::encode(current);
-            self.config.set(&key, &value);
+            self.config.set_in(LAST_FOLDER_TABLE, &app_id, &value);
             // Written now: the window is about to close.
-            if let Some(path) = &self.config_path
-                && let Err(err) = self.config.save(path)
+            if let Some(dir) = &self.config_dir
+                && let Err(err) = self.config.save_live(dir)
             {
-                itamiiru_core::debug!("config: can't save {}: {err}", path.display());
+                itamiiru_core::debug!("config: can't save in {}: {err}", dir.display());
             }
         }
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1997,13 +2000,13 @@ impl App {
         self.settings_changed_at = None;
         self.saved_settings = self.latest_settings.clone();
         self.latest_settings.write_to(&mut self.config);
-        let Some(path) = self.config_path.clone() else {
+        let Some(dir) = self.config_dir.clone() else {
             return;
         };
         let config = self.config.clone();
         std::thread::spawn(move || {
-            if let Err(err) = config.save(&path) {
-                itamiiru_core::debug!("config: can't save {}: {err}", path.display());
+            if let Err(err) = config.save_live(&dir) {
+                itamiiru_core::debug!("config: can't save in {}: {err}", dir.display());
             }
         });
     }
@@ -2017,10 +2020,10 @@ impl App {
             return;
         }
         self.latest_settings.write_to(&mut self.config);
-        if let Some(path) = &self.config_path
-            && let Err(err) = self.config.save(path)
+        if let Some(dir) = &self.config_dir
+            && let Err(err) = self.config.save_live(dir)
         {
-            itamiiru_core::debug!("config: can't save {}: {err}", path.display());
+            itamiiru_core::debug!("config: can't save in {}: {err}", dir.display());
         }
     }
 }
@@ -2288,7 +2291,7 @@ impl App {
         self.striped_rows = options.striped_rows;
         if options.theme != self.theme_name {
             self.theme_name = options.theme;
-            self.theme = Theme::new(options.theme, self.theme_file.as_deref());
+            self.theme = Theme::new(options.theme, &self.theme_colors);
             self.theme.install(&self.ctx);
         }
     }
@@ -2300,7 +2303,7 @@ impl App {
         let before = self.options();
         let mut options = before.clone();
         self.settings_open =
-            settings_page::show(ctx, &self.theme, &mut options, self.config_path.as_deref());
+            settings_page::show(ctx, &self.theme, &mut options, self.config_dir.as_deref());
         if options != before {
             self.apply_options(options);
         }
@@ -2392,14 +2395,6 @@ pub fn selection_summary(selected: &[&Entry], fields: &[StatusField]) -> Option<
     ));
 }
 
-/// The custom actions from the `actions` file next to the config file.
-fn load_actions(config_path: Option<&Path>) -> Vec<Action> {
-    let Some(dir) = config_path.and_then(Path::parent) else {
-        return Vec::new();
-    };
-    return actions::load(&dir.join("actions"));
-}
-
 /// The path of the one selected folder, if exactly one folder is selected.
 fn selected_one_folder(pane: &Pane) -> Option<PathBuf> {
     let selected = pane.selected_entries();
@@ -2409,13 +2404,9 @@ fn selected_one_folder(pane: &Pane) -> Option<PathBuf> {
     return None;
 }
 
-/// The config key for an app's last picker folder.
-pub fn last_folder_key(app_id: &str) -> String {
-    return format!(
-        "last_folder.{}",
-        itamiiru_core::percent::encode(app_id.as_bytes())
-    );
-}
+/// The table in live.toml with each app's last picker folder: app id =
+/// the folder, percent-encoded (paths needn't be UTF-8).
+pub const LAST_FOLDER_TABLE: &str = "last_folder";
 
 fn entry_name_text(path: &Path) -> String {
     return match path.file_name() {
@@ -2500,11 +2491,15 @@ mod tests {
     }
 
     fn new_app(ctx: &egui::Context, start: &Path) -> App {
-        let mut config = Config::default();
-        config.set("thumbnails", "false");
+        return new_app_with_config(ctx, start, "");
+    }
+
+    /// `config_toml` is config.toml's text.
+    fn new_app_with_config(ctx: &egui::Context, start: &Path, config_toml: &str) -> App {
+        let config = Config::parse(&format!("thumbnails = false\n{config_toml}"), "");
         let mut app = App::new(
             ctx.clone(),
-            None,
+            Vec::new(),
             start.to_path_buf(),
             Vec::new(),
             config,
@@ -3165,14 +3160,19 @@ mod tests {
     fn custom_actions_in_the_right_click_menus() {
         let folder = Folder::new("actions");
         let ctx = egui::Context::default();
-        let mut app = new_app(&ctx, &folder.0);
+        let config = r#"
+[[action]]
+name = "Mark here"
+command = "touch %d/marker"
+for = ["folders", "background"]
+[[action]]
+name = "Only for jpg"
+command = "true"
+for = ["*.jpg"]
+"#;
+        let mut app = new_app_with_config(&ctx, &folder.0, config);
+        assert_eq!(app.actions.len(), 2);
         settle(&mut app, &ctx);
-        let (actions, problems) = actions::parse(
-            "[Mark here]\ncommand = touch %d/marker\nfor = folders, background\n\
-             [Only for jpg]\ncommand = true\nfor = *.jpg\n",
-        );
-        assert!(problems.is_empty(), "{problems:?}");
-        app.actions = actions;
 
         // On a folder: %d is that folder.
         let texts = frame_texts(&mut app, &ctx, Vec::new());
@@ -3198,11 +3198,10 @@ mod tests {
     fn a_missing_program_is_reported() {
         let folder = Folder::new("badaction");
         let ctx = egui::Context::default();
-        let mut app = new_app(&ctx, &folder.0);
+        let config = "[[action]]\nname = \"Nope\"\n\
+                      command = \"itamiiru-no-such-program %d\"\nfor = [\"background\"]\n";
+        let mut app = new_app_with_config(&ctx, &folder.0, config);
         settle(&mut app, &ctx);
-        let (actions, _) =
-            actions::parse("[Nope]\ncommand = itamiiru-no-such-program %d\nfor = background\n");
-        app.actions = actions;
         app.run_command(Command::ActionOnFolder(0));
         assert!(
             app.op_errors
@@ -3731,14 +3730,14 @@ mod tests {
         let ctx = egui::Context::default();
         let mut app = new_app(&ctx, &folder.0);
         settle(&mut app, &ctx);
-        let ponkotsu = Theme::new(ThemeName::Ponkotsu, None);
+        let ponkotsu = Theme::new(ThemeName::Ponkotsu, &[]);
         assert_eq!(app.theme, ponkotsu, "ponkotsu by default");
         assert_eq!(ctx.global_style().visuals.panel_fill, ponkotsu.surface);
 
         let mut options = app.options();
         options.theme = ThemeName::Windows10;
         app.apply_options(options);
-        let windows = Theme::new(ThemeName::Windows10, None);
+        let windows = Theme::new(ThemeName::Windows10, &[]);
         assert_eq!(app.theme, windows);
         assert_eq!(ctx.global_style().visuals.panel_fill, windows.surface);
         assert_eq!(app.current_settings(&ctx).theme, ThemeName::Windows10);
@@ -3763,7 +3762,7 @@ mod tests {
             let mut options = app.options();
             options.theme = theme_name;
             app.apply_options(options);
-            let theme = Theme::new(theme_name, None);
+            let theme = Theme::new(theme_name, &[]);
             let selection = ctx.global_style().visuals.selection.stroke;
             assert_eq!(
                 selection.color, theme.on_secondary_container,
@@ -4111,19 +4110,18 @@ mod tests {
         let ms = |since: std::time::Instant| since.elapsed().as_secs_f64() * 1000.0;
         let home = itamiiru_core::platform::home_dir().expect("home");
         let t = std::time::Instant::now();
-        let path = itamiiru_core::config::default_path();
-        let config = match &path {
-            Some(path) => Config::load(path),
+        let config = match itamiiru_core::config::default_dir() {
+            Some(dir) => Config::load(&dir),
             None => Config::default(),
         };
-        let theme_file = Theme::read_file();
+        let theme_colors = crate::theme::colors(&config);
         let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
         println!("{:7.1} ms  config, theme, time zone", ms(t));
         let ctx = egui::Context::default();
         let t = std::time::Instant::now();
         let mut app = App::new(
             ctx.clone(),
-            theme_file,
+            theme_colors,
             home,
             Vec::new(),
             config,

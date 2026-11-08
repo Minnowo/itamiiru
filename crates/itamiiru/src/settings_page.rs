@@ -7,6 +7,7 @@ use std::path::Path;
 use std::time::SystemTime;
 
 use eframe::egui;
+use itamiiru_core::config;
 use itamiiru_core::entry::{Entry, EntryKind};
 
 use crate::icons::{Arrow, arrow_button};
@@ -59,13 +60,13 @@ impl Options {
     }
 }
 
-/// Draws the dialog. `config_path` is shown so people can find the file.
+/// Draws the dialog. `config_dir` is shown so people can find the files.
 /// Returns false once it's closed (Done, Escape, or a click outside it).
 pub fn show(
     ctx: &egui::Context,
     theme: &Theme,
     options: &mut Options,
-    config_path: Option<&Path>,
+    config_dir: Option<&Path>,
 ) -> bool {
     let mut open = true;
     let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
@@ -171,20 +172,17 @@ pub fn show(
                     ui.add_space(theme::GAP_SMALL);
                     ui.weak(format!("Example: {}", example(&options.status_fields)));
                 });
-                if let Some(path) = config_path {
+                if let Some(dir) = config_dir {
                     section(ui, theme, "Where settings are kept", |ui| {
-                        ui.weak(format!("Settings are saved in {}", path.display()));
-                        if let Some(dir) = path.parent() {
-                            let theme_file = dir.join("theme");
-                            ui.weak(format!(
-                                "Colors can be changed in {} (see the README)",
-                                theme_file.display()
-                            ));
-                            ui.weak(format!(
-                                "Right-click actions are in {} (read at startup; see the README)",
-                                dir.join("actions").display()
-                            ));
-                        }
+                        ui.weak(format!(
+                            "Changes made here are saved in {}",
+                            dir.join(config::LIVE_FILE).display()
+                        ));
+                        ui.weak(format!(
+                            "Your own defaults, colors and right-click actions go in {} \
+                             (read at startup; see the README)",
+                            dir.join(config::CONFIG_FILE).display()
+                        ));
                     });
                 }
             });

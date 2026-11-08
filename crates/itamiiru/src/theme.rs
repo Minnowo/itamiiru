@@ -4,19 +4,16 @@
 //! A theme is a set of named color roles. Text on fill `X` uses `on-X`.
 //! Depth comes from `surface-container-N` fills, not borders or shadows.
 //!
-//! A theme file replaces some or all of the built-in colors. It accepts
-//! `primary = #dcc496` lines, and also ponkotsu's CSS lines
-//! (`--color-c-primary: #dcc496;`), so one generated block can be pasted in.
+//! The `[colors]` table in config.toml replaces some or all of the
+//! built-in colors: `primary = "#dcc496"`. ponkotsu's CSS names work too
+//! (`--color-c-primary = "#dcc496"`).
 
 // This is the whole design system; some parts aren't used by any screen yet.
 #![allow(dead_code)]
 
-use std::path::Path;
+use itamiiru_core::config::Config;
 
 use eframe::egui::{self, Color32, CornerRadius, FontId, Margin, Shadow, Stroke, TextStyle};
-
-/// Theme files bigger than this are ignored. A full palette is about 4 KiB.
-const MAX_THEME_FILE_SIZE: u64 = 64 * 1024;
 
 /// Corner radius for inputs, buttons and chips (`rounded-sm`).
 pub const RADIUS_SMALL: u8 = 4;
@@ -376,61 +373,29 @@ fn windows10() -> Theme {
 }
 
 impl Theme {
-    /// The built-in theme `name` with the theme file's text (from
-    /// `read_file`) applied on top. Touches no files, so the theme can be
-    /// switched while the app runs.
-    pub fn new(name: ThemeName, file_text: Option<&str>) -> Theme {
+    /// The built-in theme `name` with `colors` (role name, `#hex`) from
+    /// config.toml's `[colors]` applied on top. Touches no files, so the
+    /// theme can be switched while the app runs.
+    pub fn new(name: ThemeName, colors: &[(String, String)]) -> Theme {
         let mut theme = match name {
             ThemeName::Ponkotsu => ponkotsu(),
             ThemeName::Windows10 => windows10(),
         };
-        if let Some(text) = file_text {
-            theme.apply_text(text);
-        }
+        theme.apply_colors(colors);
         return theme;
     }
 
-    /// Reads the theme file: `$ITAMI_THEME` (a file path), or
-    /// `<config dir>/theme`. None if there is none or it can't be used;
-    /// problems are logged. Reads from disk: call at startup only.
-    pub fn read_file() -> Option<String> {
-        let path = match std::env::var_os("ITAMI_THEME") {
-            Some(path) => std::path::PathBuf::from(path),
-            None => itamiiru_core::platform::config_dir()?.join("theme"),
-        };
-        return match read_theme_file(&path) {
-            Ok(text) => {
-                itamiiru_core::debug!("theme: loaded {}", path.display());
-                Some(text)
-            }
-            Err(err) => {
-                itamiiru_core::debug!("theme: not using {}: {}", path.display(), err);
-                None
-            }
-        };
-    }
-
-    /// Applies every `role = #hex` or `--color-c-role: #hex;` line in `text`.
-    /// Anything else (comments, braces, unknown roles, bad colors) is skipped.
-    pub fn apply_text(&mut self, text: &str) {
-        for (index, line) in text.lines().enumerate() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') || line.starts_with("/*") {
-                continue;
-            }
-            let Some(sep) = line.find([':', '=']) else {
+    /// Sets each (role, `#hex`) pair. Unknown roles and bad colors are
+    /// logged and skipped.
+    pub fn apply_colors(&mut self, colors: &[(String, String)]) {
+        for (role, value) in colors {
+            let role = role.strip_prefix("--color-c-").unwrap_or(role);
+            let Some(color) = parse_hex_color(value.trim()) else {
+                itamiiru_core::debug!("theme: bad color {value:?} for {role:?}");
                 continue;
             };
-            let key = line[..sep].trim();
-            let key = key.strip_prefix("--color-c-").unwrap_or(key);
-            let value = line[sep + 1..].trim().trim_end_matches(';').trim();
-
-            let Some(color) = parse_hex_color(value) else {
-                itamiiru_core::debug!("theme: line {}: bad color {:?}", index + 1, value);
-                continue;
-            };
-            if !self.set(key, color) {
-                itamiiru_core::debug!("theme: line {}: unknown role {:?}", index + 1, key);
+            if !self.set(role, color) {
+                itamiiru_core::debug!("theme: unknown role {role:?}");
             }
         }
     }
@@ -750,14 +715,17 @@ fn button_with_colors(
 }
 
 /// The text of a theme file, if it's small enough to be one.
-fn read_theme_file(path: &Path) -> Result<String, String> {
-    let size = std::fs::metadata(path).map_err(|e| e.to_string())?.len();
-    if size > MAX_THEME_FILE_SIZE {
-        return Err(format!(
-            "file is {size} bytes, the limit is {MAX_THEME_FILE_SIZE}"
-        ));
+/// The colors to put on top of the built-in theme: config.toml's
+/// `[colors]`, or, when `$ITAMI_THEME` names a TOML file, that file's
+/// `[colors]` instead (handy for trying a theme). Reads that file: call at
+/// startup only.
+pub fn colors(config: &Config) -> Vec<(String, String)> {
+    if let Some(path) = std::env::var_os("ITAMI_THEME") {
+        let path = std::path::PathBuf::from(path);
+        itamiiru_core::debug!("theme: colors from {}", path.display());
+        return Config::load_file(&path).base_strings("colors");
     }
-    return std::fs::read_to_string(path).map_err(|e| e.to_string());
+    return config.base_strings("colors");
 }
 
 /// Parses `#rrggbb` or `#rrggbbaa`. The alpha is not premultiplied, as in CSS.
@@ -812,18 +780,18 @@ mod tests {
 
     #[test]
     fn built_in_themes() {
-        let ponkotsu = Theme::new(ThemeName::Ponkotsu, None);
+        let ponkotsu = Theme::new(ThemeName::Ponkotsu, &[]);
         assert_eq!(ponkotsu, Theme::default());
         assert_eq!(ponkotsu.primary, Color32::from_rgb(0xdc, 0xc4, 0x96));
-        let windows = Theme::new(ThemeName::Windows10, None);
+        let windows = Theme::new(ThemeName::Windows10, &[]);
         assert_ne!(windows, ponkotsu);
 
-        // The theme file's colors go on top of either one.
-        let file = "primary = #112233\n";
+        // config.toml's colors go on top of either one.
+        let colors = pairs(&[("primary", "#112233")]);
         for name in ThemeName::ALL {
-            let theme = Theme::new(name, Some(file));
+            let theme = Theme::new(name, &colors);
             assert_eq!(theme.primary, Color32::from_rgb(0x11, 0x22, 0x33));
-            assert_eq!(theme.secondary, Theme::new(name, None).secondary);
+            assert_eq!(theme.secondary, Theme::new(name, &[]).secondary);
         }
 
         for name in ThemeName::ALL {
@@ -833,9 +801,12 @@ mod tests {
     }
 
     #[test]
-    fn key_value_lines() {
+    fn role_colors() {
         let mut theme = Theme::default();
-        theme.apply_text("# my theme\nprimary = #112233\n  on-primary=#445566  \n");
+        theme.apply_colors(&pairs(&[
+            ("primary", "#112233"),
+            ("on-primary", " #445566 "),
+        ]));
         assert_eq!(theme.primary, Color32::from_rgb(0x11, 0x22, 0x33));
         assert_eq!(theme.on_primary, Color32::from_rgb(0x44, 0x55, 0x66));
         // Untouched roles keep the defaults.
@@ -843,11 +814,12 @@ mod tests {
     }
 
     #[test]
-    fn pasted_css_block() {
+    fn css_names() {
         let mut theme = Theme::default();
-        theme.apply_text(
-            "@theme static {\n    --color-c-surface: #ffffff;\n    --color-c-primary-hover-tint: #dcc4961f;\n}\n",
-        );
+        theme.apply_colors(&pairs(&[
+            ("--color-c-surface", "#ffffff"),
+            ("--color-c-primary-hover-tint", "#dcc4961f"),
+        ]));
         assert_eq!(theme.surface, Color32::WHITE);
         assert_eq!(
             theme.primary_hover_tint,
@@ -859,7 +831,11 @@ mod tests {
     #[test]
     fn junk_is_skipped() {
         let mut theme = Theme::default();
-        theme.apply_text("nonsense\nno-such-role = #000000\nprimary = red\n= #000000\n:\n");
+        theme.apply_colors(&pairs(&[
+            ("no-such-role", "#000000"),
+            ("primary", "red"),
+            ("", "#000000"),
+        ]));
         assert_eq!(theme, Theme::default());
     }
 
@@ -963,5 +939,13 @@ mod tests {
             assert!(theme.set(name, Color32::from_rgb(1, 2, 3)), "{name}");
             assert_ne!(theme, Theme::default(), "{name} changed nothing");
         }
+    }
+
+    fn pairs(list: &[(&str, &str)]) -> Vec<(String, String)> {
+        let mut pairs = Vec::new();
+        for (role, value) in list {
+            pairs.push((role.to_string(), value.to_string()));
+        }
+        return pairs;
     }
 }

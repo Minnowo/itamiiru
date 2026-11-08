@@ -34,11 +34,11 @@ use std::sync::atomic::{AtomicI32, Ordering};
 
 use eframe::egui;
 use itamiiru_core::config::{self, Config};
+use itamiiru_core::migrate;
 use itamiiru_core::mime::MimeDb;
 use itamiiru_core::protocol::{self, Pattern, Request};
 use picker::Picker;
 use settings::Settings;
-use theme::Theme;
 
 /// How to call it, for `--help` and mistakes.
 const USAGE: &str = "usage: itami [--foreground] [FOLDER] [--select ITEM]...
@@ -107,13 +107,16 @@ fn main() {
     } else {
         None
     };
-    let config_path = config::default_path();
-    let config = match &config_path {
-        Some(path) => Config::load(path),
+    let config_dir = config::default_dir();
+    let config = match &config_dir {
+        Some(dir) => {
+            migrate::run(dir);
+            Config::load(dir)
+        }
         None => Config::default(),
     };
     let settings = Settings::from_config(&config);
-    let theme_file = Theme::read_file();
+    let theme_colors = theme::colors(&config);
     let _ = itamiiru_core::format::format_local_time(std::time::SystemTime::now());
 
     startup::mark("config, theme and time zone loaded");
@@ -166,7 +169,7 @@ fn main() {
             fonts::install(&cc.egui_ctx, font_rx);
             startup::mark("fonts installed");
             let ctx = cc.egui_ctx.clone();
-            let app = app::App::new(ctx, theme_file, start, select, config, config_path, picker);
+            let app = app::App::new(ctx, theme_colors, start, select, config, config_dir, picker);
             startup::mark("app built");
             return Ok(Box::new(app));
         }),
@@ -280,7 +283,7 @@ fn start_folder(args: &Args, request: Option<&Request>, config: &Config) -> Path
             return parent.to_path_buf();
         }
         if !request.app_id.is_empty()
-            && let Some(value) = config.get(&app::last_folder_key(&request.app_id))
+            && let Some(value) = config.get_in(app::LAST_FOLDER_TABLE, &request.app_id)
             && let Ok(bytes) = itamiiru_core::percent::decode(value)
             && let Some(path) = itamiiru_core::platform::path_from_bytes(bytes)
         {

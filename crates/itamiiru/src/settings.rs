@@ -1,15 +1,15 @@
 //! What the app remembers between runs, and the optional features,
 //! mapped to and from the config file's keys.
 
-use itamiiru_core::config::Config;
+use itamiiru_core::config::{Config, Value};
 use itamiiru_core::sort::{SortColumn, SortOrder};
 
 use crate::theme::ThemeName;
 use crate::toolbar::ViewMode;
 
 /// A Details view column besides Name (always first) and Folder (search
-/// results only). `details_columns=modified,type,size` lists the shown
-/// ones in order.
+/// results only). `details_columns = ["modified", "type", "size"]` lists
+/// the shown ones in order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DetailColumn {
     Modified,
@@ -65,12 +65,11 @@ impl DetailColumn {
     }
 }
 
-/// Reads a comma-separated column list. Unknown names and repeats are
-/// skipped.
-fn parse_columns(value: &str) -> Vec<DetailColumn> {
+/// Reads a column list. Unknown names and repeats are skipped.
+fn parse_columns(names: &[String]) -> Vec<DetailColumn> {
     let mut columns = Vec::new();
-    for part in value.split(',') {
-        if let Some(column) = DetailColumn::from_key(part.trim())
+    for name in names {
+        if let Some(column) = DetailColumn::from_key(name)
             && !columns.contains(&column)
         {
             columns.push(column);
@@ -79,16 +78,16 @@ fn parse_columns(value: &str) -> Vec<DetailColumn> {
     return columns;
 }
 
-fn columns_value(columns: &[DetailColumn]) -> String {
+fn columns_value(columns: &[DetailColumn]) -> Value {
     let mut keys = Vec::new();
     for column in columns {
-        keys.push(column.key());
+        keys.push(column.key().to_string());
     }
-    return keys.join(",");
+    return Value::List(keys);
 }
 
 /// What the status bar says about a single selected item, in the order
-/// listed in `status_fields` (e.g. `status_fields=type,size,modified`).
+/// listed in `status_fields` (e.g. `status_fields = ["type", "size"]`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusField {
     Name,
@@ -133,12 +132,12 @@ impl StatusField {
     }
 }
 
-/// Reads a comma-separated field list. Unknown names and repeats are
-/// skipped; an empty value means no details, just "1 selected".
-fn parse_status_fields(value: &str) -> Vec<StatusField> {
+/// Reads a field list. Unknown names and repeats are skipped; an empty
+/// list means no details, just "1 selected".
+fn parse_status_fields(names: &[String]) -> Vec<StatusField> {
     let mut fields = Vec::new();
-    for part in value.split(',') {
-        if let Some(field) = StatusField::from_key(part.trim())
+    for name in names {
+        if let Some(field) = StatusField::from_key(name)
             && !fields.contains(&field)
         {
             fields.push(field);
@@ -147,12 +146,12 @@ fn parse_status_fields(value: &str) -> Vec<StatusField> {
     return fields;
 }
 
-fn status_fields_value(fields: &[StatusField]) -> String {
+fn status_fields_value(fields: &[StatusField]) -> Value {
     let mut keys = Vec::new();
     for field in fields {
-        keys.push(field.key());
+        keys.push(field.key().to_string());
     }
-    return keys.join(",");
+    return Value::List(keys);
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -236,15 +235,15 @@ impl Settings {
     /// Reads settings, keeping defaults for anything missing or out of range.
     pub fn from_config(config: &Config) -> Settings {
         let d = Settings::default();
-        let view = match config.get("view").and_then(ViewMode::from_key) {
+        let view = match config.get_str("view").and_then(ViewMode::from_key) {
             Some(view) => view,
             None => d.view,
         };
-        let theme = match config.get("theme").and_then(ThemeName::from_key) {
+        let theme = match config.get_str("theme").and_then(ThemeName::from_key) {
             Some(theme) => theme,
             None => d.theme,
         };
-        let sort_column = match config.get("sort_column").and_then(sort_column_from_key) {
+        let sort_column = match config.get_str("sort_column").and_then(sort_column_from_key) {
             Some(column) => column,
             None => d.sort.column,
         };
@@ -274,8 +273,8 @@ impl Settings {
                 ),
             ],
             maximized: config.get_bool("window_maximized", d.maximized),
-            columns: match config.get("details_columns") {
-                Some(value) => parse_columns(value),
+            columns: match config.get_list("details_columns") {
+                Some(names) => parse_columns(&names),
                 None => d.columns,
             },
             auto_refresh_folder: config.get_bool("auto_refresh_folder", d.auto_refresh_folder),
@@ -288,8 +287,8 @@ impl Settings {
                 120.0,
                 4000.0,
             ),
-            status_fields: match config.get("status_fields") {
-                Some(value) => parse_status_fields(value),
+            status_fields: match config.get_list("status_fields") {
+                Some(names) => parse_status_fields(&names),
                 None => d.status_fields,
             },
             use_trash: config.get_bool("use_trash", d.use_trash),
@@ -302,33 +301,59 @@ impl Settings {
         };
     }
 
-    /// Writes every setting into `config`, leaving its other lines alone.
+    /// Writes the settings that differ from `config.toml` (or the
+    /// defaults) into `live.toml`, and takes the rest out of it, so
+    /// `live.toml` holds only what was changed in the app.
     pub fn write_to(&self, config: &mut Config) {
-        config.set("view", self.view.key());
-        config.set("sort_column", sort_column_key(self.sort.column));
-        config.set_bool("sort_ascending", self.sort.ascending);
-        config.set_bool("show_hidden", self.show_hidden);
-        config.set_f32("zoom", self.zoom);
-        config.set_f32("sidebar_width", self.sidebar_width.round());
-        config.set_f32("window_width", self.window_size[0].round());
-        config.set_f32("window_height", self.window_size[1].round());
-        config.set_bool("window_maximized", self.maximized);
-        config.set("details_columns", &columns_value(&self.columns));
-        config.set_bool("use_trash", self.use_trash);
-        config.set_bool("drag_and_drop", self.drag_and_drop);
-        config.set_bool("drag_select", self.drag_select);
-        config.set_bool("drag_within", self.drag_within);
-        config.set_bool("toolbar_icons", self.toolbar_icons);
-        config.set_bool("striped_rows", self.striped_rows);
-        config.set("theme", self.theme.key());
-        config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
-        config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
-        config.set_bool("thumbnails", self.thumbnails);
-        config.set_bool("preview_pane", self.preview_pane);
-        config.set_bool("preview_auto_hide", self.preview_auto_hide);
-        config.set_f32("preview_width", self.preview_width.round());
-        config.set("status_fields", &status_fields_value(&self.status_fields));
+        let base = Settings::from_config(&config.base_only()).values();
+        let current = self.values();
+        for (index, (key, value)) in current.iter().enumerate() {
+            if *value == base[index].1 {
+                config.unset(key);
+            } else {
+                config.set(key, value);
+            }
+        }
     }
+
+    /// Every setting under its key, in the order they're written.
+    fn values(&self) -> Vec<(&'static str, Value)> {
+        return vec![
+            ("view", text(self.view.key())),
+            ("sort_column", text(sort_column_key(self.sort.column))),
+            ("sort_ascending", Value::Bool(self.sort.ascending)),
+            ("show_hidden", Value::Bool(self.show_hidden)),
+            ("zoom", number(self.zoom)),
+            ("sidebar_width", number(self.sidebar_width.round())),
+            ("window_width", number(self.window_size[0].round())),
+            ("window_height", number(self.window_size[1].round())),
+            ("window_maximized", Value::Bool(self.maximized)),
+            ("details_columns", columns_value(&self.columns)),
+            ("use_trash", Value::Bool(self.use_trash)),
+            ("drag_and_drop", Value::Bool(self.drag_and_drop)),
+            ("drag_select", Value::Bool(self.drag_select)),
+            ("drag_within", Value::Bool(self.drag_within)),
+            ("toolbar_icons", Value::Bool(self.toolbar_icons)),
+            ("striped_rows", Value::Bool(self.striped_rows)),
+            ("theme", text(self.theme.key())),
+            ("auto_refresh_folder", Value::Bool(self.auto_refresh_folder)),
+            ("auto_refresh_drives", Value::Bool(self.auto_refresh_drives)),
+            ("thumbnails", Value::Bool(self.thumbnails)),
+            ("preview_pane", Value::Bool(self.preview_pane)),
+            ("preview_auto_hide", Value::Bool(self.preview_auto_hide)),
+            ("preview_width", number(self.preview_width.round())),
+            ("status_fields", status_fields_value(&self.status_fields)),
+        ];
+    }
+}
+
+fn text(value: &str) -> Value {
+    return Value::Text(value.to_string());
+}
+
+/// Whole points are plenty for sizes and widths; zoom keeps two decimals.
+fn number(value: f32) -> Value {
+    return Value::Number((value as f64 * 100.0).round() / 100.0);
 }
 
 fn clamp(value: f32, min: f32, max: f32) -> f32 {
@@ -390,17 +415,37 @@ mod tests {
             ..Settings::default()
         };
 
-        let mut config = Config::parse("# keep me\n");
+        let mut config = Config::parse("", "# keep me\nfuture_key = 1\n");
         settings.write_to(&mut config);
-        let text = config.to_text();
-        assert!(text.starts_with("# keep me\n"));
-        assert_eq!(Settings::from_config(&Config::parse(&text)), settings);
+        let text = config.live_text();
+        assert!(text.starts_with("# keep me\nfuture_key = 1\n"), "{text}");
+        assert_eq!(Settings::from_config(&Config::parse("", &text)), settings);
+    }
+
+    #[test]
+    fn live_holds_only_changes() {
+        let base = "view = \"list\"\nzoom = 1.5\n";
+        let mut config = Config::parse(base, "show_hidden = true\nthumbnails = false\n");
+        let mut settings = Settings::from_config(&config);
+        assert_eq!(settings.view, ViewMode::List);
+        settings.zoom = 2.0;
+        settings.show_hidden = false;
+        settings.thumbnails = false;
+        settings.write_to(&mut config);
+        assert_eq!(
+            config.live_text(),
+            format!("{}thumbnails = false\nzoom = 2.0\n", live_header()),
+            "values equal to config.toml or the defaults are left out"
+        );
+        assert_eq!(Settings::from_config(&config), settings);
     }
 
     #[test]
     fn bad_values_fall_back() {
         let config = Config::parse(
-            "view=huge\nsort_column=color\nzoom=1000\nsidebar_width=-5\ntheme=neon\n",
+            "view = \"huge\"\nsort_column = \"color\"\nzoom = 1000\nsidebar_width = -5\n\
+             theme = \"neon\"\nshow_hidden = \"yes\"\n",
+            "",
         );
         let settings = Settings::from_config(&config);
         assert_eq!(settings.view, ViewMode::Details);
@@ -417,12 +462,12 @@ mod tests {
     #[test]
     fn status_fields() {
         assert_eq!(
-            parse_status_fields(" name , size,bogus,name,path"),
+            parse_status_fields(&strings(&["name", "size", "bogus", "name", "path"])),
             vec![StatusField::Name, StatusField::Size, StatusField::Path]
         );
-        assert_eq!(parse_status_fields(""), Vec::new());
+        assert_eq!(parse_status_fields(&[]), Vec::new());
         // An empty value is kept, not replaced by the default.
-        let settings = Settings::from_config(&Config::parse("status_fields=\n"));
+        let settings = Settings::from_config(&Config::parse("status_fields = []\n", ""));
         assert!(settings.status_fields.is_empty());
         for field in StatusField::ALL {
             assert_eq!(StatusField::from_key(field.key()), Some(field));
@@ -432,16 +477,39 @@ mod tests {
     #[test]
     fn details_columns() {
         // In the order given; unknown names and repeats are skipped.
-        let columns = parse_columns("size, bogus,created,name,size");
+        let columns = parse_columns(&strings(&["size", "bogus", "created", "name", "size"]));
         assert_eq!(columns, [DetailColumn::Size, DetailColumn::Created]);
-        assert_eq!(columns_value(&columns), "size,created");
-        assert!(parse_columns("").is_empty());
         assert_eq!(
-            columns_value(&Settings::default().columns),
-            "modified,type,size"
+            columns_value(&columns),
+            Value::List(strings(&["size", "created"]))
         );
+        assert!(parse_columns(&[]).is_empty());
         for column in DetailColumn::ALL {
             assert_eq!(DetailColumn::from_key(column.key()), Some(column));
+        }
+    }
+
+    /// data/config.example.toml lists every setting with its default.
+    #[test]
+    fn the_example_lists_every_setting() {
+        let example = include_str!("../../../data/config.example.toml");
+        let mut text = String::new();
+        for line in example.lines() {
+            if line.starts_with('[') {
+                break;
+            }
+            if let Some(pair) = line.strip_prefix("# ")
+                && let Some((pair, _)) = format!("{pair}  #").split_once("  #")
+                && pair.contains(" = ")
+            {
+                text.push_str(pair);
+                text.push('\n');
+            }
+        }
+        let config = Config::parse(&text, "");
+        assert_eq!(Settings::from_config(&config), Settings::default());
+        for (key, _) in Settings::default().values() {
+            assert!(text.contains(&format!("{key} = ")), "{key} is missing");
         }
     }
 
@@ -450,5 +518,17 @@ mod tests {
         for view in ViewMode::ALL {
             assert_eq!(ViewMode::from_key(view.key()), Some(view));
         }
+    }
+
+    fn strings(names: &[&str]) -> Vec<String> {
+        let mut list = Vec::new();
+        for name in names {
+            list.push(name.to_string());
+        }
+        return list;
+    }
+
+    fn live_header() -> String {
+        return Config::default().live_text();
     }
 }

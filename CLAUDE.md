@@ -153,7 +153,9 @@ fn pick(a: bool) -> u32 {
   When the portal is D-Bus-activated, its stderr goes to the journal
   (`journalctl --user -f`).
 - Arguments: parse `std::env::args()` by hand. The CLI is tiny.
-- Config: hand-parsed `key=value` text files. No TOML or JSON.
+- Config: `config.toml` (the user's, never written by itami) and
+  `live.toml` (what the app changed), through `itamiiru_core::config`
+  and `toml_edit`. No serde, no JSON.
 - Markdown tables are space-padded so columns line up in plain text.
 - Commit after each completed task, prefixing the message with its ID, e.g.
   `P1.4: natural sort`.
@@ -220,6 +222,7 @@ The UI follows the ponkotsu design system
 | `gif`                          | itamiiru-core                  | First frame of GIFs.                                                                    |
 | `image-webp`                   | itamiiru-core                  | WebP.                                                                                   |
 | `libc` (unix only)             | itamiiru-core, itamiiru-portal | `statvfs`, `getuid`, `kill`. Already a transitive dependency of winit.                  |
+| `toml_edit`                    | itamiiru-core                  | config.toml and live.toml; keeps comments when live.toml is saved. No serde (D32).      |
 
 `eframe` has default features off; it uses wayland, x11, default_fonts, plus
 the renderer chosen by the `itamiiru` crate's features: `glow` (OpenGL) by
@@ -228,7 +231,7 @@ crates) as an opt-in build (PLAN.md D25). Verify current
 feature names in eframe's Cargo.toml before changing them.
 
 Everything else is vendored or hand-written. Specifically **not** wanted:
-clap, serde, toml, anyhow, thiserror, log, env_logger, tokio, zbus, notify,
+clap, serde, toml (use `toml_edit`), anyhow, thiserror, log, env_logger, tokio, zbus, notify,
 dirs, walkdir, tempfile, image (the umbrella crate), windows (the crate).
 
 After any `Cargo.toml` change, run this and record the number in PLAN.md's

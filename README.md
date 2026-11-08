@@ -24,16 +24,26 @@ xdg-desktop-portal.
   terminal it moves to the background; `--foreground` keeps it attached.
   `itami --help` lists the options.
 - **Settings:** the gear at the bottom of the side pane, or Ctrl+Comma.
-  They're saved in `~/.config/itamiiru/config`.
-- **Custom right-click actions:** add menu items like "Open in terminal" in
-  `~/.config/itamiiru/actions`:
+  Two files in `~/.config/itamiiru/` hold them:
+  - `config.toml` is yours: your defaults, colors and right-click actions.
+    itami only reads it, at startup.
+  - `live.toml` is itami's: what you change in the app (zoom, window size,
+    the settings page). It wins over `config.toml`; delete a line from it
+    to go back to your `config.toml` value.
+
+  `data/config.example.toml` lists every setting with its default.
+- **Custom right-click actions:** add menu items like "Open in terminal" to
+  `config.toml`:
+  ```toml
+  [[action]]
+  name = "Open in terminal"
+  command = "xfce4-terminal --working-directory=%d"
+  for = ["folders", "background"]
   ```
-  [Open in terminal]
-  command = xfce4-terminal --working-directory=%d
-  for = folders, background
-  ```
-  `data/actions.example` explains the placeholders (`%f`, `%F`, `%d`, `%n`)
-  and the `for` targets. The file is read at startup.
+  `data/config.example.toml` explains the placeholders (`%f`, `%F`, `%d`,
+  `%n`) and the `for` targets.
+- **Colors:** a `[colors]` table in `config.toml` changes theme colors by
+  role name, e.g. `primary = "#dcc496"`.
 - **USB drives** show up under This PC even before they're mounted: click
   to mount, right-click to unmount or eject (needs `udisks2`).
 - **Drag files out** onto other apps (a browser upload box, a terminal, an

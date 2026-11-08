@@ -1,11 +1,11 @@
-//! Custom right-click actions, from the `actions` file next
-//! to the config file. Each action is a section with a command and what
-//! it applies to:
+//! Custom right-click actions, from the `[[action]]` tables in
+//! config.toml. Each has a name, a command and what it applies to:
 //!
 //! ```text
-//! [Open in terminal]
-//! command = xfce4-terminal --working-directory=%d
-//! for = folders, background
+//! [[action]]
+//! name = "Open in terminal"
+//! command = "xfce4-terminal --working-directory=%d"
+//! for = ["folders", "background"]
 //! ```
 //!
 //! The command is split into words like a shell would (quotes and
@@ -25,10 +25,11 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use toml_edit::{Item as TomlItem, Table};
+
+use crate::config::Config;
 use crate::glob::Glob;
 
-/// The file is small config; anything bigger is refused.
-pub const MAX_FILE_SIZE: u64 = 64 * 1024;
 /// More actions than this would make a useless menu.
 const MAX_ACTIONS: usize = 50;
 /// Words in one command.
@@ -61,69 +62,16 @@ pub struct Item<'a> {
 /// One command line to run: the program and its arguments.
 pub type CommandLine = Vec<OsString>;
 
-/// Reads the actions file. A missing file means no actions; problems in
-/// it are logged and the bad sections skipped. Small and read once at
-/// startup, so the UI thread may do it.
-pub fn load(path: &Path) -> Vec<Action> {
-    let Ok(meta) = std::fs::metadata(path) else {
-        return Vec::new();
-    };
-    if meta.len() > MAX_FILE_SIZE {
-        crate::debug!("actions: {} is too big; ignored", path.display());
-        return Vec::new();
-    }
-    let text = match std::fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(err) => {
-            crate::debug!("actions: can't read {}: {err}", path.display());
-            return Vec::new();
-        }
-    };
-    let (actions, problems) = parse(&text);
-    for problem in problems {
-        crate::debug!("actions: {problem}");
-    }
-    return actions;
-}
-
-/// Parses the file's text. Returns the actions and a list of problems
-/// (sections that were skipped, and why).
-pub fn parse(text: &str) -> (Vec<Action>, Vec<String>) {
+/// The actions in config.toml, and a list of problems (actions that
+/// were skipped, and why). Touches no files.
+pub fn from_config(config: &Config) -> (Vec<Action>, Vec<String>) {
     let mut actions = Vec::new();
     let mut problems = Vec::new();
-    // The section being read: name, command, targets, line it started on.
-    let mut current: Option<(String, Option<String>, Option<String>, usize)> = None;
-    for (number, raw) in text.lines().enumerate() {
-        let line = raw.trim();
-        let number = number + 1;
-        if line.is_empty() || line.starts_with('#') || line.starts_with(';') {
-            continue;
+    for (index, table) in config.base_tables("action").into_iter().enumerate() {
+        match parse_action(table) {
+            Ok(action) => actions.push(action),
+            Err(err) => problems.push(format!("action {}: {err}", index + 1)),
         }
-        if line.starts_with('[') && line.ends_with(']') {
-            if let Some(section) = current.take() {
-                finish(section, &mut actions, &mut problems);
-            }
-            let name = line[1..line.len() - 1].trim().to_string();
-            current = Some((name, None, None, number));
-            continue;
-        }
-        let Some((key, value)) = line.split_once('=') else {
-            problems.push(format!("line {number}: expected key = value"));
-            continue;
-        };
-        let Some(section) = &mut current else {
-            problems.push(format!("line {number}: outside any [section]"));
-            continue;
-        };
-        let value = value.trim().to_string();
-        match key.trim() {
-            "command" => section.1 = Some(value),
-            "for" => section.2 = Some(value),
-            other => problems.push(format!("line {number}: unknown key {other:?}")),
-        }
-    }
-    if let Some(section) = current.take() {
-        finish(section, &mut actions, &mut problems);
     }
     if actions.len() > MAX_ACTIONS {
         problems.push(format!("only the first {MAX_ACTIONS} actions are used"));
@@ -132,64 +80,68 @@ pub fn parse(text: &str) -> (Vec<Action>, Vec<String>) {
     return (actions, problems);
 }
 
-/// Turns one parsed section into an action, or records why it can't be.
-fn finish(
-    section: (String, Option<String>, Option<String>, usize),
-    actions: &mut Vec<Action>,
-    problems: &mut Vec<String>,
-) {
-    let (name, command, targets, line) = section;
+/// One `[[action]]` table.
+fn parse_action(table: &Table) -> Result<Action, String> {
+    let mut name = None;
+    let mut command = None;
+    let mut targets = None;
+    for (key, item) in table.iter() {
+        match key {
+            "name" => name = Some(string_value(key, item)?),
+            "command" => command = Some(string_value(key, item)?),
+            "for" => targets = Some(parse_targets(item)?),
+            other => return Err(format!("unknown key {other:?}")),
+        }
+    }
+    let Some(name) = name else {
+        return Err("no name".to_string());
+    };
     if name.is_empty() || name.chars().count() > MAX_NAME_CHARS {
-        problems.push(format!(
-            "line {line}: the name must be 1 to {MAX_NAME_CHARS} characters"
-        ));
-        return;
+        return Err(format!("the name must be 1 to {MAX_NAME_CHARS} characters"));
     }
     let Some(command) = command else {
-        problems.push(format!("[{name}]: no command"));
-        return;
+        return Err(format!("{name:?} has no command"));
     };
-    let words = match split_words(&command) {
-        Ok(words) => words,
-        Err(err) => {
-            problems.push(format!("[{name}]: {err}"));
-            return;
-        }
-    };
+    let words = split_words(&command).map_err(|err| format!("{name:?}: {err}"))?;
     if words.is_empty() || words.len() > MAX_WORDS {
-        problems.push(format!(
-            "[{name}]: the command must have 1 to {MAX_WORDS} words"
+        return Err(format!(
+            "{name:?}: the command must have 1 to {MAX_WORDS} words"
         ));
-        return;
     }
     let targets = match targets {
-        Some(text) => match parse_targets(&text) {
-            Ok(targets) => targets,
-            Err(err) => {
-                problems.push(format!("[{name}]: {err}"));
-                return;
-            }
-        },
+        Some(targets) => targets,
         None => vec![Target::Files, Target::Folders],
     };
-    actions.push(Action {
+    return Ok(Action {
         name,
         words,
         targets,
     });
 }
 
-fn parse_targets(text: &str) -> Result<Vec<Target>, String> {
+fn string_value(key: &str, item: &TomlItem) -> Result<String, String> {
+    return match item.as_str() {
+        Some(text) => Ok(text.to_string()),
+        None => Err(format!("{key} must be a string")),
+    };
+}
+
+/// `for = ["files", "*.jpg"]`.
+fn parse_targets(item: &TomlItem) -> Result<Vec<Target>, String> {
+    let Some(array) = item.as_array() else {
+        return Err("for must be a list like [\"files\", \"folders\"]".to_string());
+    };
     let mut targets = Vec::new();
-    for part in text.split(',') {
-        let part = part.trim();
-        let target = match part {
-            "" => continue,
+    for value in array.iter() {
+        let Some(part) = value.as_str() else {
+            return Err("for must hold strings".to_string());
+        };
+        let target = match part.trim() {
             "files" => Target::Files,
             "folders" => Target::Folders,
             "background" => Target::Background,
-            _ if Glob::has_wildcards(part) => Target::Pattern(Glob::case_insensitive(part)),
-            _ => return Err(format!("unknown target {part:?} in for")),
+            part if Glob::has_wildcards(part) => Target::Pattern(Glob::case_insensitive(part)),
+            part => return Err(format!("unknown target {part:?} in for")),
         };
         targets.push(target);
     }
@@ -434,19 +386,22 @@ mod tests {
         };
     }
 
-    const SAMPLE: &str = "
+    const SAMPLE: &str = r#"
 # Comments and blank lines are fine.
-[Open in terminal]
-command = xfce4-terminal --working-directory=%d
-for = folders, background
+[[action]]
+name = "Open in terminal"
+command = "xfce4-terminal --working-directory=%d"
+for = ["folders", "background"]
 
-[Edit]
-command = codium %F
+[[action]]
+name = "Edit"
+command = "codium %F"
 
-[Convert to PNG]
-command = convert %f \"%f.png\"
-for = *.jpg, *.WEBP
-";
+[[action]]
+name = "Convert to PNG"
+command = 'convert %f "%f.png"'
+for = ["*.jpg", "*.WEBP"]
+"#;
 
     #[test]
     fn parses_sections() {
@@ -503,7 +458,7 @@ for = *.jpg, *.WEBP
 
     #[test]
     fn names_are_arguments_not_shell_code() {
-        let (actions, _) = parse("[x]\ncommand = echo %n %%n 100%\n");
+        let (actions, _) = parse("[[action]]\nname = \"x\"\ncommand = \"echo %n %%n 100%\"\n");
         let item = file("/tmp/a; rm -rf ~ $(boom)");
         let line = &actions[0].command_lines(&[item], Path::new("/tmp"))[0];
         assert_eq!(strings(line), ["echo", "a; rm -rf ~ $(boom)", "%n", "100%"]);
@@ -518,7 +473,7 @@ for = *.jpg, *.WEBP
             path: Path::new(raw),
             is_dir: false,
         };
-        let (actions, _) = parse("[x]\ncommand = open %f\n");
+        let (actions, _) = parse("[[action]]\nname = \"x\"\ncommand = \"open %f\"\n");
         let line = &actions[0].command_lines(&[item], Path::new("/tmp"))[0];
         assert_eq!(line[1].as_bytes(), b"/tmp/caf\xe9.txt");
     }
@@ -536,33 +491,43 @@ for = *.jpg, *.WEBP
 
     #[test]
     fn problems_skip_sections_not_files() {
-        let text = "
-stray = 1
-[No command]
-for = files
-[Bad target]
-command = x
-for = everything
-[Good]
-command = x
-color = red
-";
+        let text = r#"
+[[action]]
+name = "No command"
+for = ["files"]
+[[action]]
+name = "Bad target"
+command = "x"
+for = ["everything"]
+[[action]]
+name = "Not a list"
+command = "x"
+for = "files"
+[[action]]
+name = "Unknown key"
+command = "x"
+color = "red"
+[[action]]
+command = "no name"
+[[action]]
+name = "Good"
+command = "x"
+"#;
         let (actions, problems) = parse(text);
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].name, "Good");
-        assert_eq!(problems.len(), 4, "{problems:?}");
+        assert_eq!(problems.len(), 5, "{problems:?}");
     }
 
     #[test]
     fn the_shipped_example_parses() {
-        let (actions, problems) = parse(include_str!("../../../data/actions.example"));
+        let (actions, problems) = parse(include_str!("../../../data/config.example.toml"));
         assert!(problems.is_empty(), "{problems:?}");
         assert_eq!(actions.len(), 1);
         assert!(actions[0].applies_to(&[]));
     }
 
-    #[test]
-    fn missing_file_means_no_actions() {
-        assert!(load(Path::new("/nonexistent/itamiiru/actions")).is_empty());
+    fn parse(text: &str) -> (Vec<Action>, Vec<String>) {
+        return from_config(&Config::parse(text, ""));
     }
 }

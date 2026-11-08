@@ -585,7 +585,7 @@ mod tests {
 
     fn themed_context(name: ThemeName) -> egui::Context {
         let ctx = egui::Context::default();
-        Theme::new(name, None).install(&ctx);
+        Theme::new(name, &[]).install(&ctx);
         return ctx;
     }
 
