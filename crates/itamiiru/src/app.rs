@@ -2731,9 +2731,14 @@ mod tests {
         let notes = entry("notes.txt", EntryKind::File, 2048);
         let src = entry("src", EntryKind::Dir, 0);
         let default = Settings::default().status_fields;
-        let summary = |selected: &[&Entry]| selection_summary(selected, &default);
+        // The default leaves the name out; the dates are unknown here.
+        assert_eq!(
+            selection_summary(&[&photo], &default).as_deref(),
+            Some("3.0 MB")
+        );
+        let fields = [StatusField::Type, StatusField::Size, StatusField::Modified];
+        let summary = |selected: &[&Entry]| selection_summary(selected, &fields);
         assert_eq!(summary(&[]), None);
-        // The default leaves the name out.
         assert_eq!(summary(&[&photo]).as_deref(), Some("JPG File, 3.0 MB"));
         assert_eq!(summary(&[&src]).as_deref(), Some("Folder"));
         assert_eq!(
@@ -3602,7 +3607,8 @@ item = ["open", { name = "Tools", items = [{ name = "Deeper", items = ["mark"] }
     fn dropping_on_a_folder_and_on_the_other_pane() {
         let folder = Folder::new("dropping");
         let ctx = egui::Context::default();
-        let mut app = new_app(&ctx, &folder.0);
+        // The drop points are where the file list is without a preview pane.
+        let mut app = new_app_with_config(&ctx, &folder.0, "preview_pane = false");
         settle(&mut app, &ctx);
 
         // A file dropped on a folder on the same drive moves into it.

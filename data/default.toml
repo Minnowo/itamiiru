@@ -1,27 +1,36 @@
-# itamiiru's defaults: every setting, the colors, the custom actions and
-# the right-click menus. This file is built into itami;
-# `itami --write-config` writes it to ~/.config/itamiiru/config.toml to
-# edit (or next to it, as config.default.toml, if you already have one).
-# config.toml is read when itami starts.
+# Default settings, colors, menus and actions.
+# Generate using `itami --write-config`.
 #
-# itami never writes config.toml. What you change in the app (zoom, window
-# size, the settings page) goes to live.toml next to it, which wins over
-# config.toml. Delete a line from live.toml to go back to your value.
+# config files are:
+# ~/.config/itamiiru/config.toml
+# ~/.config/itamiiru/live.toml
 #
-# Every setting is shown with its default value.
+# itamiiru never writes config.toml. It is the base config,
+# all changes made in the app end up in live.toml.
 
-# How the file list shows files: details, list, medium_icons, large_icons,
-# extra_large_icons.
+
+# The view mode of the file list.
+# ["details", "list", "medium_icons", "large_icons", "extra_large_icons"]
 view = "details"
 
-# What the file list is sorted by: name, modified, created, type, size.
+# The sort column and order of the file list.
+# ["name", "modified", "created", "type", "size"]
 sort_column = "name"
 sort_ascending = true
 
+# The Details view's columns after Name (order matters).
+# ["modified", "created", "type", "size"]
+details_columns = ["modified", "size"]
+
+# What the status bar shows for a selected item (order matters).
+# ["name", "type", "size", "modified", "created", "path"]
+status_fields = ["size", "created", "modified"]
+
 # Show files and folders whose names start with a dot.
+# This also applies to hidden drives.
 show_hidden = false
 
-# The size of everything; 1.0 is 100%.
+# The UI scaling / zoom level (1.0 is 100%).
 zoom = 1.0
 
 # The side pane's width, in points.
@@ -32,57 +41,240 @@ window_width = 900
 window_height = 600
 window_maximized = false
 
-# The Details view's columns after Name, in order: modified, created,
-# type, size.
-details_columns = ["modified", "type", "size"]
-
-# What the status bar shows for one selected item, in order: name, type,
-# size, modified, created, path.
-status_fields = ["type", "size", "modified"]
-
 # Delete moves to the trash; false deletes permanently (after asking).
 use_trash = true
 
-# Drag files out to other apps.
+# Enable drag and drop to and from other apps.
 drag_and_drop = true
+
+# Enable drag and drop onto folders, tabs, drives, and between split panes.
+drag_within = true
 
 # Drag from empty space to select with a box.
 drag_select = true
 
-# Drag files onto folders and into the other pane.
-drag_within = true
-
-# The toolbar shows Cut, Copy, Paste, Rename and Delete as icons instead
-# of their names.
+# The toolbar shows Cut, Copy, Paste, Rename and Delete as icons instead of their names.
 toolbar_icons = false
 
-# Shade every other row of the Details view.
+# Alternate row colors in detail view.
 striped_rows = false
 
-# The color theme: ponkotsu, windows10, or custom (the colors in [colors]
-# below).
+# The color theme. When set to "custom", the colors set in the config file are used.
+# ["ponkotsu", "windows10", "custom"]
 theme = "ponkotsu"
 
-# Show changes to the folder on screen, and to the drives, as they happen.
+# Auto detect new files and drives.
+# This is done by polling every x number of seconds as of right now.
 auto_refresh_folder = true
 auto_refresh_drives = true
 
-# Image previews in the icon views.
+# Load image previews in the icon views.
 thumbnails = true
 
-# The preview pane on the right; with preview_auto_hide, only when there's
-# a picture or text to show. Its width is in points.
-preview_pane = false
-preview_auto_hide = false
+# Show the file preview pane.
+preview_pane = true
 preview_width = 300
 
-# The colors of the custom theme (theme = "custom"), by ponkotsu role name
-# (https://github.com/Minnowo/ponkotsu-css). They start out as ponkotsu's;
-# change any of them, or leave some out to keep ponkotsu's. Colors are
-# #rrggbb or #rrggbbaa. ponkotsu's CSS names work too:
-# --color-c-primary = "#dcc496". The other themes don't use these.
+# Only show the file preview pane when a file is selected and can be previewed.
+preview_auto_hide = true
+
+
+# Custom actions are commands for the right-click menus.
+# The format goes as follows:
+#
+# [action.<id>]
+# name    = "Menu text to show"
+# command = "command to run"
+# for     = ["files", "folders", "*.some_file_type"]
+#
+# Where:
+#   <id>          is the ID used to assign the action into a menu.
+#   name    = ""  is the text the menu item will show.
+#
+#   command = ""  is the program and its arguments, it is split like a shell.
+#                 Placeholders in the command:
+#                   %f  the item's path; with several selected, the command runs once per selected item
+#                   %F  all selected paths, as separate arguments, run once
+#                   %d  the folder: a folder itself, otherwise the one the file is in
+#                   %n  the item's name
+#                   %%  a percent sign
+#
+#                 The command is not run by a shell, so pipes (|), redirects (>), ~ and
+#                 $VARS don't work in it. To use them, run sh yourself, and hand it the
+#                 path as an argument after the script, where the script reads it as $1:
+#                   command = "sh -c 'gzip -c \"$1\" > \"$1.gz\"' sh %f"
+#                 Don't write %f inside the script itself: the path is pasted in as is,
+#                 and a file named like a command would run that command.
+#
+#   for     = []  determines if the menu action will appear based on the selected item.
+#                 If multiple items are selected, the action appears if each item matches the filter.
+#                   "files"     matches any file
+#                   "folders"   matches any folder
+#
+#                   "<pattern>" matches the pattern by item name (letter casing doesn't matter).
+#                               `*`    matches zero or more characters
+#                               `?`    matches one character
+#                               [abc]  matches only one character in ['a', 'b', 'c']
+#                               [a-z]  matches only one character in ['a', 'b', 'c', .... 'z']
+#                               [!abc] matches any one character not in ['a', 'b', 'c']
+#
+#                   Some example patterns:
+#                     "*.jpg"       names ending in ".jpg" (or ".JPG")
+#                     "*.tar.*"     tar archives: "a.tar.gz", "a.tar.xz", ...
+#                     "*.mp[34]"    names ending in ".mp3" or ".mp4"
+#                     "IMG_????.*"  "IMG_" and four characters, then any extension
+#                     "[!.]*"       names that don't start with a dot
+#                     "*"           anything (like ["files", "folders"])
+#
+#                   Without for, the action shows for ["files", "folders"].
+#
+# Here are some examples:
+#
+# Open the a folder in the terminal:
+# ```
+# [action.open_terminal]
+# name = "Open in terminal"
+# command = "x-terminal-emulator --working-directory=%d"
+# for = ["folders"]
+# ```
+#
+# Extract zip files using 7-Zip:
+# ```
+# [action.extract_here]
+# name = "Extract here"
+# command = "7z x %f -o%d"
+# for = ["*.zip", "*.7z"]
+# ```
+#
+# Open with VSCode, for files and folders:
+# ```
+# [action.open_vscode]
+# name = "Open with VSCode"
+# command = "code %F"
+# ```
+
+
+# Defines right-click menus in parts of the app.
+# Each menu definition contains a list of commands:
+#
+#   "<command-id>"                                 a built-in command or a user-defined action
+#   "---"                                          a menu separator
+#   { id = "<command-id>", name = "..." }          a command/action but with a custom name
+#   { id = "<command-id>", for = [...] }           a command/action but with a custom filter
+#   { name = "...", for = [...], items = [...] }   a submenu (which can hold more submenus)
+#
+# Built-in commands, and the menus they work in, and what they do:
+#   open                  item, bookmark, place, drive               open a file or folder
+#   open_in_new_tab       item, bookmark, place, drive               open a folder in a new tab
+#   pin                   item, background, bookmark, place, drive   pin or unpin a folder from bookmarks
+#   copy_path             item, background, bookmark, place, drive   copy the selected items' paths
+#   cut                   item                                       cut a file or folder
+#   copy                  item                                       copy a file or folder
+#   paste                 item, background                           paste a file or folder
+#   copy_to_other_pane    item                                       in split view, copy an item to the other panel
+#   move_to_other_pane    item                                       in split view, move an item to the other panel
+#   rename                item                                       rename a file or folder
+#   trash                 item                                       move an item to the trash
+#   delete                item                                       permanently delete an item
+#   new_folder            background                                 make a new folder
+#   sort_by               background                                 change the view sort column / direction
+#   select_all            background                                 select all items
+#   refresh               background                                 reload the file list
+#   toggle_hidden         background                                 toggle hidden files
+#   toggle_preview        item, background                           toggle the preview panel
+#   toggle_split          item, background                           toggle split view
+#   settings              item, background                           open settings
+#   mount                 drive                                      mount a drive
+#   unmount               drive                                      unmount a drive
+#   eject                 drive                                      eject a drive
+#
+# Built-in commands hide or grey out by themselves when they can't be used.
+#
+# Here are some examples (using the custom actions from the above examples):
+#
+# Add 7-Zip submenu for archives and VSCode to open files/folders:
+# ```
+# item = [
+#   "open",
+#   "open_vscode",
+#   { name = "7-Zip", for = ["*.zip", "*.7z"], items = ["extract_here"] },
+#   "---",
+#   "cut", "copy",
+# ]
+# ```
+[menu]
+
+# Right-click on files and folders in the file list.
+# Actions run on the selection.
+item = [
+  "open", "open_in_new_tab", "pin",
+  "---",
+  "cut", "copy", "paste", "copy_path", "copy_to_other_pane", "move_to_other_pane",
+  "---",
+  "rename",
+  "---",
+  "trash", "delete",
+]
+
+# Right-click on empty space in the file list. Actions run on the folder
+# on screen.
+background = [
+  "paste", "new_folder", "pin",
+  "---",
+  "sort_by", "select_all", "refresh", "toggle_hidden",
+]
+
+# Right-click on a bookmark, under Bookmarks in the side pane.
+bookmark = ["open", "open_in_new_tab", "copy_path", "---", "pin"]
+
+# Right-click on a folder under Quick access in the side pane (Home,
+# Desktop, Downloads, ...), a folder on This PC, or a network place.
+place = ["open", "open_in_new_tab", "copy_path"]
+
+# Right-click on a drive, under This PC in the side pane or on the This PC
+# page, mounted or not. Actions run on where it's mounted, and are greyed
+# out on a drive that isn't.
+drive = ["mount", "open", "open_in_new_tab", "copy_path", "---", "unmount", "eject"]
+
+
+# The same menus in the file dialog (itami --pick), the one apps show for
+# Open and Save. A menu left out of config.toml's [picker_menu] is the
+# one here, not the one from [menu].
+[picker_menu]
+# Right-click on files and folders.
+item = [
+  "open", "pin",
+  "---",
+  "cut", "copy", "paste", "copy_path",
+  "---",
+  "rename", "trash", "delete",
+]
+# Right-click on empty space.
+background = [
+  "paste", "new_folder", "pin",
+  "---",
+  "sort_by", "select_all", "refresh", "toggle_hidden",
+]
+# Right-click on a bookmark in the side pane.
+bookmark = ["open", "copy_path", "---", "pin"]
+# Right-click on a Quick access folder, a folder on This PC, or a network
+# place.
+place = ["open", "copy_path"]
+# Right-click on a drive.
+drive = ["mount", "open", "copy_path", "---", "unmount", "eject"]
+
+
+# The colors to use when theme = "custom".
+# These follow ponkotsu role names (https://github.com/Minnowo/ponkotsu-css).
+# You can generate themes via https://minnowo.github.io/ponkotsu.
+#
+# If <x> is a background color, then on-<x> is the foreground color for <x>.
+# on-<x> should always be readable as a foreground color on <x>.
+#
+# Colors are "#rrggbb" or "#rrggbbaa". A role left out keeps ponkotsu's color.
+# ponkotsu's CSS names work too: --color-c-primary = "#dcc496".
 [colors]
-# Accents: buttons, links, the selection, errors. Text on a fill X uses on-X.
+# Accents: buttons, links, the selection, errors.
 primary = "#dcc496"
 on-primary = "#402d00"
 primary-container = "#6e5c36"
@@ -187,133 +379,3 @@ success-hover-tint = "#b7cdb01f"
 success-focus-tint = "#b7cdb03d"
 on-surface-hover-tint = "#e8e1db1f"
 on-surface-focus-tint = "#e8e1db3d"
-
-# Custom actions: commands for the right-click menus. Each
-# [action.<id>] is one; the menus below list them by id.
-#   name    = the menu text.
-#   command = the program and its arguments. Split into words like a shell
-#             would ("quotes" and 'quotes' keep spaces), but never run
-#             through a shell, so odd file names can't run anything.
-#   for     = which items it shows for (default: ["files", "folders"]):
-#             "files", "folders", or name patterns like "*.jpg" (upper and
-#             lower case don't matter). It shows when every item matches.
-#             The items are the selection in the item menu, and the folder
-#             itself in the others (the folder on screen for background,
-#             the bookmark, the place, the drive).
-#
-# Placeholders in the command:
-#   %f  the item's path; with several selected, the command runs once each
-#   %F  all selected paths, as separate arguments, run once
-#   %d  the folder: a folder itself, otherwise the one the file is in
-#   %n  the item's name
-#   %%  a percent sign
-# To use a shell anyway: command = "sh -c 'some | pipeline \"$1\"' sh %f"
-# (pass paths as arguments like this, never inside the quoted script).
-# TOML tip: 'single quotes' need no escaping: command = 'convert %f "%f.png"'
-#
-# There are none by default; for example:
-#
-# [action.open_terminal]
-# name = "Open in terminal"
-# command = "x-terminal-emulator --working-directory=%d"
-# for = ["folders"]
-#
-# [action.extract_here]
-# name = "Extract here"
-# command = "7z x %f -o%d"
-# for = ["*.zip", "*.7z"]
-
-# The right-click menus. Each is a list of entries:
-#   "id"                         a built-in command or an action
-#   "---"                        a separator
-#   { id = "...", name = "..." } an entry with its own name
-#   { id = "...", for = [...] }  an entry shown only for some items
-#                                (instead of the action's own for)
-#   { name = "...", for = [...], items = [...] }
-#                                a submenu; submenus can hold submenus
-# A menu in config.toml replaces the same menu here; menus left out of it
-# stay as they are here. Built-in commands hide or grey out by themselves
-# when they can't be used (Paste with nothing to paste, Mount on a mounted
-# drive). Separators at the ends, two in a row, and submenus with nothing
-# to show are left out.
-#
-# Built-in commands, and the menus they work in:
-#   open                  item, bookmark, place, drive
-#   open_in_new_tab       item (a folder), bookmark, place, drive
-#   pin                   item (a folder), background, bookmark, place, drive
-#                         (Pin to / Unpin from Bookmarks)
-#   copy_path             item, background, bookmark, place, drive
-#   cut, copy             item
-#   paste                 item, background
-#   copy_to_other_pane    item (split view)
-#   move_to_other_pane    item (split view)
-#   rename, trash, delete item (delete: permanently, after asking)
-#   new_folder            background
-#   sort_by               background (a submenu of columns)
-#   select_all, refresh   background
-#   toggle_hidden         background
-#   toggle_preview        item, background
-#   toggle_split          item, background
-#   settings              item, background
-#   mount, unmount, eject drive (removable drives)
-#
-# Example: a 7-Zip submenu for archives, in the item menu.
-#   item = [
-#     "open",
-#     { name = "7-Zip", for = ["*.zip", "*.7z"], items = ["extract_here"] },
-#     "---",
-#     "cut", "copy",
-#   ]
-
-[menu]
-# Right-click on files and folders in the file list. Actions run on the
-# selection.
-item = [
-  "open", "open_in_new_tab", "pin",
-  "---",
-  "cut", "copy", "paste", "copy_path", "copy_to_other_pane", "move_to_other_pane",
-  "---",
-  "rename", "trash", "delete",
-]
-# Right-click on empty space in the file list. Actions run on the folder
-# on screen.
-background = [
-  "paste", "new_folder", "pin",
-  "---",
-  "sort_by", "select_all", "refresh", "toggle_hidden",
-]
-# Right-click on a bookmark, under Bookmarks in the side pane.
-bookmark = ["open", "open_in_new_tab", "copy_path", "---", "pin"]
-# Right-click on a folder under Quick access in the side pane (Home,
-# Desktop, Downloads, ...), a folder on This PC, or a network place.
-place = ["open", "open_in_new_tab", "copy_path"]
-# Right-click on a drive, under This PC in the side pane or on the This PC
-# page, mounted or not. Actions run on where it's mounted, and are greyed
-# out on a drive that isn't.
-drive = ["mount", "open", "open_in_new_tab", "copy_path", "---", "unmount", "eject"]
-
-# The same menus in the file dialog (itami --pick), the one apps show for
-# Open and Save. A menu left out of config.toml's [picker_menu] is the
-# one here, not the one from [menu].
-[picker_menu]
-# Right-click on files and folders.
-item = [
-  "open", "pin",
-  "---",
-  "cut", "copy", "paste", "copy_path",
-  "---",
-  "rename", "trash", "delete",
-]
-# Right-click on empty space.
-background = [
-  "paste", "new_folder", "pin",
-  "---",
-  "sort_by", "select_all", "refresh", "toggle_hidden",
-]
-# Right-click on a bookmark in the side pane.
-bookmark = ["open", "copy_path", "---", "pin"]
-# Right-click on a Quick access folder, a folder on This PC, or a network
-# place.
-place = ["open", "copy_path"]
-# Right-click on a drive.
-drive = ["mount", "open", "copy_path", "---", "unmount", "eject"]

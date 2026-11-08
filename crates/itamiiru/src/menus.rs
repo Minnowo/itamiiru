@@ -695,6 +695,7 @@ mod tests {
                 "Copy path",
                 "---",
                 "Rename",
+                "---",
                 "Move to trash",
                 "Delete permanently",
             ]
@@ -720,6 +721,7 @@ mod tests {
                 "Move to \"Docs\"",
                 "---",
                 "Rename (off)",
+                "---",
                 "Delete permanently",
             ]
         );
