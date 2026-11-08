@@ -289,8 +289,18 @@ fn write_config() {
         std::process::exit(1);
     };
     // Old config files move into config.toml first, or they'd be skipped
-    // once it exists.
+    // once it exists. What they make is the defaults with the old files'
+    // actions and colors in it, so that's the file to write.
+    let existed = dir.join(config::CONFIG_FILE).exists();
     migrate::run(&dir);
+    let config_toml = dir.join(config::CONFIG_FILE);
+    if !existed && config_toml.exists() {
+        println!(
+            "Wrote {}: the defaults, with the actions and colors from the old files.",
+            config_toml.display()
+        );
+        return;
+    }
     match config::write_defaults(&dir) {
         Ok(path) if path.ends_with(config::CONFIG_FILE) => {
             println!("Wrote {}", path.display());

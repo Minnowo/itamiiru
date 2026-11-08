@@ -1,6 +1,7 @@
 //! One-time move from the old config files to config.toml and live.toml.
 //! The old `config` (`key=value` lines the app wrote) becomes live.toml;
-//! the hand-written `actions` and `theme` files become config.toml's
+//! config.toml is the built-in defaults (as `itami --write-config` writes
+//! them) with the hand-written `actions` and `theme` files in it, as
 //! `[action.<id>]` tables (placed in the item and background menus where
 //! custom actions used to show) and `[colors]`. The old files are left
 //! alone.
@@ -20,8 +21,9 @@ const OLD_ACTIONS: &str = "actions";
 const OLD_THEME: &str = "theme";
 
 const CONFIG_HEADER: &str = "\
-# Moved here by itami from the old actions and theme files, which are
-# no longer read. See data/default.toml for every setting and menu.
+# Made by itami from its defaults and the old actions and theme files,
+# which are no longer read.
+#
 ";
 
 /// Moves the old files' contents into the new ones, if there are old
@@ -62,11 +64,24 @@ pub fn convert(
     old_actions: Option<&str>,
     old_theme: Option<&str>,
 ) -> (String, Option<String>) {
-    let mut document = DocumentMut::new();
+    let mut document: DocumentMut = config::DEFAULTS
+        .parse()
+        .expect("the built-in defaults are valid TOML (tested)");
     if let Some(text) = old_theme {
         let colors = convert_theme(text);
         if !colors.is_empty() {
-            document.insert("colors", Item::Table(colors));
+            let table = document
+                .entry("colors")
+                .or_insert(Item::Table(Table::new()))
+                .as_table_mut()
+                .expect("the defaults' colors are a table (tested)");
+            // Through the existing slot, so the comments above a role stay.
+            for (role, color) in colors.iter() {
+                match table.get_mut(role) {
+                    Some(slot) => *slot = color.clone(),
+                    None => _ = table.insert(role, color.clone()),
+                }
+            }
         }
     }
     if let Some(text) = old_actions {
@@ -186,17 +201,26 @@ fn convert_actions(text: &str, document: &mut DocumentMut) {
         return;
     }
     document.insert("action", Item::Table(tables));
-    let mut menus = Table::new();
+    let menus = document
+        .entry("menu")
+        .or_insert(Item::Table(Table::new()))
+        .as_table_mut()
+        .expect("the defaults' menu is a table (tested)");
+    // Through the existing slot, so the comments above each menu stay.
     if !on_items.is_empty() {
-        menus.insert("item", value(default_menu_with("item", on_items, false)));
+        let menu = value(default_menu_with("item", on_items, false));
+        match menus.get_mut("item") {
+            Some(slot) => *slot = menu,
+            None => _ = menus.insert("item", menu),
+        }
     }
     if !on_background.is_empty() {
-        menus.insert(
-            "background",
-            value(default_menu_with("background", on_background, true)),
-        );
+        let menu = value(default_menu_with("background", on_background, true));
+        match menus.get_mut("background") {
+            Some(slot) => *slot = menu,
+            None => _ = menus.insert("background", menu),
+        }
     }
-    document.insert("menu", Item::Table(menus));
 }
 
 fn parse_old_actions(text: &str) -> Vec<OldAction> {
@@ -371,13 +395,9 @@ mod tests {
             Some("%2Fhome%2Fme")
         );
 
-        assert_eq!(
-            config.base_strings("colors"),
-            vec![
-                ("primary".to_string(), "#112233".to_string()),
-                ("surface".to_string(), "#ffffff".to_string()),
-            ]
-        );
+        let colors = config.base_strings("colors");
+        assert!(colors.contains(&("primary".to_string(), "#112233".to_string())));
+        assert!(colors.contains(&("surface".to_string(), "#ffffff".to_string())));
         let menus = menu::load(&Config::parse(config::DEFAULTS, ""), &config);
         assert!(
             menus.problems.is_empty(),
@@ -420,11 +440,35 @@ mod tests {
             "a *.jpg action still shows on empty space"
         );
         // The menus that had no actions stay the defaults.
-        assert!(!config_toml.contains("bookmark ="));
+        let defaults = Config::parse(config::DEFAULTS, "");
+        let defaults = menu::load(&defaults, &Config::default());
+        assert_eq!(
+            menus.menu(MenuKind::Bookmark, false),
+            defaults.menu(MenuKind::Bookmark, false)
+        );
         assert!(
             config_toml.contains("\n  \"open\",\n"),
             "one entry per line:\n{config_toml}"
         );
+    }
+
+    #[test]
+    fn the_new_config_is_the_defaults_with_the_old_files_in_it() {
+        let (config_toml, _) = convert(None, Some(OLD_ACTIONS_TEXT), Some(OLD_THEME_TEXT));
+        // Every comment of the defaults, so it documents itself like a
+        // config.toml from --write-config.
+        for line in config::DEFAULTS.lines() {
+            if line.starts_with('#') {
+                assert!(config_toml.contains(line), "{line:?} is missing");
+            }
+        }
+        let config = Config::parse(&config_toml, "");
+        let defaults = Config::parse(config::DEFAULTS, "");
+        assert_eq!(config.get_str("view"), defaults.get_str("view"));
+        let colors = config.base_strings("colors");
+        assert_eq!(colors.len(), defaults.base_strings("colors").len());
+        assert!(colors.contains(&("primary".to_string(), "#112233".to_string())));
+        assert_eq!(config.base_subtables("action").0.len(), 3);
     }
 
     #[test]
