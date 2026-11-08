@@ -8,12 +8,13 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Duration;
 
 use eframe::egui::{self, Key, Modifiers, Sense};
-use itamiiru_core::actions::{self, Action};
+use itamiiru_core::actions;
 use itamiiru_core::config::Config;
 use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::format::{format_local_time, format_size};
 use itamiiru_core::listing;
+use itamiiru_core::menu::{self, MenuConfig};
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg, Volume};
 use itamiiru_core::platform::{DragOut, DragState};
 use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
@@ -21,7 +22,7 @@ use itamiiru_core::thumbcache::ThumbSize;
 
 use crate::details::{self, TableAction, TableInput};
 use crate::iconview::{self, KeySteps, ThumbSource};
-use crate::menus::{Command, MenuState};
+use crate::menus::{self, Command, MenuState, PlaceCommand, PlaceMenus};
 use crate::ops_ui::{self, RunningOp};
 use crate::pane::{Filter, Pane};
 use crate::picker::{FooterAction, Picker, ProbeOutcome};
@@ -150,8 +151,11 @@ pub struct App {
     /// Dragged files can be dropped onto folders and the other pane
     /// (setting `drag_within`).
     drag_within: bool,
-    /// Custom right-click actions, from config.toml (read at startup).
-    actions: Vec<Action>,
+    /// The right-click menus and their custom actions, from the built-in
+    /// defaults and config.toml (read at startup).
+    menus: MenuConfig,
+    /// What's wrong in config.toml (or live.toml), for the settings page.
+    config_problems: Vec<String>,
     /// Items being dragged. Let go over a folder or the other pane, they
     /// move or copy there; once the pointer leaves the window with the
     /// button still down, they're dragged out to other apps.
@@ -217,10 +221,18 @@ impl App {
         theme.install(&ctx);
         let (places_tx, places_rx) = mpsc::channel();
         let thumbs = Thumbs::new(&ctx, settings.thumbnails);
-        let (actions, problems) = actions::from_config(&config);
-        for problem in problems {
-            itamiiru_core::debug!("actions: {problem}");
+        let menus = menu::load(&Config::parse(menu::DEFAULTS, ""), &config);
+        let mut config_problems = config.problems().to_vec();
+        config_problems.extend(menus.problems.iter().cloned());
+        for problem in &config_problems {
+            itamiiru_core::debug!("config: {problem}");
         }
+        // Shown once at startup; the list stays on the settings page.
+        let notice = match config_problems.len() {
+            0 => None,
+            1 => Some(("config.toml has a problem; see Settings".to_string(), 0.0)),
+            n => Some((format!("config.toml has {n} problems; see Settings"), 0.0)),
+        };
         let mut first = Pane::new(0, ctx.clone(), start, false);
         // Items from `--select` get selected when the first listing is done.
         first.after_listing.select = select;
@@ -251,7 +263,7 @@ impl App {
             places_rx,
             volumes_busy: HashSet::new(),
             bookmarks_file: places::bookmarks_file(),
-            notice: None,
+            notice,
             config,
             config_dir,
             saved_settings: settings.clone(),
@@ -275,7 +287,8 @@ impl App {
             striped_rows: settings.striped_rows,
             drag_select: settings.drag_select,
             drag_within: settings.drag_within,
-            actions,
+            menus,
+            config_problems,
             drag_out: None,
             drop_target: None,
             drag_in: None,
@@ -826,8 +839,24 @@ impl App {
             Command::ToggleSplit => self.toggle_split(),
             Command::OpenSettings => self.settings_open = true,
             Command::SetSort(sort) => self.set_sort_order(sort),
-            Command::ActionOnSelection(index) => self.run_action(index, false),
-            Command::ActionOnFolder(index) => self.run_action(index, true),
+            Command::ActionOnSelection(index) => {
+                let mut items = Vec::new();
+                for entry in self.pane().selected_entries() {
+                    items.push((entry.path.clone(), entry.is_dir()));
+                }
+                let folder = self.pane().current.clone();
+                self.run_action(index, &items, &folder);
+            }
+            Command::ActionOnFolder(index) => {
+                let folder = self.pane().current.clone();
+                self.run_action(index, &menus::folder_subject(&folder), &folder);
+            }
+            Command::CopyFolderPath => {
+                if !self.pane().this_pc {
+                    let text = paths_as_text(std::slice::from_ref(&self.pane().current));
+                    self.ctx.copy_text(text);
+                }
+            }
             Command::CopyToOtherPane => self.send_to_other_pane(false),
             Command::MoveToOtherPane => self.send_to_other_pane(true),
             Command::ToggleBookmark => self.toggle_bookmark(),
@@ -866,28 +895,22 @@ impl App {
         );
     }
 
-    /// Runs custom action `index` on the selection, or on the folder on
-    /// screen (`on_folder`, from a right-click on empty space).
-    fn run_action(&mut self, index: usize, on_folder: bool) {
-        let Some(action) = self.actions.get(index) else {
+    /// Runs custom action `index` on `items` (path, is a folder); `folder`
+    /// is the folder they're in (or the folder itself), for `%d`.
+    fn run_action(&mut self, index: usize, items: &[(PathBuf, bool)], folder: &Path) {
+        let Some(action) = self.menus.actions.get(index) else {
             return;
         };
-        let pane = self.tabs[self.active_tab].pane();
-        let selected = if on_folder {
-            Vec::new()
-        } else {
-            pane.selected_entries()
-        };
-        let mut items = Vec::new();
-        for entry in &selected {
-            items.push(actions::Item {
-                path: &entry.path,
-                is_dir: entry.is_dir(),
+        let mut subject = Vec::new();
+        for (path, is_dir) in items {
+            subject.push(actions::Item {
+                path,
+                is_dir: *is_dir,
             });
         }
         let mut errors = Vec::new();
-        for line in action.command_lines(&items, &pane.current) {
-            if let Err(err) = actions::run(&line, &pane.current) {
+        for line in action.command_lines(&subject, folder) {
+            if let Err(err) = actions::run(&line, folder) {
                 let program = line.first().map(|p| p.to_string_lossy().into_owned());
                 let program = program.unwrap_or_default();
                 errors.push(format!("{}: can't run {program}: {err}", action.name));
@@ -1666,13 +1689,18 @@ impl App {
         ui.add_space(theme::GAP_SMALL);
 
         if pane.this_pc {
+            let place_menus = PlaceMenus {
+                config: &self.menus,
+                picker: self.picker.is_some(),
+                places: &self.places,
+                busy: &self.volumes_busy,
+            };
             out.tile = thispc::show(
                 ui,
-                &self.places,
                 &self.usage,
-                &self.volumes_busy,
                 self.show_hidden,
                 pane.this_pc_selected.as_deref(),
+                &place_menus,
                 theme,
             );
             return out;
@@ -1681,29 +1709,15 @@ impl App {
             show_error(ui, theme, &pane.current, error);
             return out;
         }
-        // Which custom actions apply is only worked out while a menu may
-        // show (a right-click, or one already open), not every frame.
-        let mut actions_on_selection = Vec::new();
-        let mut actions_on_folder = Vec::new();
+        // What was right-clicked is only gathered while a menu may show (a
+        // right-click, or one already open), not every frame.
         let menu_may_show = ui
             .input(|i| i.pointer.secondary_down() || i.pointer.secondary_released())
             || egui::Popup::is_any_open(ui.ctx());
-        if menu_may_show && !self.actions.is_empty() {
-            let selected = pane.selected_entries();
-            let mut items = Vec::new();
-            for entry in &selected {
-                items.push(actions::Item {
-                    path: &entry.path,
-                    is_dir: entry.is_dir(),
-                });
-            }
-            for (index, action) in self.actions.iter().enumerate() {
-                if !items.is_empty() && action.applies_to(&items) {
-                    actions_on_selection.push((index, action.name.clone()));
-                }
-                if action.applies_to(&[]) {
-                    actions_on_folder.push((index, action.name.clone()));
-                }
+        let mut selection = Vec::new();
+        if menu_may_show {
+            for entry in pane.selected_entries() {
+                selection.push((entry.path.clone(), entry.is_dir()));
             }
         }
         let selected_folder = selected_one_folder(pane);
@@ -1719,18 +1733,20 @@ impl App {
             None => false,
         };
         let menu = MenuState {
+            folder: menus::folder_subject(&pane.current),
             selected: pane.selection.count(),
+            selected_folder: selected_folder.is_some(),
             can_paste: self.clipboard.is_some(),
             show_hidden: self.show_hidden,
+            preview_pane: self.preview_pane,
+            split,
             trash_supported: trash_supported() && self.use_trash,
-            open_in_new_tab: self.picker.is_none() && selected_folder.is_some(),
             other_pane: other_name,
             other_pane_same: other_same,
-            actions_on_selection,
-            actions_on_folder,
             sort: self.sort,
-            selected_folder: selected_folder.is_some(),
             is_bookmarked,
+            selection,
+            ..MenuState::new(&self.menus, self.picker.is_some())
         };
         let cut = match &self.clipboard {
             Some(clipboard) if clipboard.cut => &clipboard.set,
@@ -1800,12 +1816,8 @@ impl App {
         match output.tile {
             Some(TileAction::Select(path)) => self.pane_mut().this_pc_selected = Some(path),
             Some(TileAction::Open(path)) => self.pane_mut().navigate(path),
-            Some(TileAction::CopyPath(path)) => {
-                self.ctx.copy_text(path.to_string_lossy().into_owned());
-            }
             Some(TileAction::Mount(volume)) => self.mount_volume(volume),
-            Some(TileAction::Unmount(volume)) => self.eject_volume(volume, false),
-            Some(TileAction::Eject(volume)) => self.eject_volume(volume, true),
+            Some(TileAction::Menu(command)) => self.run_place_command(command),
             None => {}
         }
         match output.action {
@@ -2164,6 +2176,12 @@ impl eframe::App for App {
                 } else {
                     Some(pane.current.as_path())
                 };
+                let place_menus = PlaceMenus {
+                    config: &self.menus,
+                    picker: self.picker.is_some(),
+                    places: &self.places,
+                    busy: &self.volumes_busy,
+                };
                 sidebar_action = sidebar::show(
                     ui,
                     &self.places,
@@ -2171,7 +2189,7 @@ impl eframe::App for App {
                     &self.volumes_busy,
                     current,
                     self.show_hidden,
-                    self.picker.is_none(),
+                    &place_menus,
                     &mut self.sidebar_drop,
                     &self.theme,
                 );
@@ -2234,15 +2252,34 @@ impl App {
             SidebarAction::GoTo(path) => self.pane_mut().navigate(path),
             SidebarAction::ThisPc => self.pane_mut().show_this_pc(),
             SidebarAction::Mount(volume) => self.mount_volume(volume),
-            SidebarAction::Unmount(volume) => self.eject_volume(volume, false),
-            SidebarAction::Eject(volume) => self.eject_volume(volume, true),
-            SidebarAction::OpenInNewTab(path) => self.new_tab(Some(path), true),
-            SidebarAction::CopyPath(path) => {
-                self.ctx.copy_text(path.to_string_lossy().into_owned());
-            }
-            SidebarAction::RemoveBookmark(path) => self.edit_bookmark(path, false),
+            SidebarAction::Menu(command) => self.run_place_command(command),
             SidebarAction::Refresh => self.scan_places(),
             SidebarAction::Settings => self.settings_open = true,
+        }
+    }
+
+    /// Runs what a side pane or This PC menu picked.
+    fn run_place_command(&mut self, command: PlaceCommand) {
+        match command {
+            PlaceCommand::Open(path) => self.pane_mut().navigate(path),
+            PlaceCommand::OpenInNewTab(path) => {
+                if self.picker.is_none() {
+                    self.new_tab(Some(path), true);
+                }
+            }
+            PlaceCommand::TogglePin(path) => {
+                let add = !self.places.is_bookmarked(&path);
+                self.edit_bookmark(path, add);
+            }
+            PlaceCommand::CopyPath(path) => {
+                self.ctx.copy_text(path.to_string_lossy().into_owned());
+            }
+            PlaceCommand::Mount(volume) => self.mount_volume(volume),
+            PlaceCommand::Unmount(volume) => self.eject_volume(volume, false),
+            PlaceCommand::Eject(volume) => self.eject_volume(volume, true),
+            PlaceCommand::RunAction(index, path) => {
+                self.run_action(index, &menus::folder_subject(&path), &path);
+            }
         }
     }
 
@@ -2302,8 +2339,13 @@ impl App {
         }
         let before = self.options();
         let mut options = before.clone();
-        self.settings_open =
-            settings_page::show(ctx, &self.theme, &mut options, self.config_dir.as_deref());
+        self.settings_open = settings_page::show(
+            ctx,
+            &self.theme,
+            &mut options,
+            self.config_dir.as_deref(),
+            &self.config_problems,
+        );
         if options != before {
             self.apply_options(options);
         }
@@ -3161,17 +3203,21 @@ mod tests {
         let folder = Folder::new("actions");
         let ctx = egui::Context::default();
         let config = r#"
-[[action]]
+[action.mark]
 name = "Mark here"
 command = "touch %d/marker"
-for = ["folders", "background"]
-[[action]]
+for = ["folders"]
+[action.jpg]
 name = "Only for jpg"
 command = "true"
 for = ["*.jpg"]
+[menu]
+item = ["open", "mark", "jpg", "---", "copy"]
+background = ["mark", "---", "refresh"]
 "#;
         let mut app = new_app_with_config(&ctx, &folder.0, config);
-        assert_eq!(app.actions.len(), 2);
+        assert_eq!(app.menus.actions.len(), 2);
+        assert!(app.menus.problems.is_empty(), "{:?}", app.menus.problems);
         settle(&mut app, &ctx);
 
         // On a folder: %d is that folder.
@@ -3195,11 +3241,97 @@ for = ["*.jpg"]
     }
 
     #[test]
+    fn nested_submenus_open_and_run() {
+        let folder = Folder::new("submenus");
+        let ctx = egui::Context::default();
+        let config = r#"
+[action.mark]
+name = "Mark here"
+command = "touch %d/marker"
+[menu]
+item = ["open", { name = "Tools", items = [{ name = "Deeper", items = ["mark"] }] }]
+"#;
+        let mut app = new_app_with_config(&ctx, &folder.0, config);
+        assert!(app.menus.problems.is_empty(), "{:?}", app.menus.problems);
+        settle(&mut app, &ctx);
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let alpha = texts.iter().find(|(t, _)| t == "alpha").expect("alpha").1;
+        let press = |pressed| Event::PointerButton {
+            pos: alpha.center(),
+            button: PointerButton::Secondary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(&mut app, &ctx, vec![Event::PointerMoved(alpha.center())]);
+        frame(&mut app, &ctx, vec![press(true)]);
+        frame(&mut app, &ctx, vec![press(false)]);
+        // Hovering a submenu opens it.
+        for name in ["Tools", "Deeper"] {
+            let texts = frame_texts(&mut app, &ctx, Vec::new());
+            let names: Vec<&String> = texts.iter().map(|(t, _)| t).collect();
+            let rect = texts
+                .iter()
+                .find(|(t, _)| t == name)
+                .unwrap_or_else(|| panic!("{name} in {names:?}"))
+                .1;
+            for _ in 0..3 {
+                frame(&mut app, &ctx, vec![Event::PointerMoved(rect.center())]);
+            }
+        }
+        let texts = frame_texts(&mut app, &ctx, Vec::new());
+        let names: Vec<&String> = texts.iter().map(|(t, _)| t).collect();
+        let mark = texts
+            .iter()
+            .find(|(t, _)| t == "Mark here")
+            .unwrap_or_else(|| panic!("Mark here in {names:?}"))
+            .1;
+        click(&mut app, &ctx, mark.center());
+        assert!(
+            wait_for(&folder.0.join("alpha/marker")),
+            "ran from two levels down"
+        );
+    }
+
+    #[test]
+    fn config_problems_are_reported() {
+        let folder = Folder::new("problems");
+        let ctx = egui::Context::default();
+        let config = "[menu]\nitem = [\"open\", \"no_such_thing\", \"cut\"]\n\
+                      drive = [\"rename\"]\n";
+        let app = new_app_with_config(&ctx, &folder.0, config);
+        assert_eq!(app.config_problems.len(), 2, "{:?}", app.config_problems);
+        assert_eq!(
+            app.notice.as_ref().map(|(text, _)| text.as_str()),
+            Some("config.toml has 2 problems; see Settings")
+        );
+        // The rest of the menu still works.
+        assert_eq!(app.menus.menu(menu::MenuKind::Item, false).len(), 2);
+
+        let app = new_app_with_config(&ctx, &folder.0, "view = [");
+        assert_eq!(app.config_problems.len(), 1, "{:?}", app.config_problems);
+        assert!(app.config_problems[0].starts_with("config.toml is not valid TOML"));
+        assert!(new_app(&ctx, &folder.0).notice.is_none());
+    }
+
+    #[test]
+    fn side_menu_actions_run_on_their_folder() {
+        let folder = Folder::new("sideaction");
+        let ctx = egui::Context::default();
+        let config = "[action.mark]\nname = \"Mark\"\ncommand = \"touch %f/marker\"\n\
+                      [menu]\nbookmark = [\"mark\"]\n";
+        let mut app = new_app_with_config(&ctx, &folder.0, config);
+        assert!(app.menus.problems.is_empty(), "{:?}", app.menus.problems);
+        let bookmark = folder.0.join("alpha");
+        app.run_place_command(PlaceCommand::RunAction(0, bookmark.clone()));
+        assert!(wait_for(&bookmark.join("marker")), "ran on the bookmark");
+    }
+
+    #[test]
     fn a_missing_program_is_reported() {
         let folder = Folder::new("badaction");
         let ctx = egui::Context::default();
-        let config = "[[action]]\nname = \"Nope\"\n\
-                      command = \"itamiiru-no-such-program %d\"\nfor = [\"background\"]\n";
+        let config = "[action.nope]\nname = \"Nope\"\n\
+                      command = \"itamiiru-no-such-program %d\"\n";
         let mut app = new_app_with_config(&ctx, &folder.0, config);
         settle(&mut app, &ctx);
         app.run_command(Command::ActionOnFolder(0));

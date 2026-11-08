@@ -30,6 +30,8 @@ pub struct Config {
     base: DocumentMut,
     /// `live.toml`.
     live: DocumentMut,
+    /// Why a file couldn't be used (not valid TOML), for the settings page.
+    problems: Vec<String>,
 }
 
 /// A setting's value, as `Config::set` writes it.
@@ -45,10 +47,17 @@ impl Config {
     /// Parses both files' text. A file that isn't valid TOML counts as
     /// empty; the error is logged.
     pub fn parse(base_text: &str, live_text: &str) -> Config {
+        let mut problems = Vec::new();
         return Config {
-            base: parse_document(CONFIG_FILE, base_text),
-            live: parse_document(LIVE_FILE, live_text),
+            base: parse_document(CONFIG_FILE, base_text, &mut problems),
+            live: parse_document(LIVE_FILE, live_text, &mut problems),
+            problems,
         };
+    }
+
+    /// Files that couldn't be used, and why.
+    pub fn problems(&self) -> &[String] {
+        return &self.problems;
     }
 
     /// Reads `config.toml` and `live.toml` from `dir`. Missing, unreadable,
@@ -71,6 +80,7 @@ impl Config {
         return Config {
             base: self.base.clone(),
             live: DocumentMut::new(),
+            problems: Vec::new(),
         };
     }
 
@@ -142,15 +152,42 @@ impl Config {
         return pairs;
     }
 
-    /// `[[name]]` tables in `config.toml`, e.g. the actions.
-    pub fn base_tables(&self, name: &str) -> Vec<&Table> {
+    /// The `[name.<key>]` tables in `config.toml`, as (key, table) in
+    /// file order, e.g. the actions. Entries that aren't tables are
+    /// returned as problems.
+    pub fn base_subtables(&self, name: &str) -> (Vec<(String, &Table)>, Vec<String>) {
         let mut tables = Vec::new();
-        if let Some(array) = self.base.get(name).and_then(Item::as_array_of_tables) {
-            for table in array.iter() {
-                tables.push(table);
+        let mut problems = Vec::new();
+        let Some(item) = self.base.get(name) else {
+            return (tables, problems);
+        };
+        let Some(parent) = item.as_table() else {
+            problems.push(format!("{name} must be a table like [{name}.some_id]"));
+            return (tables, problems);
+        };
+        for (key, item) in parent.iter() {
+            match item.as_table() {
+                Some(table) => tables.push((key.to_string(), table)),
+                None => problems.push(format!("{name}.{key} must be a table")),
             }
         }
-        return tables;
+        return (tables, problems);
+    }
+
+    /// A value in a table of `config.toml`, e.g. `[menu]` `item`.
+    pub fn base_value_in(&self, table: &str, key: &str) -> Option<&toml_edit::Value> {
+        return self.base.get(table)?.as_table_like()?.get(key)?.as_value();
+    }
+
+    /// The keys of a table in `config.toml`, in file order.
+    pub fn base_keys_in(&self, table: &str) -> Vec<String> {
+        let mut keys = Vec::new();
+        if let Some(table_like) = self.base.get(table).and_then(Item::as_table_like) {
+            for (key, _) in table_like.iter() {
+                keys.push(key.to_string());
+            }
+        }
+        return keys;
     }
 
     /// Sets a top-level key in `live.toml`, in place if it's there.
@@ -247,11 +284,14 @@ pub fn read_small(path: &Path) -> Option<String> {
     };
 }
 
-fn parse_document(name: &str, text: &str) -> DocumentMut {
+fn parse_document(name: &str, text: &str, problems: &mut Vec<String>) -> DocumentMut {
     return match text.parse::<DocumentMut>() {
         Ok(document) => document,
         Err(err) => {
             crate::debug!("config: {name} is not valid TOML, ignoring it: {err}");
+            problems.push(format!(
+                "{name} is not valid TOML, so none of it is used: {err}"
+            ));
             DocumentMut::new()
         }
     };
@@ -318,6 +358,9 @@ mod tests {
         let config = Config::parse("view = \"list", "zoom = [");
         assert_eq!(config.get_str("view"), None);
         assert_eq!(config.get_f32("zoom", 1.0), 1.0);
+        assert_eq!(config.problems().len(), 2, "{:?}", config.problems());
+        assert!(config.problems()[0].starts_with("config.toml is not valid TOML"));
+        assert!(Config::parse("", "").problems().is_empty());
     }
 
     #[test]
@@ -346,7 +389,7 @@ mod tests {
     #[test]
     fn base_tables_and_strings() {
         let config = Config::parse(
-            "[colors]\nsurface = \"#000000\"\nbad = 3\n\n[[action]]\nname = \"A\"\n\n[[action]]\nname = \"B\"\n",
+            "[colors]\nsurface = \"#000000\"\nbad = 3\n\n[action.a]\nname = \"A\"\n\n[action.b]\nname = \"B\"\n\n[menu]\nitem = [\"cut\"]\n",
             "[colors]\nsurface = \"#ffffff\"\n",
         );
         assert_eq!(
@@ -354,12 +397,18 @@ mod tests {
             vec![("surface".to_string(), "#000000".to_string())],
             "only config.toml's, and only strings"
         );
-        let names: Vec<_> = config
-            .base_tables("action")
-            .iter()
-            .map(|table| table.get("name").and_then(Item::as_str).unwrap_or(""))
-            .collect();
-        assert_eq!(names, ["A", "B"]);
+        let (tables, problems) = config.base_subtables("action");
+        assert!(problems.is_empty());
+        let mut names = Vec::new();
+        for (key, table) in &tables {
+            names.push((key.as_str(), table.get("name").and_then(Item::as_str)));
+        }
+        assert_eq!(names, [("a", Some("A")), ("b", Some("B"))]);
+        assert_eq!(config.base_keys_in("menu"), ["item"]);
+        assert!(config.base_value_in("menu", "item").is_some());
+        assert!(config.base_value_in("menu", "drive").is_none());
+        let flat = Config::parse("action = 1\n[menu]\n", "");
+        assert_eq!(flat.base_subtables("action").1.len(), 1);
     }
 
     #[test]

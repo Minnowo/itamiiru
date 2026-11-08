@@ -71,7 +71,7 @@ pub struct TableInput<'a> {
     pub theme: &'a Theme,
     /// Cut files, drawn faded until they're pasted.
     pub cut: &'a HashSet<PathBuf>,
-    pub menu: &'a MenuState,
+    pub menu: &'a MenuState<'a>,
     /// Search results: add a Folder column showing where each item is.
     pub show_folder: bool,
     /// The columns after Name, in order.

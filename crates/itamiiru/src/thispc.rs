@@ -1,14 +1,17 @@
 //! The "This PC" page: tiles for folders, drives and network places,
 //! with usage bars, like Windows Explorer.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, Align2, Rect, RichText, Sense, TextStyle};
 use itamiiru_core::format::format_size;
-use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, PlaceKind, Places, Volume};
+use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, PlaceKind, Volume};
+
+use itamiiru_core::menu::MenuKind;
 
 use crate::icons::{paint_drive_icon, paint_place_icon};
+use crate::menus::{self, PlaceCommand, PlaceMenus};
 use crate::theme::{self, Theme};
 
 const TILE_WIDTH: f32 = 260.0;
@@ -20,25 +23,25 @@ const NEARLY_FULL: f32 = 0.9;
 pub enum TileAction {
     Select(PathBuf),
     Open(PathBuf),
-    CopyPath(PathBuf),
     /// Mount a plugged-in drive, then open it.
     Mount(Volume),
-    /// Unmount a removable drive's filesystem, leaving it plugged in.
-    Unmount(Volume),
-    /// Unmount everything on a removable drive and power it off.
-    Eject(Volume),
+    /// From a right-click menu.
+    Menu(PlaceCommand),
 }
 
+/// Draws the page. The places and the volumes being mounted or ejected
+/// come with `menus`.
 pub fn show(
     ui: &mut egui::Ui,
-    places: &Places,
     usage: &HashMap<PathBuf, DiskUsage>,
-    busy: &HashSet<String>,
     show_hidden: bool,
     selected: Option<&Path>,
+    menus: &PlaceMenus,
     theme: &Theme,
 ) -> Option<TileAction> {
     let mut action = None;
+    let places = menus.places;
+    let busy = menus.busy;
 
     let mut folders: Vec<&Place> = Vec::new();
     for place in &places.quick {
@@ -67,7 +70,8 @@ pub fn show(
                 ui.horizontal_wrapped(|ui| {
                     for place in &folders {
                         let response = folder_tile(ui, place, selected, theme);
-                        handle(&response, &place.path, None, busy, &mut action);
+                        let kind = MenuKind::Place;
+                        handle(&response, kind, &place.path, None, menus, &mut action);
                     }
                 });
                 ui.add_space(theme::GAP_LARGE);
@@ -79,8 +83,9 @@ pub fn show(
                     let response =
                         drive_tile(ui, drive, usage.get(&drive.mount_point), selected, theme);
                     // Removable drives can be ejected from their menu.
-                    let eject = places.volume_at(&drive.mount_point);
-                    handle(&response, &drive.mount_point, eject, busy, &mut action);
+                    let volume = places.volume_at(&drive.mount_point);
+                    let path = &drive.mount_point;
+                    handle(&response, MenuKind::Drive, path, volume, menus, &mut action);
                 }
                 for volume in places.unmounted() {
                     let working = busy.contains(&volume.id);
@@ -88,15 +93,12 @@ pub fn show(
                     if !working && response.double_clicked() {
                         action = Some(TileAction::Mount(volume.clone()));
                     }
-                    response.context_menu(|ui| {
-                        if ui
-                            .add_enabled(!working, egui::Button::new("Mount and open"))
-                            .clicked()
-                        {
-                            action = Some(TileAction::Mount(volume.clone()));
-                            ui.close();
-                        }
-                    });
+                    let kind = MenuKind::Drive;
+                    if let Some(command) =
+                        menus::place_menu(&response, kind, None, Some(volume), menus)
+                    {
+                        action = Some(TileAction::Menu(command));
+                    }
                 }
             });
 
@@ -107,11 +109,13 @@ pub fn show(
                     for drive in &network_drives {
                         let response =
                             drive_tile(ui, drive, usage.get(&drive.mount_point), selected, theme);
-                        handle(&response, &drive.mount_point, None, busy, &mut action);
+                        let path = &drive.mount_point;
+                        handle(&response, MenuKind::Drive, path, None, menus, &mut action);
                     }
                     for place in &places.network {
                         let response = folder_tile(ui, place, selected, theme);
-                        handle(&response, &place.path, None, busy, &mut action);
+                        let kind = MenuKind::Place;
+                        handle(&response, kind, &place.path, None, menus, &mut action);
                     }
                 });
             }
@@ -124,13 +128,14 @@ fn heading(ui: &mut egui::Ui, text: &str) {
     ui.add_space(theme::GAP_SMALL);
 }
 
-/// Click selects, double-click opens, right-click shows a small menu, with
-/// Eject for a removable drive (`eject`).
+/// Click selects, double-click opens, right-click shows menu `kind`
+/// (`volume` is set for removable drives).
 fn handle(
     response: &egui::Response,
+    kind: MenuKind,
     path: &Path,
-    eject: Option<&Volume>,
-    busy: &HashSet<String>,
+    volume: Option<&Volume>,
+    menus: &PlaceMenus,
     action: &mut Option<TileAction>,
 ) {
     if response.double_clicked() {
@@ -138,36 +143,9 @@ fn handle(
     } else if response.clicked() || response.secondary_clicked() {
         *action = Some(TileAction::Select(path.to_path_buf()));
     }
-    response.context_menu(|ui| {
-        if ui.button("Open").clicked() {
-            *action = Some(TileAction::Open(path.to_path_buf()));
-            ui.close();
-        }
-        if ui.button("Copy path").clicked() {
-            *action = Some(TileAction::CopyPath(path.to_path_buf()));
-            ui.close();
-        }
-        if let Some(volume) = eject {
-            ui.separator();
-            let enabled = !busy.contains(&volume.id);
-            let unmount = ui.add_enabled(enabled, egui::Button::new("Unmount"));
-            if unmount
-                .on_hover_text("Stays plugged in; mount it again with a click")
-                .clicked()
-            {
-                *action = Some(TileAction::Unmount(volume.clone()));
-                ui.close();
-            }
-            let eject = ui.add_enabled(enabled, egui::Button::new("Eject"));
-            if eject
-                .on_hover_text("Unmounts it and powers it off, ready to unplug")
-                .clicked()
-            {
-                *action = Some(TileAction::Eject(volume.clone()));
-                ui.close();
-            }
-        }
-    });
+    if let Some(command) = menus::place_menu(response, kind, Some(path), volume, menus) {
+        *action = Some(TileAction::Menu(command));
+    }
 }
 
 /// A plugged-in drive that isn't mounted yet: dimmed, "Not mounted"

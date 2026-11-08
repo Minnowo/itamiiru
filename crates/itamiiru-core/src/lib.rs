@@ -12,6 +12,7 @@ pub mod glob;
 pub mod imagefile;
 pub mod listing;
 pub mod md5;
+pub mod menu;
 pub mod migrate;
 pub mod mime;
 pub mod names;

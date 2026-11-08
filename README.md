@@ -25,23 +25,38 @@ xdg-desktop-portal.
   `itami --help` lists the options.
 - **Settings:** the gear at the bottom of the side pane, or Ctrl+Comma.
   Two files in `~/.config/itamiiru/` hold them:
-  - `config.toml` is yours: your defaults, colors and right-click actions.
-    itami only reads it, at startup.
+  - `config.toml` is yours: your defaults, colors and right-click menus.
+    itami only reads it, at startup; problems in it are listed on the
+    settings page.
   - `live.toml` is itami's: what you change in the app (zoom, window size,
     the settings page). It wins over `config.toml`; delete a line from it
     to go back to your `config.toml` value.
 
-  `data/config.example.toml` lists every setting with its default.
-- **Custom right-click actions:** add menu items like "Open in terminal" to
-  `config.toml`:
+  `data/default.toml` (built into itami) lists every setting with its
+  default.
+- **Right-click menus** are yours to arrange: the menus for files and
+  folders, empty space, bookmarks, places and drives are lists in
+  `config.toml`'s `[menu]` table. Add, remove and reorder entries, nest
+  submenus as deep as you like, and add your own commands:
   ```toml
-  [[action]]
-  name = "Open in terminal"
-  command = "xfce4-terminal --working-directory=%d"
-  for = ["folders", "background"]
+  [action.extract_here]
+  name = "Extract here"
+  command = "7z x %f -o%d"
+  for = ["*.zip", "*.7z"]
+
+  [menu]
+  item = [
+    "open", "open_in_new_tab", "pin",
+    { name = "7-Zip", for = ["*.zip", "*.7z"], items = ["extract_here"] },
+    "---",
+    "cut", "copy", "paste", "copy_path",
+    "---",
+    "rename", "trash", "delete",
+  ]
   ```
-  `data/config.example.toml` explains the placeholders (`%f`, `%F`, `%d`,
-  `%n`) and the `for` targets.
+  A menu you set replaces the default one; the others stay as they are.
+  `data/default.toml` has the default menus, every built-in command, and
+  the placeholders (`%f`, `%F`, `%d`, `%n`) and `for` targets.
 - **Colors:** a `[colors]` table in `config.toml` changes theme colors by
   role name, e.g. `primary = "#dcc496"`.
 - **USB drives** show up under This PC even before they're mounted: click

@@ -489,10 +489,10 @@ mod tests {
         }
     }
 
-    /// data/config.example.toml lists every setting with its default.
+    /// data/default.toml lists every setting with its default.
     #[test]
     fn the_example_lists_every_setting() {
-        let example = include_str!("../../../data/config.example.toml");
+        let example = include_str!("../../../data/default.toml");
         let mut text = String::new();
         for line in example.lines() {
             if line.starts_with('[') {

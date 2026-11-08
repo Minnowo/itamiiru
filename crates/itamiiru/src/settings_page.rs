@@ -60,13 +60,15 @@ impl Options {
     }
 }
 
-/// Draws the dialog. `config_dir` is shown so people can find the files.
+/// Draws the dialog. `config_dir` is shown so people can find the files;
+/// `problems` (what's wrong in them) are listed first.
 /// Returns false once it's closed (Done, Escape, or a click outside it).
 pub fn show(
     ctx: &egui::Context,
     theme: &Theme,
     options: &mut Options,
     config_dir: Option<&Path>,
+    problems: &[String],
 ) -> bool {
     let mut open = true;
     let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
@@ -78,11 +80,14 @@ pub fn show(
         egui::ScrollArea::vertical()
             .max_height(max_height)
             .show(ui, |ui| {
+                if !problems.is_empty() {
+                    problem_list(ui, theme, problems);
+                }
                 section(ui, theme, "Theme", |ui| {
                     for name in ThemeName::ALL {
                         ui.radio_value(&mut options.theme, name, name.label());
                     }
-                    ui.weak("Colors in the theme file, if there is one, go on top.");
+                    ui.weak("Colors in config.toml's [colors], if any, go on top.");
                 });
                 section(ui, theme, "Folders", |ui| {
                     ui.checkbox(&mut options.show_hidden, "Show hidden files")
@@ -205,6 +210,30 @@ pub fn show(
 }
 
 /// A heading and its settings on a raised surface.
+/// What's wrong in the config files, on the error colors. The rest of
+/// the config is used; these entries are skipped.
+fn problem_list(ui: &mut egui::Ui, theme: &Theme, problems: &[String]) {
+    egui::Frame::new()
+        .fill(theme.error_container)
+        .corner_radius(theme::RADIUS_MEDIUM)
+        .inner_margin(theme::PADDING)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            let title = egui::RichText::new("Problems in config.toml").strong();
+            ui.label(title.color(theme.on_error_container));
+            ui.add_space(theme::GAP_SMALL);
+            for problem in problems {
+                ui.colored_label(theme.on_error_container, problem);
+            }
+            ui.add_space(theme::GAP_SMALL);
+            ui.colored_label(
+                theme.on_error_container,
+                "These entries are skipped; the rest is used. Fix them and restart itami.",
+            );
+        });
+    ui.add_space(theme::GAP);
+}
+
 fn section(
     ui: &mut egui::Ui,
     theme: &Theme,

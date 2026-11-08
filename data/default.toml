@@ -1,0 +1,153 @@
+# itamiiru's defaults: every setting, the colors, the custom actions and
+# the right-click menus. This file is built into itami. To change
+# something, put it in ~/.config/itamiiru/config.toml (copying this whole
+# file there is fine); that file is read when itami starts.
+#
+# itami never writes config.toml. What you change in the app (zoom, window
+# size, the settings page) goes to live.toml next to it, which wins over
+# config.toml. Delete a line from live.toml to go back to your value.
+#
+# Every setting is shown with its default; uncomment to change one.
+
+# view = "details"            # details, list, medium_icons, large_icons, extra_large_icons
+# sort_column = "name"        # name, modified, created, type, size
+# sort_ascending = true
+# show_hidden = false
+# zoom = 1.0
+# sidebar_width = 220
+# window_width = 900
+# window_height = 600
+# window_maximized = false
+# details_columns = ["modified", "type", "size"]    # also: created
+# status_fields = ["type", "size", "modified"]      # also: name, created, path
+# use_trash = true
+# drag_and_drop = true        # drag files out to other apps
+# drag_select = true          # drag from empty space to select with a box
+# drag_within = true          # drag onto folders and the other pane
+# toolbar_icons = false       # Cut, Copy, Paste, Rename, Delete as icons
+# striped_rows = false        # shade every other row of the Details view
+# theme = "ponkotsu"          # ponkotsu, windows10
+# auto_refresh_folder = true
+# auto_refresh_drives = true
+# thumbnails = true
+# preview_pane = false
+# preview_auto_hide = false
+# preview_width = 300
+
+# Colors on top of the chosen theme, by ponkotsu role name
+# (https://github.com/Minnowo/ponkotsu-css). ponkotsu's CSS names work
+# too: --color-c-primary = "#dcc496".
+[colors]
+# primary = "#dcc496"
+# surface = "#2a2724"
+# on-surface = "#e8e1db"
+
+# Custom actions: commands for the right-click menus. Each
+# [action.<id>] is one; the menus below list them by id.
+#   name    = the menu text.
+#   command = the program and its arguments. Split into words like a shell
+#             would ("quotes" and 'quotes' keep spaces), but never run
+#             through a shell, so odd file names can't run anything.
+#   for     = which items it shows for (default: ["files", "folders"]):
+#             "files", "folders", or name patterns like "*.jpg" (upper and
+#             lower case don't matter). It shows when every item matches.
+#             The items are the selection in the item menu, and the folder
+#             itself in the others (the folder on screen for background,
+#             the bookmark, the place, the drive).
+#
+# Placeholders in the command:
+#   %f  the item's path; with several selected, the command runs once each
+#   %F  all selected paths, as separate arguments, run once
+#   %d  the folder: a folder itself, otherwise the one the file is in
+#   %n  the item's name
+#   %%  a percent sign
+# To use a shell anyway: command = "sh -c 'some | pipeline \"$1\"' sh %f"
+# (pass paths as arguments like this, never inside the quoted script).
+# TOML tip: 'single quotes' need no escaping: command = 'convert %f "%f.png"'
+#
+# [action.open_terminal]
+# name = "Open in terminal"
+# command = "x-terminal-emulator --working-directory=%d"
+# for = ["folders"]
+#
+# [action.extract_here]
+# name = "Extract here"
+# command = "7z x %f -o%d"
+# for = ["*.zip", "*.7z"]
+
+# The right-click menus. Each is a list of entries:
+#   "id"                         a built-in command or an action
+#   "---"                        a separator
+#   { id = "...", name = "..." } an entry with its own name
+#   { id = "...", for = [...] }  an entry shown only for some items
+#                                (instead of the action's own for)
+#   { name = "...", for = [...], items = [...] }
+#                                a submenu; submenus can hold submenus
+# A menu in config.toml replaces the same menu here. Built-in commands
+# hide or grey out by themselves when they can't be used (Paste with
+# nothing to paste, Mount on a mounted drive). Separators at the ends,
+# two in a row, and submenus with nothing to show are left out.
+#
+# Built-in commands, and the menus they work in:
+#   open                  item, bookmark, place, drive
+#   open_in_new_tab       item (a folder), bookmark, place, drive
+#   pin                   item (a folder), background, bookmark, place, drive
+#                         (Pin to / Unpin from Bookmarks)
+#   copy_path             item, background, bookmark, place, drive
+#   cut, copy             item
+#   paste                 item, background
+#   copy_to_other_pane    item (split view)
+#   move_to_other_pane    item (split view)
+#   rename, trash, delete item (delete: permanently, after asking)
+#   new_folder            background
+#   sort_by               background (a submenu of columns)
+#   select_all, refresh   background
+#   toggle_hidden         background
+#   toggle_preview        item, background
+#   toggle_split          item, background
+#   settings              item, background
+#   mount, unmount, eject drive (removable drives)
+#
+# Example: a 7-Zip submenu for archives, in the item menu.
+#   item = [
+#     "open",
+#     { name = "7-Zip", for = ["*.zip", "*.7z"], items = ["extract_here"] },
+#     "---",
+#     "cut", "copy",
+#   ]
+
+[menu]
+item = [
+  "open", "open_in_new_tab", "pin",
+  "---",
+  "cut", "copy", "paste", "copy_path", "copy_to_other_pane", "move_to_other_pane",
+  "---",
+  "rename", "trash", "delete",
+]
+background = [
+  "paste", "new_folder", "pin",
+  "---",
+  "sort_by", "select_all", "refresh", "toggle_hidden",
+]
+bookmark = ["open", "open_in_new_tab", "copy_path", "---", "pin"]
+place = ["open", "open_in_new_tab", "copy_path"]
+drive = ["mount", "open", "open_in_new_tab", "copy_path", "---", "unmount", "eject"]
+
+# The same menus in the file dialog (itami --pick). Each one left out of
+# config.toml's [picker_menu] is the one here.
+[picker_menu]
+item = [
+  "open", "pin",
+  "---",
+  "cut", "copy", "paste", "copy_path",
+  "---",
+  "rename", "trash", "delete",
+]
+background = [
+  "paste", "new_folder", "pin",
+  "---",
+  "sort_by", "select_all", "refresh", "toggle_hidden",
+]
+bookmark = ["open", "copy_path", "---", "pin"]
+place = ["open", "copy_path"]
+drive = ["mount", "open", "copy_path", "---", "unmount", "eject"]

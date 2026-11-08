@@ -8,9 +8,12 @@ use eframe::egui::{self, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::format::format_size;
 use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, Places, Volume};
 
+use itamiiru_core::menu::MenuKind;
+
 use crate::icons::{
     ButtonIcon, icon_button, paint_drive_icon, paint_eject, paint_quick_access_icon,
 };
+use crate::menus::{self, PlaceCommand, PlaceMenus};
 use crate::theme::{self, Theme};
 
 /// Height of a drive's usage bar, in points.
@@ -50,14 +53,8 @@ pub enum SidebarAction {
     ThisPc,
     /// Mount a plugged-in drive, then open it.
     Mount(Volume),
-    /// Unmount a removable drive's filesystem, leaving it plugged in.
-    Unmount(Volume),
-    /// Unmount everything on a removable drive and power it off.
-    Eject(Volume),
-    /// From the right-click menu.
-    OpenInNewTab(PathBuf),
-    CopyPath(PathBuf),
-    RemoveBookmark(PathBuf),
+    /// From a right-click menu.
+    Menu(PlaceCommand),
     /// The buttons at the bottom: look for drives and bookmarks again,
     /// and open the settings page.
     Refresh,
@@ -65,8 +62,7 @@ pub enum SidebarAction {
 }
 
 /// Draws the pane. `current` is the folder on screen, or None on This PC.
-/// `busy` holds the volumes being mounted or ejected right now. `tabs` is
-/// false in the picker, which has no tabs to open a place in.
+/// `busy` holds the volumes being mounted or ejected right now.
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut egui::Ui,
@@ -75,7 +71,7 @@ pub fn show(
     busy: &HashSet<String>,
     current: Option<&Path>,
     show_hidden: bool,
-    tabs: bool,
+    menus: &PlaceMenus,
     drop: &mut SidebarDrop,
     theme: &Theme,
 ) -> Option<SidebarAction> {
@@ -115,7 +111,8 @@ pub fn show(
                 if row.clicked() {
                     action = Some(SidebarAction::GoTo(place.path.clone()));
                 }
-                place_menu(&row, &place.path, None, busy, tabs, false, &mut action);
+                let menu = menus::place_menu(&row, MenuKind::Place, Some(&place.path), None, menus);
+                menu_action(menu, &mut action);
             }
         });
         if !places.bookmarks.is_empty() {
@@ -127,7 +124,9 @@ pub fn show(
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
-                    place_menu(&row, &place.path, None, busy, tabs, true, &mut action);
+                    let path = Some(place.path.as_path());
+                    let menu = menus::place_menu(&row, MenuKind::Bookmark, path, None, menus);
+                    menu_action(menu, &mut action);
                 }
             });
         }
@@ -165,15 +164,9 @@ pub fn show(
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(drive.mount_point.clone()));
                     }
-                    place_menu(
-                        &row,
-                        &drive.mount_point,
-                        volume,
-                        busy,
-                        tabs,
-                        false,
-                        &mut action,
-                    );
+                    let path = Some(drive.mount_point.as_path());
+                    let menu = menus::place_menu(&row, MenuKind::Drive, path, volume, menus);
+                    menu_action(menu, &mut action);
                 }
                 // Plugged in, not mounted yet: a click mounts and opens it.
                 for volume in places.unmounted() {
@@ -182,13 +175,8 @@ pub fn show(
                     if row.clicked() && !working {
                         action = Some(SidebarAction::Mount(volume.clone()));
                     }
-                    row.context_menu(|ui| {
-                        let mount = egui::Button::new("Mount and open");
-                        if ui.add_enabled(!working, mount).clicked() {
-                            action = Some(SidebarAction::Mount(volume.clone()));
-                            ui.close();
-                        }
-                    });
+                    let menu = menus::place_menu(&row, MenuKind::Drive, None, Some(volume), menus);
+                    menu_action(menu, &mut action);
                 }
             });
 
@@ -201,7 +189,9 @@ pub fn show(
                     if row.clicked() {
                         action = Some(SidebarAction::GoTo(place.path.clone()));
                     }
-                    place_menu(&row, &place.path, None, busy, tabs, false, &mut action);
+                    let menu =
+                        menus::place_menu(&row, MenuKind::Place, Some(&place.path), None, menus);
+                    menu_action(menu, &mut action);
                 }
             });
         }
@@ -209,58 +199,11 @@ pub fn show(
     return action;
 }
 
-/// The right-click menu of a folder, bookmark or drive row; removable
-/// drives (`eject`) also get Eject.
-fn place_menu(
-    row: &egui::Response,
-    path: &Path,
-    eject: Option<&Volume>,
-    busy: &HashSet<String>,
-    tabs: bool,
-    is_bookmark: bool,
-    action: &mut Option<SidebarAction>,
-) {
-    row.context_menu(|ui| {
-        if ui.button("Open").clicked() {
-            *action = Some(SidebarAction::GoTo(path.to_path_buf()));
-            ui.close();
-        }
-        if tabs && ui.button("Open in new tab").clicked() {
-            *action = Some(SidebarAction::OpenInNewTab(path.to_path_buf()));
-            ui.close();
-        }
-        if ui.button("Copy path").clicked() {
-            *action = Some(SidebarAction::CopyPath(path.to_path_buf()));
-            ui.close();
-        }
-        if is_bookmark {
-            ui.separator();
-            if ui.button("Remove from Bookmarks").clicked() {
-                *action = Some(SidebarAction::RemoveBookmark(path.to_path_buf()));
-                ui.close();
-            }
-        }
-        if let Some(volume) = eject {
-            ui.separator();
-            let enabled = !busy.contains(&volume.id);
-            let unmount = ui.add_enabled(enabled, egui::Button::new("Unmount"));
-            if unmount
-                .on_hover_text("Stays plugged in; mount it again with a click")
-                .clicked()
-            {
-                *action = Some(SidebarAction::Unmount(volume.clone()));
-                ui.close();
-            }
-            let eject = ui.add_enabled(enabled, egui::Button::new("Eject"));
-            if eject
-                .on_hover_text("Unmounts it and powers it off, ready to unplug")
-                .clicked()
-            {
-                *action = Some(SidebarAction::Eject(volume.clone()));
-                ui.close();
-            }
-        }
-    });
+/// A pick in a row's right-click menu becomes the pane's action.
+fn menu_action(menu: Option<PlaceCommand>, action: &mut Option<SidebarAction>) {
+    if let Some(command) = menu {
+        *action = Some(SidebarAction::Menu(command));
+    }
 }
 
 /// A collapsible group with a heading, open by default.
