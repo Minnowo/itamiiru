@@ -186,6 +186,9 @@ pub struct Settings {
     pub drag_select: bool,
     /// Files can be dragged onto folders and between panes.
     pub drag_within: bool,
+    /// The toolbar shows Cut, Copy, Paste, Rename and Delete as icons
+    /// instead of their names.
+    pub toolbar_icons: bool,
 }
 
 impl Default for Settings {
@@ -217,6 +220,7 @@ impl Default for Settings {
             drag_and_drop: true,
             drag_select: true,
             drag_within: true,
+            toolbar_icons: false,
         };
     }
 }
@@ -281,6 +285,7 @@ impl Settings {
             drag_and_drop: config.get_bool("drag_and_drop", d.drag_and_drop),
             drag_select: config.get_bool("drag_select", d.drag_select),
             drag_within: config.get_bool("drag_within", d.drag_within),
+            toolbar_icons: config.get_bool("toolbar_icons", d.toolbar_icons),
         };
     }
 
@@ -300,6 +305,7 @@ impl Settings {
         config.set_bool("drag_and_drop", self.drag_and_drop);
         config.set_bool("drag_select", self.drag_select);
         config.set_bool("drag_within", self.drag_within);
+        config.set_bool("toolbar_icons", self.toolbar_icons);
         config.set_bool("auto_refresh_folder", self.auto_refresh_folder);
         config.set_bool("auto_refresh_drives", self.auto_refresh_drives);
         config.set_bool("thumbnails", self.thumbnails);
@@ -362,6 +368,7 @@ mod tests {
             drag_and_drop: false,
             drag_select: false,
             drag_within: false,
+            toolbar_icons: true,
             // The rest keep their defaults.
             ..Settings::default()
         };
