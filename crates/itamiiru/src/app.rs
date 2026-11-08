@@ -221,7 +221,7 @@ impl App {
         theme.install(&ctx);
         let (places_tx, places_rx) = mpsc::channel();
         let thumbs = Thumbs::new(&ctx, settings.thumbnails);
-        let menus = menu::load(&Config::parse(menu::DEFAULTS, ""), &config);
+        let menus = menu::load(&Config::parse(itamiiru_core::config::DEFAULTS, ""), &config);
         let mut config_problems = config.problems().to_vec();
         config_problems.extend(menus.problems.iter().cloned());
         for problem in &config_problems {

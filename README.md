@@ -32,8 +32,9 @@ xdg-desktop-portal.
     the settings page). It wins over `config.toml`; delete a line from it
     to go back to your `config.toml` value.
 
-  `data/default.toml` (built into itami) lists every setting with its
-  default.
+  `itami --write-config` writes a `config.toml` with every setting, its
+  default and the default menus, ready to edit. If you already have one,
+  it's left alone and the defaults go to `config.default.toml` next to it.
 - **Right-click menus** are yours to arrange: the menus for files and
   folders, empty space, bookmarks, places and drives are lists in
   `config.toml`'s `[menu]` table. Add, remove and reorder entries, nest
@@ -55,8 +56,9 @@ xdg-desktop-portal.
   ]
   ```
   A menu you set replaces the default one; the others stay as they are.
-  `data/default.toml` has the default menus, every built-in command, and
-  the placeholders (`%f`, `%F`, `%d`, `%n`) and `for` targets.
+  The file from `itami --write-config` has the default menus, every
+  built-in command, and the placeholders (`%f`, `%F`, `%d`, `%n`) and
+  `for` targets.
 - **Colors:** a `[colors]` table in `config.toml` changes theme colors by
   role name, e.g. `primary = "#dcc496"`.
 - **USB drives** show up under This PC even before they're mounted: click

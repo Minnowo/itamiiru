@@ -141,7 +141,7 @@ The portal writes a request to the picker's **stdin**; the picker writes a respo
 | Escape | Cancel dialog / close menu / cancel a drag |
 | F2, Delete, Shift+Delete, Ctrl+C/X/V | Explorer: rename, trash, delete, clipboard |
 
-**Config** (`~/.config/itamiiru/`, D32): `config.toml` (the user's: settings, `[colors]`, `[action.<id>]`, `[menu]`, `[picker_menu]`) and `live.toml` (the app's: settings that differ from config.toml, and `[last_folder]` per app id). Settings: view, sort, `details_columns`, sidebar width, window size, zoom, hidden files, `theme`, `status_fields`, and the optional features below. Most are on the settings page; `data/default.toml` (built in) lists them all with defaults, plus the default menus. Problems in config.toml skip the bad entry, show a notice at startup, and are listed on the settings page.
+**Config** (`~/.config/itamiiru/`, D32): `config.toml` (the user's: settings, `[colors]`, `[action.<id>]`, `[menu]`, `[picker_menu]`) and `live.toml` (the app's: settings that differ from config.toml, and `[last_folder]` per app id). Settings: view, sort, `details_columns`, sidebar width, window size, zoom, hidden files, `theme`, `status_fields`, and the optional features below. Most are on the settings page; `data/default.toml` (built in) lists them all with defaults, plus the default menus, and `itami --write-config` writes it out as config.toml (or config.default.toml beside an existing one, which is never replaced). Problems in config.toml skip the bad entry, show a notice at startup, and are listed on the settings page.
 
 **Optional features.** Each lives in its own module and hooks in at one call site that checks the setting; off means the hook is skipped.
 

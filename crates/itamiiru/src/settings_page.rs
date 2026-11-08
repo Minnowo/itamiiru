@@ -184,10 +184,14 @@ pub fn show(
                             dir.join(config::LIVE_FILE).display()
                         ));
                         ui.weak(format!(
-                            "Your own defaults, colors and right-click actions go in {} \
-                             (read at startup; see the README)",
+                            "Your own defaults, colors and right-click menus go in {} \
+                             (read at startup)",
                             dir.join(config::CONFIG_FILE).display()
                         ));
+                        ui.weak(
+                            "Run itami --write-config to get one with every default \
+                             and menu in it to edit.",
+                        );
                     });
                 }
             });

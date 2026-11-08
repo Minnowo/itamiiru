@@ -638,7 +638,10 @@ mod tests {
     use itamiiru_core::menu;
 
     fn config(user: &str) -> MenuConfig {
-        let menus = menu::load(&Config::parse(menu::DEFAULTS, ""), &Config::parse(user, ""));
+        let menus = menu::load(
+            &Config::parse(itamiiru_core::config::DEFAULTS, ""),
+            &Config::parse(user, ""),
+        );
         assert!(menus.problems.is_empty(), "{:?}", menus.problems);
         return menus;
     }

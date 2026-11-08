@@ -25,9 +25,6 @@ use toml_edit::Value;
 use crate::actions::{self, Action, Targets};
 use crate::config::Config;
 
-/// The built-in defaults: every setting documented, and every menu.
-pub const DEFAULTS: &str = include_str!("../../../data/default.toml");
-
 /// Submenus deeper than this are left out (and reported).
 pub const MAX_DEPTH: usize = 16;
 /// The separator entry.
@@ -263,7 +260,7 @@ impl MenuConfig {
     }
 }
 
-/// Reads the actions and menus from `defaults` (normally `DEFAULTS`) and
+/// Reads the actions and menus from `defaults` (normally `config::DEFAULTS`) and
 /// `user` (config.toml). Entries with problems are left out and the
 /// problems listed; the rest still works.
 pub fn load(defaults: &Config, user: &Config) -> MenuConfig {
@@ -698,7 +695,7 @@ background = "paste"
 
     #[test]
     fn the_built_in_defaults_have_no_problems() {
-        let defaults = Config::parse(DEFAULTS, "");
+        let defaults = Config::parse(crate::config::DEFAULTS, "");
         assert!(defaults.problems().is_empty());
         let config = load(&defaults, &Config::default());
         assert!(config.problems.is_empty(), "{:?}", config.problems);

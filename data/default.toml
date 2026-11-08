@@ -1,42 +1,83 @@
 # itamiiru's defaults: every setting, the colors, the custom actions and
-# the right-click menus. This file is built into itami. To change
-# something, put it in ~/.config/itamiiru/config.toml (copying this whole
-# file there is fine); that file is read when itami starts.
+# the right-click menus. This file is built into itami;
+# `itami --write-config` writes it to ~/.config/itamiiru/config.toml to
+# edit (or next to it, as config.default.toml, if you already have one).
+# config.toml is read when itami starts.
 #
 # itami never writes config.toml. What you change in the app (zoom, window
 # size, the settings page) goes to live.toml next to it, which wins over
 # config.toml. Delete a line from live.toml to go back to your value.
 #
-# Every setting is shown with its default; uncomment to change one.
+# Every setting is shown with its default value.
 
-# view = "details"            # details, list, medium_icons, large_icons, extra_large_icons
-# sort_column = "name"        # name, modified, created, type, size
-# sort_ascending = true
-# show_hidden = false
-# zoom = 1.0
-# sidebar_width = 220
-# window_width = 900
-# window_height = 600
-# window_maximized = false
-# details_columns = ["modified", "type", "size"]    # also: created
-# status_fields = ["type", "size", "modified"]      # also: name, created, path
-# use_trash = true
-# drag_and_drop = true        # drag files out to other apps
-# drag_select = true          # drag from empty space to select with a box
-# drag_within = true          # drag onto folders and the other pane
-# toolbar_icons = false       # Cut, Copy, Paste, Rename, Delete as icons
-# striped_rows = false        # shade every other row of the Details view
-# theme = "ponkotsu"          # ponkotsu, windows10
-# auto_refresh_folder = true
-# auto_refresh_drives = true
-# thumbnails = true
-# preview_pane = false
-# preview_auto_hide = false
-# preview_width = 300
+# How the file list shows files: details, list, medium_icons, large_icons,
+# extra_large_icons.
+view = "details"
+
+# What the file list is sorted by: name, modified, created, type, size.
+sort_column = "name"
+sort_ascending = true
+
+# Show files and folders whose names start with a dot.
+show_hidden = false
+
+# The size of everything; 1.0 is 100%.
+zoom = 1.0
+
+# The side pane's width, in points.
+sidebar_width = 220
+
+# The window's size when not maximized, in points at 100% zoom.
+window_width = 900
+window_height = 600
+window_maximized = false
+
+# The Details view's columns after Name, in order: modified, created,
+# type, size.
+details_columns = ["modified", "type", "size"]
+
+# What the status bar shows for one selected item, in order: name, type,
+# size, modified, created, path.
+status_fields = ["type", "size", "modified"]
+
+# Delete moves to the trash; false deletes permanently (after asking).
+use_trash = true
+
+# Drag files out to other apps.
+drag_and_drop = true
+
+# Drag from empty space to select with a box.
+drag_select = true
+
+# Drag files onto folders and into the other pane.
+drag_within = true
+
+# The toolbar shows Cut, Copy, Paste, Rename and Delete as icons instead
+# of their names.
+toolbar_icons = false
+
+# Shade every other row of the Details view.
+striped_rows = false
+
+# The color theme: ponkotsu, windows10. [colors] below goes on top.
+theme = "ponkotsu"
+
+# Show changes to the folder on screen, and to the drives, as they happen.
+auto_refresh_folder = true
+auto_refresh_drives = true
+
+# Image previews in the icon views.
+thumbnails = true
+
+# The preview pane on the right; with preview_auto_hide, only when there's
+# a picture or text to show. Its width is in points.
+preview_pane = false
+preview_auto_hide = false
+preview_width = 300
 
 # Colors on top of the chosen theme, by ponkotsu role name
 # (https://github.com/Minnowo/ponkotsu-css). ponkotsu's CSS names work
-# too: --color-c-primary = "#dcc496".
+# too: --color-c-primary = "#dcc496". None by default; for example:
 [colors]
 # primary = "#dcc496"
 # surface = "#2a2724"
@@ -65,6 +106,8 @@
 # (pass paths as arguments like this, never inside the quoted script).
 # TOML tip: 'single quotes' need no escaping: command = 'convert %f "%f.png"'
 #
+# There are none by default; for example:
+#
 # [action.open_terminal]
 # name = "Open in terminal"
 # command = "x-terminal-emulator --working-directory=%d"
@@ -83,10 +126,11 @@
 #                                (instead of the action's own for)
 #   { name = "...", for = [...], items = [...] }
 #                                a submenu; submenus can hold submenus
-# A menu in config.toml replaces the same menu here. Built-in commands
-# hide or grey out by themselves when they can't be used (Paste with
-# nothing to paste, Mount on a mounted drive). Separators at the ends,
-# two in a row, and submenus with nothing to show are left out.
+# A menu in config.toml replaces the same menu here; menus left out of it
+# stay as they are here. Built-in commands hide or grey out by themselves
+# when they can't be used (Paste with nothing to paste, Mount on a mounted
+# drive). Separators at the ends, two in a row, and submenus with nothing
+# to show are left out.
 #
 # Built-in commands, and the menus they work in:
 #   open                  item, bookmark, place, drive
@@ -117,6 +161,8 @@
 #   ]
 
 [menu]
+# Right-click on files and folders in the file list. Actions run on the
+# selection.
 item = [
   "open", "open_in_new_tab", "pin",
   "---",
@@ -124,18 +170,28 @@ item = [
   "---",
   "rename", "trash", "delete",
 ]
+# Right-click on empty space in the file list. Actions run on the folder
+# on screen.
 background = [
   "paste", "new_folder", "pin",
   "---",
   "sort_by", "select_all", "refresh", "toggle_hidden",
 ]
+# Right-click on a bookmark, under Bookmarks in the side pane.
 bookmark = ["open", "open_in_new_tab", "copy_path", "---", "pin"]
+# Right-click on a folder under Quick access in the side pane (Home,
+# Desktop, Downloads, ...), a folder on This PC, or a network place.
 place = ["open", "open_in_new_tab", "copy_path"]
+# Right-click on a drive, under This PC in the side pane or on the This PC
+# page, mounted or not. Actions run on where it's mounted, and are greyed
+# out on a drive that isn't.
 drive = ["mount", "open", "open_in_new_tab", "copy_path", "---", "unmount", "eject"]
 
-# The same menus in the file dialog (itami --pick). Each one left out of
-# config.toml's [picker_menu] is the one here.
+# The same menus in the file dialog (itami --pick), the one apps show for
+# Open and Save. A menu left out of config.toml's [picker_menu] is the
+# one here, not the one from [menu].
 [picker_menu]
+# Right-click on files and folders.
 item = [
   "open", "pin",
   "---",
@@ -143,11 +199,16 @@ item = [
   "---",
   "rename", "trash", "delete",
 ]
+# Right-click on empty space.
 background = [
   "paste", "new_folder", "pin",
   "---",
   "sort_by", "select_all", "refresh", "toggle_hidden",
 ]
+# Right-click on a bookmark in the side pane.
 bookmark = ["open", "copy_path", "---", "pin"]
+# Right-click on a Quick access folder, a folder on This PC, or a network
+# place.
 place = ["open", "copy_path"]
+# Right-click on a drive.
 drive = ["mount", "open", "copy_path", "---", "unmount", "eject"]

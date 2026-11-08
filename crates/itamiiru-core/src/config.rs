@@ -17,6 +17,13 @@ const MAX_CONFIG_SIZE: u64 = 64 * 1024;
 
 pub const CONFIG_FILE: &str = "config.toml";
 pub const LIVE_FILE: &str = "live.toml";
+/// Where `write_defaults` puts the defaults when config.toml exists.
+pub const DEFAULTS_FILE: &str = "config.default.toml";
+
+/// The built-in defaults: every setting documented, the colors, and
+/// every menu. Settings not in config.toml take their defaults from the
+/// code; menus and actions from this text.
+pub const DEFAULTS: &str = include_str!("../../../data/default.toml");
 
 /// Put at the top of a new `live.toml`.
 const LIVE_HEADER: &str = "\
@@ -247,6 +254,20 @@ impl Config {
     }
 }
 
+/// Writes `DEFAULTS` into `dir` for people to edit: as config.toml if
+/// there is none yet, otherwise as config.default.toml next to it (to
+/// compare with), never touching config.toml. Returns the path written.
+pub fn write_defaults(dir: &Path) -> io::Result<PathBuf> {
+    let config = dir.join(CONFIG_FILE);
+    let path = if config.exists() {
+        dir.join(DEFAULTS_FILE)
+    } else {
+        config
+    };
+    write_atomic(&path, DEFAULTS)?;
+    return Ok(path);
+}
+
 /// The folder the config files are in.
 pub fn default_dir() -> Option<PathBuf> {
     return crate::platform::config_dir();
@@ -409,6 +430,26 @@ mod tests {
         assert!(config.base_value_in("menu", "drive").is_none());
         let flat = Config::parse("action = 1\n[menu]\n", "");
         assert_eq!(flat.base_subtables("action").1.len(), 1);
+    }
+
+    #[test]
+    fn writing_the_defaults_never_replaces_config_toml() {
+        let dir = TestDir::new("write-defaults");
+        let dir = dir.path().join("itamiiru");
+        let path = write_defaults(&dir).unwrap();
+        assert_eq!(path, dir.join(CONFIG_FILE));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULTS);
+        std::fs::write(&path, "view = \"list\"\n").unwrap();
+        // config.toml exists now: the defaults go next to it, every time.
+        for _ in 0..2 {
+            let path = write_defaults(&dir).unwrap();
+            assert_eq!(path, dir.join(DEFAULTS_FILE));
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), DEFAULTS);
+        }
+        assert_eq!(
+            std::fs::read_to_string(dir.join(CONFIG_FILE)).unwrap(),
+            "view = \"list\"\n"
+        );
     }
 
     #[test]

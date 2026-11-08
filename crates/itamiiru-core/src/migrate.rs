@@ -271,7 +271,7 @@ fn unique_id(name: &str, used: &[String]) -> String {
 /// The default `[menu]` list `key`, with `added` after its `pin` entry
 /// (after a separator too, if `separate`), one entry per line.
 fn default_menu_with(key: &str, added: Vec<toml_edit::Value>, separate: bool) -> Array {
-    let defaults = Config::parse(menu::DEFAULTS, "");
+    let defaults = Config::parse(config::DEFAULTS, "");
     let mut entries = Vec::new();
     if let Some(array) = defaults
         .base_value_in("menu", key)
@@ -378,7 +378,7 @@ mod tests {
                 ("surface".to_string(), "#ffffff".to_string()),
             ]
         );
-        let menus = menu::load(&Config::parse(menu::DEFAULTS, ""), &config);
+        let menus = menu::load(&Config::parse(config::DEFAULTS, ""), &config);
         assert!(
             menus.problems.is_empty(),
             "{:?}\n{config_toml}",

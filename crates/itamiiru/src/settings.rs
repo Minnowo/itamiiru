@@ -489,27 +489,15 @@ mod tests {
         }
     }
 
-    /// data/default.toml lists every setting with its default.
+    /// data/default.toml sets every setting to the default the code uses.
     #[test]
-    fn the_example_lists_every_setting() {
-        let example = include_str!("../../../data/default.toml");
-        let mut text = String::new();
-        for line in example.lines() {
-            if line.starts_with('[') {
-                break;
-            }
-            if let Some(pair) = line.strip_prefix("# ")
-                && let Some((pair, _)) = format!("{pair}  #").split_once("  #")
-                && pair.contains(" = ")
-            {
-                text.push_str(pair);
-                text.push('\n');
-            }
-        }
-        let config = Config::parse(&text, "");
+    fn the_defaults_file_sets_every_setting() {
+        let text = itamiiru_core::config::DEFAULTS;
+        let config = Config::parse(text, "");
+        assert!(config.problems().is_empty(), "{:?}", config.problems());
         assert_eq!(Settings::from_config(&config), Settings::default());
         for (key, _) in Settings::default().values() {
-            assert!(text.contains(&format!("{key} = ")), "{key} is missing");
+            assert!(text.contains(&format!("\n{key} = ")), "{key} is missing");
         }
     }
 

@@ -44,6 +44,7 @@ use settings::Settings;
 const USAGE: &str = "usage: itami [--foreground] [FOLDER] [--select ITEM]...
        itami --pick < request      (file dialog, used by the portal)
        itami --font-info           (which fonts are used, for bug reports)
+       itami --write-config        (write the defaults to ~/.config/itamiiru/config.toml)
 
 Started from a terminal, itami moves to the background; --foreground
 (or ITAMI_DEBUG=1) keeps it attached.";
@@ -54,6 +55,8 @@ struct Args {
     pick: bool,
     /// Print the font report and exit.
     font_info: bool,
+    /// Write the default config file and exit.
+    write_config: bool,
     /// Stay attached to the terminal instead of moving to the background.
     foreground: bool,
     path: Option<PathBuf>,
@@ -74,6 +77,10 @@ fn main() {
     };
     if args.font_info {
         fonts::print_report();
+        return;
+    }
+    if args.write_config {
+        write_config();
         return;
     }
     let debugging = std::env::var_os("ITAMI_DEBUG").is_some_and(|v| v == "1");
@@ -198,6 +205,7 @@ fn parse_args(arguments: Vec<OsString>) -> Result<Args, String> {
     let mut args = Args {
         pick: false,
         font_info: false,
+        write_config: false,
         foreground: false,
         path: None,
         select: Vec::new(),
@@ -208,6 +216,8 @@ fn parse_args(arguments: Vec<OsString>) -> Result<Args, String> {
             args.pick = true;
         } else if arg == "--font-info" {
             args.font_info = true;
+        } else if arg == "--write-config" {
+            args.write_config = true;
         } else if arg == "--foreground" {
             args.foreground = true;
         } else if arg == "--select" {
@@ -268,6 +278,36 @@ fn needs_mime(request: &Request) -> bool {
         }
     }
     return false;
+}
+
+/// `itami --write-config`: the built-in defaults as a config file to
+/// edit. An existing config.toml is never replaced; the defaults go next
+/// to it instead.
+fn write_config() {
+    let Some(dir) = config::default_dir() else {
+        eprintln!("itami: no config folder (is HOME set?)");
+        std::process::exit(1);
+    };
+    // Old config files move into config.toml first, or they'd be skipped
+    // once it exists.
+    migrate::run(&dir);
+    match config::write_defaults(&dir) {
+        Ok(path) if path.ends_with(config::CONFIG_FILE) => {
+            println!("Wrote {}", path.display());
+        }
+        Ok(path) => {
+            let existing = dir.join(config::CONFIG_FILE);
+            println!(
+                "{} exists, so it was left alone.\nWrote the defaults to {} to compare with.",
+                existing.display(),
+                path.display()
+            );
+        }
+        Err(err) => {
+            eprintln!("itami: can't write the config in {}: {err}", dir.display());
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Where to start: the picker request's folder (or the file's folder), then
@@ -383,6 +423,8 @@ mod tests {
         assert!(parse(&["--pick"]).pick);
         assert!(parse(&["--font-info"]).font_info);
         assert!(!parse(&["/tmp"]).font_info);
+        assert!(parse(&["--write-config"]).write_config);
+        assert!(!parse(&["/tmp"]).write_config);
     }
 
     #[test]
