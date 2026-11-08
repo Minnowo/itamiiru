@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use eframe::egui::{self, Key, Rect, Sense, StrokeKind, TextStyle};
+use eframe::egui::{self, Key, Sense, StrokeKind, TextStyle};
 
 use crate::icons::{Arrow, paint_arrow};
 use crate::theme::{self, Theme};
@@ -129,8 +129,7 @@ impl AddressBar {
             .x
             + 2.0 * padding
             + SEPARATOR_WIDTH;
-        let icon_lead = theme::ICON_SIZE + theme::GAP_SMALL;
-        let available = frame_rect.width() - MIN_CLICK_SPACE - icon_lead;
+        let available = frame_rect.width() - MIN_CLICK_SPACE;
         let first = first_visible(&widths, SEPARATOR_WIDTH, overflow_width, available);
 
         let inner = frame_rect.shrink2(egui::vec2(theme::GAP_SMALL, 0.0));
@@ -144,33 +143,6 @@ impl AddressBar {
         child.set_clip_rect(inner.intersect(ui.clip_rect()));
 
         let mut edit = false;
-        let icon_sz = theme::ICON_SIZE;
-        let (icon_rect, icon_resp) = child.allocate_exact_size(
-            egui::vec2(icon_sz + theme::GAP_SMALL, height),
-            Sense::click(),
-        );
-        if child.is_rect_visible(icon_rect) {
-            let actual_rect = Rect::from_center_size(
-                egui::pos2(icon_rect.left() + icon_sz / 2.0, icon_rect.center().y),
-                egui::vec2(icon_sz * 0.8, icon_sz * 0.8),
-            );
-            if current.is_none() {
-                crate::icons::paint_drive_icon(
-                    child.painter(),
-                    actual_rect,
-                    itamiiru_core::places::DriveKind::System,
-                    theme,
-                );
-            } else if current == itamiiru_core::platform::home_dir().as_deref() {
-                crate::icons::paint_home(child.painter(), actual_rect, theme);
-            } else {
-                crate::icons::paint_folder(child.painter(), actual_rect, theme);
-            }
-        }
-        if icon_resp.clicked() {
-            edit = true;
-        }
-
         if first > 0 {
             child.menu_button("...", |ui| {
                 // Hidden crumbs, nearest first, like Explorer's list.

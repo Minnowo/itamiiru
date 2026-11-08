@@ -110,7 +110,7 @@ pub fn show(
 ) -> Option<TableAction> {
     let mut action = None;
     let line_height = ui.text_style_height(&TextStyle::Body).max(theme::ICON_SIZE);
-    let row_height = (line_height + theme::GAP * 1.75).max(30.0);
+    let row_height = line_height + theme::GAP_SMALL;
     // `command` is Ctrl on Linux and Windows, Cmd on macOS.
     let modifiers = ui.input(|i| i.modifiers);
     let sort = input.sort;
@@ -158,7 +158,7 @@ pub fn show(
     let mut body_clip = Rect::NOTHING;
     let mut band_started = false;
     table
-        .header(row_height, |mut header| {
+        .header(row_height + theme::GAP_SMALL, |mut header| {
             // None means the column can't be sorted by.
             let mut headers = vec![("Name", Some(SortColumn::Name))];
             if input.show_folder {
@@ -213,7 +213,6 @@ pub fn show(
                         painter.multiply_opacity(0.5);
                     }
                     paint_entry_icon(&painter, icon_rect, entry, input.theme);
-                    ui.add_space(theme::GAP);
 
                     if let Some(editing) = rename
                         && editing.path == entry.path
