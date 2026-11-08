@@ -3,6 +3,7 @@
 //! OS-specific parts live in `platform`.
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::mpsc::Sender;
 
 use crate::listing::Wake;
@@ -121,16 +122,22 @@ impl Places {
     }
 }
 
-pub fn add_bookmark(path: &Path, label: Option<&str>) -> std::io::Result<()> {
-    return crate::platform::add_bookmark(path, label);
+/// The file bookmarks are kept in (GTK's `bookmarks` file on Linux), or
+/// None where bookmarks can't be edited yet.
+pub fn bookmarks_file() -> Option<PathBuf> {
+    return crate::platform::bookmarks_file();
 }
 
-pub fn remove_bookmark(path: &Path) -> std::io::Result<()> {
-    return crate::platform::remove_bookmark(path);
+/// Adds `path` to the bookmarks file `file`, with an optional label.
+/// Reads and writes the file: call from a worker thread.
+pub fn add_bookmark(file: &Path, path: &Path, label: Option<&str>) -> std::io::Result<()> {
+    return crate::platform::add_bookmark(file, path, label);
 }
 
-pub fn is_bookmarked(path: &Path) -> bool {
-    return crate::platform::is_bookmarked(path);
+/// Removes `path` from the bookmarks file `file`. Reads and writes the
+/// file: call from a worker thread.
+pub fn remove_bookmark(file: &Path, path: &Path) -> std::io::Result<()> {
+    return crate::platform::remove_bookmark(file, path);
 }
 
 #[derive(Debug)]
@@ -150,6 +157,13 @@ pub enum PlacesMsg {
     Ejected {
         volume: Volume,
         power_off: bool,
+        result: Result<(), String>,
+    },
+    /// A bookmark edit finished: `path` was added (`add`) or removed,
+    /// or why it couldn't be.
+    Bookmarked {
+        path: PathBuf,
+        add: bool,
         result: Result<(), String>,
     },
 }
@@ -253,6 +267,40 @@ pub fn start_eject(volume: Volume, power_off: bool, tx: Sender<PlacesMsg>, wake:
         });
     if let Err(err) = spawned {
         crate::debug!("places: could not start eject thread: {err}");
+    }
+}
+
+/// On its own thread: adds (`add`) or removes `path` in the bookmarks
+/// file `file`. Sends `PlacesMsg::Bookmarked`.
+pub fn start_bookmark(file: PathBuf, path: PathBuf, add: bool, tx: Sender<PlacesMsg>, wake: Wake) {
+    // One edit at a time: two at once would each rewrite the file from
+    // the same old text, and the second would undo the first.
+    static EDITING: Mutex<()> = Mutex::new(());
+    let spawned = std::thread::Builder::new()
+        .name("bookmark".to_string())
+        .spawn(move || {
+            // A panic in another edit leaves nothing half done: the file
+            // is replaced by a rename.
+            let _editing = match EDITING.lock() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            let result = if add {
+                add_bookmark(&file, &path, None)
+            } else {
+                remove_bookmark(&file, &path)
+            };
+            let msg = PlacesMsg::Bookmarked {
+                path,
+                add,
+                result: result.map_err(|err| err.to_string()),
+            };
+            if tx.send(msg).is_ok() {
+                wake();
+            }
+        });
+    if let Err(err) = spawned {
+        crate::debug!("places: could not start bookmark thread: {err}");
     }
 }
 

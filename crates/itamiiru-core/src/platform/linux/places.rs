@@ -170,71 +170,58 @@ fn unescape_shell(text: &str) -> String {
 }
 
 pub fn bookmarks() -> Vec<Place> {
-    let Some(config) = super::config_home() else {
+    let Some(file) = bookmarks_file() else {
         return Vec::new();
     };
-    let text = read_small(&config.join("gtk-3.0").join("bookmarks")).unwrap_or_default();
+    let text = read_small(&file).unwrap_or_default();
     return parse_bookmarks(&text);
 }
 
-/// Adds `path` as a GTK bookmark with an optional label.
-pub fn add_bookmark(path: &Path, label: Option<&str>) -> std::io::Result<()> {
-    let Some(config) = super::config_home() else {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "cannot find config directory",
-        ));
-    };
-    let file_path = config.join("gtk-3.0").join("bookmarks");
-    let text = read_small(&file_path).unwrap_or_default();
+/// GTK's bookmarks file: `$XDG_CONFIG_HOME/gtk-3.0/bookmarks`.
+pub fn bookmarks_file() -> Option<PathBuf> {
+    return Some(super::config_home()?.join("gtk-3.0").join("bookmarks"));
+}
+
+/// Adds `path` to the GTK bookmarks file `file`, with an optional label.
+/// Fails, leaving the file alone, if it can't be read in full.
+pub fn add_bookmark(file: &Path, path: &Path, label: Option<&str>) -> std::io::Result<()> {
+    let text = read_bookmarks_to_edit(file)?;
     let (new_text, changed) = add_bookmark_to_text(&text, path, label);
     if changed {
-        return write_small_atomic(&file_path, new_text.as_bytes());
+        return write_small_atomic(file, new_text.as_bytes());
     }
     return Ok(());
 }
 
-/// Removes `path` from GTK bookmarks if present.
-pub fn remove_bookmark(path: &Path) -> std::io::Result<()> {
-    let Some(config) = super::config_home() else {
-        return Ok(());
-    };
-    let file_path = config.join("gtk-3.0").join("bookmarks");
-    let text = match read_small(&file_path) {
-        Some(t) => t,
-        None => return Ok(()),
-    };
+/// Removes `path` from the GTK bookmarks file `file`, if it's there.
+/// Fails, leaving the file alone, if it can't be read in full.
+pub fn remove_bookmark(file: &Path, path: &Path) -> std::io::Result<()> {
+    let text = read_bookmarks_to_edit(file)?;
     let (new_text, changed) = remove_bookmark_from_text(&text, path);
     if changed {
-        return write_small_atomic(&file_path, new_text.as_bytes());
+        return write_small_atomic(file, new_text.as_bytes());
     }
     return Ok(());
 }
 
-/// Checks whether `path` is in GTK bookmarks.
-pub fn is_bookmarked(path: &Path) -> bool {
-    let Some(config) = super::config_home() else {
-        return false;
+/// The whole bookmarks file, or "" if there is none yet. Unlike
+/// `read_small`, anything else that stops a full read is an error: the
+/// file is about to be rewritten from this text, and a partial or
+/// empty read would lose the user's other bookmarks.
+fn read_bookmarks_to_edit(file: &Path) -> std::io::Result<String> {
+    let meta = match std::fs::metadata(file) {
+        Ok(meta) => meta,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
+        Err(err) => return Err(err),
     };
-    let file_path = config.join("gtk-3.0").join("bookmarks");
-    let Some(text) = read_small(&file_path) else {
-        return false;
-    };
-    let uri = crate::percent::path_to_file_uri(path);
-    for line in text.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let (existing_uri, _) = match trimmed.split_once(' ') {
-            Some((u, l)) => (u, l.trim()),
-            None => (trimmed, ""),
-        };
-        if existing_uri == uri {
-            return true;
-        }
+    if meta.len() > MAX_FILE_SIZE {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "bookmarks file is too large",
+        ));
     }
-    return false;
+    // An error for text that isn't UTF-8.
+    return std::fs::read_to_string(file);
 }
 
 pub fn add_bookmark_to_text(text: &str, path: &Path, label: Option<&str>) -> (String, bool) {
@@ -268,25 +255,24 @@ pub fn add_bookmark_to_text(text: &str, path: &Path, label: Option<&str>) -> (St
     return (new_text, true);
 }
 
+/// The bookmarks file text without the lines for `path`, and whether any
+/// were removed. Every other line, blank or not, is kept byte for byte.
 pub fn remove_bookmark_from_text(text: &str, path: &Path) -> (String, bool) {
     let uri = crate::percent::path_to_file_uri(path);
     let mut new_text = String::new();
     let mut changed = false;
-    for line in text.lines() {
+    // Lines keep their own endings, so every other line is copied as is.
+    for line in text.split_inclusive('\n') {
         let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let (existing_uri, _) = match trimmed.split_once(' ') {
-            Some((u, l)) => (u, l.trim()),
-            None => (trimmed, ""),
+        let existing_uri = match trimmed.split_once(' ') {
+            Some((u, _)) => u,
+            None => trimmed,
         };
-        if existing_uri == uri {
+        if !trimmed.is_empty() && existing_uri == uri {
             changed = true;
             continue;
         }
-        new_text.push_str(trimmed);
-        new_text.push('\n');
+        new_text.push_str(line);
     }
     return (new_text, changed);
 }
@@ -638,6 +624,52 @@ not a line
         let (not_found, changed_nf) = remove_bookmark_from_text(&removed, Path::new("/missing"));
         assert!(!changed_nf);
         assert_eq!(not_found, removed);
+    }
+
+    #[test]
+    fn removing_a_bookmark_keeps_other_lines_as_they_are() {
+        let text = "file:///a A\n\n  file:///b  B label \nfile:///c\r\nfile:///d D";
+        let (removed, changed) = remove_bookmark_from_text(text, Path::new("/b"));
+        assert!(changed);
+        assert_eq!(removed, "file:///a A\n\nfile:///c\r\nfile:///d D");
+
+        let (removed, changed) = remove_bookmark_from_text(text, Path::new("/d"));
+        assert!(changed);
+        assert_eq!(
+            removed,
+            "file:///a A\n\n  file:///b  B label \nfile:///c\r\n"
+        );
+    }
+
+    #[test]
+    fn bookmark_file_created_when_missing() {
+        let dir = crate::test_dir::TestDir::new("bookmarks-missing");
+        let file = dir.path().join("gtk-3.0").join("bookmarks");
+        add_bookmark(&file, Path::new("/tmp/test"), None).expect("add");
+        let text = std::fs::read_to_string(&file).expect("read");
+        assert_eq!(text, "file:///tmp/test\n");
+        // Removing from a file that isn't there is not an error.
+        let other = dir.path().join("none");
+        remove_bookmark(&other, Path::new("/tmp/test")).expect("remove");
+        assert!(!other.exists());
+    }
+
+    #[test]
+    fn unreadable_bookmark_file_left_alone() {
+        let dir = crate::test_dir::TestDir::new("bookmarks-unreadable");
+        let not_utf8 = b"file:///home/me/work W\xffrk\n".to_vec();
+        let mut too_big = b"file:///home/me/work Work\n".to_vec();
+        too_big.resize(MAX_FILE_SIZE as usize + 1, b'\n');
+        for (name, contents) in [("not-utf8", not_utf8), ("too-big", too_big)] {
+            dir.file(name, &contents);
+            let file = dir.path().join(name);
+            let added = add_bookmark(&file, Path::new("/tmp/test"), None);
+            assert!(added.is_err(), "{name}: add must fail");
+            let removed = remove_bookmark(&file, Path::new("/home/me/work"));
+            assert!(removed.is_err(), "{name}: remove must fail");
+            let after = std::fs::read(&file).expect("read");
+            assert!(after == contents, "{name}: file must be unchanged");
+        }
     }
 
     const MOUNTINFO: &str = "\
