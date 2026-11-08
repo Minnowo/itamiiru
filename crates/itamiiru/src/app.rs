@@ -136,6 +136,8 @@ pub struct App {
     drag_and_drop: bool,
     /// Toolbar commands as icons instead of names (setting `toolbar_icons`).
     toolbar_icons: bool,
+    /// Every other Details row shaded (setting `striped_rows`).
+    striped_rows: bool,
     /// Dragging from empty space selects with a box (setting `drag_select`).
     drag_select: bool,
     /// Dragged files can be dropped onto folders and the other pane
@@ -255,6 +257,7 @@ impl App {
             use_trash: settings.use_trash,
             drag_and_drop: settings.drag_and_drop,
             toolbar_icons: settings.toolbar_icons,
+            striped_rows: settings.striped_rows,
             drag_select: settings.drag_select,
             drag_within: settings.drag_within,
             actions,
@@ -1733,6 +1736,7 @@ impl App {
             drag_select: self.drag_select && !single_select,
             dragging,
             drop_target: self.drop_target.as_deref(),
+            striped: self.striped_rows,
         };
         let scroll_to = pane.scroll_to.take();
         out.action = match self.view {
@@ -1960,6 +1964,7 @@ impl App {
             drag_select: self.drag_select,
             drag_within: self.drag_within,
             toolbar_icons: self.toolbar_icons,
+            striped_rows: self.striped_rows,
         };
     }
 
@@ -2242,6 +2247,7 @@ impl App {
             drag_select: self.drag_select,
             drag_within: self.drag_within,
             toolbar_icons: self.toolbar_icons,
+            striped_rows: self.striped_rows,
         };
     }
 
@@ -2266,6 +2272,7 @@ impl App {
         self.drag_select = options.drag_select;
         self.drag_within = options.drag_within;
         self.toolbar_icons = options.toolbar_icons;
+        self.striped_rows = options.striped_rows;
     }
 
     fn settings_page(&mut self, ctx: &egui::Context) {
@@ -3698,6 +3705,70 @@ mod tests {
         // Search results from several folders can be gathered into one.
         let mixed = [PathBuf::from("/a/x"), PathBuf::from("/b/y")];
         assert!(can_drop(&mixed, Path::new("/a")));
+    }
+
+    #[test]
+    fn details_rows_can_be_striped() {
+        let folder = Folder::new("striped");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        let rows = ["alpha", "beta", "file.txt"];
+
+        assert_eq!(striped_rows(&mut app, &ctx, &rows), 0, "plain by default");
+
+        let mut options = app.options();
+        options.striped_rows = true;
+        app.apply_options(options);
+        frame(&mut app, &ctx, Vec::new());
+        assert!(
+            striped_rows(&mut app, &ctx, &rows) > 0,
+            "every other row shaded"
+        );
+    }
+
+    /// How many of the rows named in `names` have the stripe color behind
+    /// their name.
+    fn striped_rows(app: &mut App, ctx: &egui::Context, names: &[&str]) -> usize {
+        let input = egui::RawInput {
+            screen_rect: Some(SCREEN),
+            ..Default::default()
+        };
+        let mut frame = eframe::Frame::_new_kittest();
+        let mut output = ctx.run_ui(input, |ui| eframe::App::ui(app, ui, &mut frame));
+        output.textures_delta.clear();
+        let stripe = ctx.global_style().visuals.faint_bg_color;
+        let mut texts = Vec::new();
+        let mut fills = Vec::new();
+        for clipped in &output.shapes {
+            collect_texts(&clipped.shape, &mut texts);
+            collect_fills(&clipped.shape, &mut fills);
+        }
+        let mut count = 0;
+        for name in names {
+            let Some((_, text)) = texts.iter().find(|(t, _)| t == name) else {
+                panic!("{name} is listed");
+            };
+            let behind = fills.iter().any(|(rect, color)| {
+                *color == stripe && rect.contains(text.center()) && rect.width() > text.width()
+            });
+            if behind {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    fn collect_fills(shape: &egui::Shape, out: &mut Vec<(Rect, egui::Color32)>) {
+        match shape {
+            egui::Shape::Rect(rect) => out.push((rect.rect, rect.fill)),
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    collect_fills(shape, out);
+                }
+            }
+            _ => {}
+        }
     }
 
     #[test]

@@ -31,6 +31,7 @@ pub struct Options {
     pub drag_select: bool,
     pub drag_within: bool,
     pub toolbar_icons: bool,
+    pub striped_rows: bool,
 }
 
 impl Options {
@@ -51,6 +52,7 @@ impl Options {
             drag_select: d.drag_select,
             drag_within: d.drag_within,
             toolbar_icons: d.toolbar_icons,
+            striped_rows: d.striped_rows,
         };
     }
 }
@@ -139,6 +141,7 @@ pub fn show(
                     });
                 });
                 section(ui, theme, "Details view", |ui| {
+                    ui.checkbox(&mut options.striped_rows, "Shade every other row");
                     ui.label(
                         "Columns after Name, which comes first and takes the rest of the width:",
                     );
