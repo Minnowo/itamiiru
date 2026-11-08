@@ -86,6 +86,8 @@ pub struct TableInput<'a> {
     /// Where they'd be dropped, as of the last frame: that folder's item
     /// is drawn selected.
     pub drop_target: Option<&'a Path>,
+    /// Every other row is shaded (Details only).
+    pub striped: bool,
 }
 
 /// The longest texts the Date modified and Size columns can hold, for
@@ -135,7 +137,7 @@ pub fn show(
     let step = row_height + ui.spacing().item_spacing.y;
     let mut table = TableBuilder::new(ui)
         .id_salt(table_id)
-        .striped(false)
+        .striped(input.striped)
         // Drag too, so items can be dragged out to other apps.
         .sense(Sense::click_and_drag())
         // Shrink to the rows, so the empty space below can take clicks.
