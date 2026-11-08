@@ -174,7 +174,9 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
                     4 => ButtonIcon::Rename,
                     _ => ButtonIcon::Delete,
                 };
-                toolbar_icon_button(ui, icon, *enabled)
+                // Disabled like any egui widget: faded and not clickable.
+                ui.add_enabled_ui(*enabled, |ui| toolbar_icon_button(ui, icon))
+                    .inner
             } else {
                 ui.add_enabled(*enabled, egui::Button::new(*label))
             };
@@ -410,15 +412,13 @@ fn sort_choices(ui: &mut egui::Ui, current: SortOrder, action: &mut Option<Toolb
     }
 }
 
-fn toolbar_icon_button(ui: &mut egui::Ui, icon: ButtonIcon, enabled: bool) -> egui::Response {
+/// A square button showing `icon`. In a disabled Ui (`add_enabled_ui`)
+/// egui fades it and ignores clicks, as it does for text buttons.
+fn toolbar_icon_button(ui: &mut egui::Ui, icon: ButtonIcon) -> egui::Response {
     let side = ui.text_style_height(&TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
     let (rect, response) = ui.allocate_exact_size(egui::vec2(side, side), Sense::click());
     if ui.is_rect_visible(rect) {
-        let visuals = if enabled {
-            ui.style().interact(&response)
-        } else {
-            &ui.visuals().widgets.inactive
-        };
+        let visuals = ui.style().interact(&response);
         let painter = ui.painter();
         painter.rect(
             rect,
@@ -427,13 +427,8 @@ fn toolbar_icon_button(ui: &mut egui::Ui, icon: ButtonIcon, enabled: bool) -> eg
             visuals.bg_stroke,
             StrokeKind::Inside,
         );
-        let color = if enabled {
-            visuals.fg_stroke.color
-        } else {
-            ui.visuals().weak_text_color()
-        };
         let area = rect.shrink(side * 0.26);
-        paint_button_icon(painter, area, icon, color);
+        paint_button_icon(painter, area, icon, visuals.fg_stroke.color);
     }
     return response;
 }
@@ -516,6 +511,7 @@ pub fn dropdown_with_icon(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::theme::{Theme, ThemeName};
 
     #[test]
     fn folding() {
@@ -561,5 +557,123 @@ mod tests {
             last = mode.icon_size();
         }
         assert_eq!(ViewMode::ExtraLargeIcons.icon_size(), 192.0);
+    }
+
+    #[test]
+    fn disabled_icon_buttons_are_faded_and_ignore_clicks() {
+        for name in ThemeName::ALL {
+            // Nothing selected: Cut is disabled.
+            let ctx = themed_context(name);
+            let (cut, _) = run(&ctx, 0, Vec::new());
+            let cut = cut.expect("the Cut icon is drawn");
+            assert!(cut.alpha < 200, "{name:?}: faded: {:?}", cut.color);
+            let (_, action) = click(&ctx, 0, cut.center);
+            assert!(action.is_none(), "{name:?}: a disabled button does nothing");
+
+            // One file selected: Cut is enabled.
+            let ctx = themed_context(name);
+            let (cut, _) = run(&ctx, 1, Vec::new());
+            let cut = cut.expect("the Cut icon is drawn");
+            assert_eq!(cut.alpha, 255, "{name:?}: not faded: {:?}", cut.color);
+            let (_, action) = click(&ctx, 1, cut.center);
+            assert!(
+                matches!(action, Some(ToolbarAction::Command(Command::Cut))),
+                "{name:?}: an enabled button works"
+            );
+        }
+    }
+
+    fn themed_context(name: ThemeName) -> egui::Context {
+        let ctx = egui::Context::default();
+        Theme::new(name, None).install(&ctx);
+        return ctx;
+    }
+
+    /// One of the Cut icon's rings (the only circles in the toolbar).
+    struct Ring {
+        center: egui::Pos2,
+        color: egui::Color32,
+        alpha: u8,
+    }
+
+    /// Draws the toolbar with icons for `selected` items. Returns a ring
+    /// of the Cut icon and the toolbar's action, if any.
+    fn run(
+        ctx: &egui::Context,
+        selected: usize,
+        events: Vec<egui::Event>,
+    ) -> (Option<Ring>, Option<ToolbarAction>) {
+        let state = ToolbarState {
+            selected,
+            can_paste: false,
+            this_pc: false,
+            view: ViewMode::Details,
+            sort: SortOrder {
+                column: SortColumn::Name,
+                ascending: true,
+            },
+            show_hidden: false,
+            preview_pane: false,
+            split: Some(false),
+            icons: true,
+        };
+        let input = egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1200.0, 200.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut action = None;
+        let mut output = ctx.run_ui(input, |ui| action = show(ui, &state));
+        output.textures_delta.clear();
+        let mut ring = None;
+        for clipped in &output.shapes {
+            find_ring(&clipped.shape, &mut ring);
+        }
+        return (ring, action);
+    }
+
+    fn find_ring(shape: &egui::Shape, out: &mut Option<Ring>) {
+        match shape {
+            egui::Shape::Circle(circle) => {
+                let color = circle.stroke.color;
+                *out = Some(Ring {
+                    center: circle.center,
+                    color,
+                    alpha: color.a(),
+                });
+            }
+            egui::Shape::Vec(shapes) => {
+                for shape in shapes {
+                    find_ring(shape, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Clicks at `pos` over three frames, as a person would.
+    fn click(
+        ctx: &egui::Context,
+        selected: usize,
+        pos: egui::Pos2,
+    ) -> (Option<Ring>, Option<ToolbarAction>) {
+        let press = |pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut last = run(ctx, selected, vec![egui::Event::PointerMoved(pos)]);
+        for event in [press(true), press(false)] {
+            let result = run(ctx, selected, vec![event]);
+            if result.1.is_some() {
+                return result;
+            }
+            last = result;
+        }
+        return last;
     }
 }

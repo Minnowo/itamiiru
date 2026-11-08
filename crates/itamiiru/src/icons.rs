@@ -111,7 +111,7 @@ pub enum ButtonIcon {
     Copy,
     /// Clipboard with document, for Paste.
     Paste,
-    /// Diagonal pencil with baseline, for Rename.
+    /// A text box with selected text and a text cursor, for Rename.
     Rename,
     /// Trash bin with lid, for Delete.
     Delete,
@@ -123,7 +123,7 @@ pub enum ButtonIcon {
     PreviewPane,
     /// Three rows with bullets, for Details view.
     DetailsView,
-    /// Two large tiles, for Large icons view.
+    /// A framed picture, for the Large icons view.
     LargeIconsView,
 }
 
@@ -240,10 +240,14 @@ pub fn paint_button_icon(painter: &egui::Painter, area: Rect, icon: ButtonIcon, 
             painter.line_segment([at(doc, 0.2, 0.65), at(doc, 0.8, 0.65)], stroke);
         }
         ButtonIcon::Rename => {
-            let p1 = at(area, 0.18, 0.82);
-            let p2 = at(area, 0.82, 0.18);
-            painter.line_segment([p1, p2], Stroke::new(stroke.width * 2.0, color));
-            painter.line_segment([at(area, 0.1, 0.92), at(area, 0.9, 0.92)], stroke);
+            let field = Rect::from_min_max(at(area, 0.0, 0.28), at(area, 0.78, 0.72));
+            painter.rect_stroke(field, 1.0, stroke, StrokeKind::Inside);
+            let selected = Rect::from_min_max(at(area, 0.17, 0.43), at(area, 0.55, 0.57));
+            painter.rect_filled(selected, 0.0, color);
+            // The text cursor, an I-beam on the box's right edge.
+            painter.line_segment([at(area, 0.78, 0.08), at(area, 0.78, 0.92)], stroke);
+            painter.line_segment([at(area, 0.64, 0.08), at(area, 0.92, 0.08)], stroke);
+            painter.line_segment([at(area, 0.64, 0.92), at(area, 0.92, 0.92)], stroke);
         }
         ButtonIcon::Delete => {
             painter.line_segment([at(area, 0.15, 0.25), at(area, 0.85, 0.25)], stroke);
@@ -351,20 +355,16 @@ pub fn paint_button_icon(painter: &egui::Painter, area: Rect, icon: ButtonIcon, 
             }
         }
         ButtonIcon::LargeIconsView => {
-            let h = area.height() * 0.65;
-            let w = area.width() * 0.36;
-            painter.rect_stroke(
-                Rect::from_min_size(at(area, 0.10, 0.18), egui::vec2(w, h)),
-                1.0,
-                stroke,
-                StrokeKind::Inside,
-            );
-            painter.rect_stroke(
-                Rect::from_min_size(at(area, 0.54, 0.18), egui::vec2(w, h)),
-                1.0,
-                stroke,
-                StrokeKind::Inside,
-            );
+            // A picture thumbnail: a frame around a hill and the sun.
+            let frame = Rect::from_min_max(at(area, 0.0, 0.12), at(area, 1.0, 0.88));
+            painter.rect_stroke(frame, 1.0, stroke, StrokeKind::Inside);
+            let hill = vec![
+                at(area, 0.10, 0.76),
+                at(area, 0.38, 0.40),
+                at(area, 0.66, 0.76),
+            ];
+            painter.add(Shape::convex_polygon(hill, color, Stroke::NONE));
+            painter.circle_filled(at(area, 0.76, 0.36), area.width() * 0.09, color);
         }
     }
 }
@@ -560,13 +560,11 @@ pub fn paint_quick_access_icon(
         return;
     }
     if name.eq_ignore_ascii_case("Desktop") {
-        let screen = Rect::from_min_max(at(rect, 0.12, 0.15), at(rect, 0.88, 0.70));
-        painter.rect_filled(screen, 2.0, theme.blue);
-        let inner = Rect::from_min_max(at(rect, 0.18, 0.21), at(rect, 0.82, 0.64));
-        painter.rect_filled(inner, 1.0, theme.surface);
-        let stand = Stroke::new((rect.height() / 12.0).max(1.5), theme.on_surface_variant);
-        painter.line_segment([at(rect, 0.5, 0.70), at(rect, 0.5, 0.85)], stand);
-        painter.line_segment([at(rect, 0.35, 0.85), at(rect, 0.65, 0.85)], stand);
+        // The desktop itself: a wide blue screen with a taskbar.
+        let screen = Rect::from_min_max(at(rect, 0.05, 0.18), at(rect, 0.95, 0.82));
+        painter.rect_filled(screen, 1.0, theme.blue);
+        let taskbar = Rect::from_min_max(at(rect, 0.05, 0.70), at(rect, 0.95, 0.82));
+        painter.rect_filled(taskbar, 1.0, theme.d_blue);
         return;
     }
     if name.eq_ignore_ascii_case("Downloads") {
@@ -617,15 +615,15 @@ pub fn paint_quick_access_icon(
 /// A house: a roof over a box with a door.
 pub fn paint_home(painter: &egui::Painter, rect: Rect, theme: &Theme) {
     let roof = vec![
-        at(rect, 0.5, 0.10),
-        at(rect, 0.92, 0.46),
-        at(rect, 0.08, 0.46),
+        at(rect, 0.5, 0.08),
+        at(rect, 0.95, 0.5),
+        at(rect, 0.05, 0.5),
     ];
-    painter.add(Shape::convex_polygon(roof, theme.primary, Stroke::NONE));
-    let body = Rect::from_min_max(at(rect, 0.18, 0.44), at(rect, 0.82, 0.90));
-    painter.rect_filled(body, 1.5, theme.blue);
-    let door = Rect::from_min_max(at(rect, 0.40, 0.60), at(rect, 0.60, 0.90));
-    painter.rect_filled(door, 1.0, theme.surface);
+    painter.add(Shape::convex_polygon(roof, theme.d_yellow, Stroke::NONE));
+    let body = Rect::from_min_max(at(rect, 0.18, 0.45), at(rect, 0.82, 0.92));
+    painter.rect_filled(body, 1.0, theme.yellow);
+    let door = Rect::from_min_max(at(rect, 0.42, 0.62), at(rect, 0.58, 0.92));
+    painter.rect_filled(door, 0.0, theme.on_yellow);
 }
 
 /// A drive: a flat box with a small status light.
