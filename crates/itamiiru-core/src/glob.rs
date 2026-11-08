@@ -40,10 +40,11 @@ impl Glob {
         };
     }
 
-    /// True if the pattern uses any wildcard (so typing it means "filter",
-    /// not "this file name").
+    /// True if the pattern has a `*` or `?` (so typing it means "filter",
+    /// not "this file name"). A `[` alone doesn't count: square brackets
+    /// are common in real names, and `[...]` still works next to a `*`.
     pub fn has_wildcards(pattern: &str) -> bool {
-        return pattern.contains(['*', '?', '[']);
+        return pattern.contains(['*', '?']);
     }
 
     pub fn matches(&self, name: &str) -> bool {
@@ -243,5 +244,7 @@ mod tests {
         assert!(Glob::has_wildcards("*.log"));
         assert!(Glob::has_wildcards("file?.txt"));
         assert!(!Glob::has_wildcards("plain name.txt"));
+        assert!(!Glob::has_wildcards("video [abc123].mp4"));
+        assert!(Glob::has_wildcards("[ab]*.txt"));
     }
 }

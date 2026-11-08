@@ -816,6 +816,26 @@ mod tests {
     }
 
     #[test]
+    fn typed_names_and_globs() {
+        let ctx = egui::Context::default();
+        let resolve = |text: &str| PathBuf::from("/d").join(text);
+
+        // Square brackets are common in names (video downloads), so
+        // only * and ? make the text a filter.
+        let mut save = picker(Mode::Save);
+        save.name = "French Fuse [UCzLFySnc_T_qFHAJ2HTWUTw].mp4".to_string();
+        assert!(save.accept(Path::new("/d"), &[], &ctx, &resolve).is_none());
+        assert!(save.typed_glob.is_none(), "the name became a filter");
+        assert!(matches!(save.pending, Some((_, Pending::Save))));
+
+        let mut open = picker(Mode::Open);
+        open.name = "*.log".to_string();
+        assert!(open.accept(Path::new("/d"), &[], &ctx, &resolve).is_none());
+        assert!(open.typed_glob.is_some());
+        assert!(open.pending.is_none());
+    }
+
+    #[test]
     fn name_lists() {
         assert_eq!(parse_name_list("plain name.txt"), ["plain name.txt"]);
         assert_eq!(
