@@ -59,7 +59,8 @@ toolbar_icons = false
 # Shade every other row of the Details view.
 striped_rows = false
 
-# The color theme: ponkotsu, windows10. [colors] below goes on top.
+# The color theme: ponkotsu, windows10, or custom (the colors in [colors]
+# below).
 theme = "ponkotsu"
 
 # Show changes to the folder on screen, and to the drives, as they happen.
@@ -75,13 +76,117 @@ preview_pane = false
 preview_auto_hide = false
 preview_width = 300
 
-# Colors on top of the chosen theme, by ponkotsu role name
-# (https://github.com/Minnowo/ponkotsu-css). ponkotsu's CSS names work
-# too: --color-c-primary = "#dcc496". None by default; for example:
+# The colors of the custom theme (theme = "custom"), by ponkotsu role name
+# (https://github.com/Minnowo/ponkotsu-css). They start out as ponkotsu's;
+# change any of them, or leave some out to keep ponkotsu's. Colors are
+# #rrggbb or #rrggbbaa. ponkotsu's CSS names work too:
+# --color-c-primary = "#dcc496". The other themes don't use these.
 [colors]
-# primary = "#dcc496"
-# surface = "#2a2724"
-# on-surface = "#e8e1db"
+# Accents: buttons, links, the selection, errors. Text on a fill X uses on-X.
+primary = "#dcc496"
+on-primary = "#402d00"
+primary-container = "#6e5c36"
+on-primary-container = "#ffffff"
+secondary = "#a7caec"
+on-secondary = "#003351"
+secondary-container = "#3f627f"
+on-secondary-container = "#ffffff"
+tertiary = "#e1b6fd"
+on-tertiary = "#4c007b"
+tertiary-container = "#734f8e"
+on-tertiary-container = "#ffffff"
+error = "#edbca4"
+on-error = "#522305"
+error-container = "#7b5642"
+on-error-container = "#ffffff"
+success = "#b7cdb0"
+on-success = "#153714"
+success-container = "#51634c"
+on-success-container = "#ffffff"
+
+# Backgrounds. surface is the window; each surface-container-N is one
+# step up, for boxes inside boxes.
+surface = "#2a2724"
+on-surface = "#e8e1db"
+on-surface-variant = "#cec5b9"
+surface-container-1 = "#35322e"
+surface-container-2 = "#403d39"
+surface-container-3 = "#4c4944"
+surface-container-4 = "#585450"
+surface-container-5 = "#64605b"
+surface-container-6 = "#706c67"
+surface-dim = "#2a2724"
+surface-bright = "#534f4b"
+
+# Lines and borders.
+outline = "#b2aa9f"
+outline-variant = "#645e54"
+
+# Tooltips and other things drawn the other way round.
+inverse-surface = "#ffffff"
+inverse-on-surface = "#4a4642"
+inverse-primary = "#91732c"
+
+# File-type icons and drive bars: d- is darker, l- is lighter.
+pink = "#d89dbd"
+on-pink = "#330c26"
+d-pink = "#ba84b8"
+on-d-pink = "#320836"
+l-pink = "#e8bad1"
+on-l-pink = "#2e1223"
+red = "#e29e7b"
+on-red = "#341100"
+d-red = "#d2806f"
+on-d-red = "#3a0a03"
+l-red = "#f1bb9f"
+on-l-red = "#301404"
+yellow = "#c2ad67"
+on-yellow = "#231b00"
+d-yellow = "#bb8e41"
+on-d-yellow = "#281900"
+l-yellow = "#d7c690"
+on-l-yellow = "#231b00"
+green = "#91b889"
+on-green = "#012203"
+d-green = "#859f5a"
+on-d-green = "#121f00"
+l-green = "#b2ceaa"
+on-l-green = "#0a2009"
+blue = "#84b4d2"
+on-blue = "#001e2d"
+d-blue = "#52a0b7"
+on-d-blue = "#001f27"
+l-blue = "#abcbe1"
+on-l-blue = "#001e2d"
+
+# A button under the pointer (hover) or with keyboard focus (focus).
+primary-hover = "#c8b083"
+primary-focus = "#b49d71"
+secondary-hover = "#92b6d8"
+secondary-focus = "#7ea3c5"
+tertiary-hover = "#cea2ed"
+tertiary-focus = "#ba8ddd"
+error-hover = "#d9a890"
+error-focus = "#c6957c"
+success-hover = "#a2ba9b"
+success-focus = "#8da687"
+surface-container-1-hover = "#484440"
+surface-container-1-focus = "#5c5853"
+
+# See-through tints laid over things under the pointer or focused
+# (#rrggbbaa; the last two digits are the opacity).
+primary-hover-tint = "#dcc4961f"
+primary-focus-tint = "#dcc4963d"
+secondary-hover-tint = "#a7caec1f"
+secondary-focus-tint = "#a7caec3d"
+tertiary-hover-tint = "#e1b6fd1f"
+tertiary-focus-tint = "#e1b6fd3d"
+error-hover-tint = "#edbca41f"
+error-focus-tint = "#edbca43d"
+success-hover-tint = "#b7cdb01f"
+success-focus-tint = "#b7cdb03d"
+on-surface-hover-tint = "#e8e1db1f"
+on-surface-focus-tint = "#e8e1db3d"
 
 # Custom actions: commands for the right-click menus. Each
 # [action.<id>] is one; the menus below list them by id.

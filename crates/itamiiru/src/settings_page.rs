@@ -87,7 +87,7 @@ pub fn show(
                     for name in ThemeName::ALL {
                         ui.radio_value(&mut options.theme, name, name.label());
                     }
-                    ui.weak("Colors in config.toml's [colors], if any, go on top.");
+                    ui.weak("Custom is ponkotsu with the colors in config.toml's [colors].");
                 });
                 section(ui, theme, "Folders", |ui| {
                     ui.checkbox(&mut options.show_hidden, "Show hidden files")

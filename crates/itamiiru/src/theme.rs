@@ -4,9 +4,9 @@
 //! A theme is a set of named color roles. Text on fill `X` uses `on-X`.
 //! Depth comes from `surface-container-N` fills, not borders or shadows.
 //!
-//! The `[colors]` table in config.toml replaces some or all of the
-//! built-in colors: `primary = "#dcc496"`. ponkotsu's CSS names work too
-//! (`--color-c-primary = "#dcc496"`).
+//! The `custom` theme is ponkotsu with config.toml's `[colors]` on top:
+//! `primary = "#dcc496"`. ponkotsu's CSS names work too
+//! (`--color-c-primary = "#dcc496"`). The other themes ignore `[colors]`.
 
 // This is the whole design system; some parts aren't used by any screen yet.
 #![allow(dead_code)]
@@ -40,21 +40,23 @@ pub enum Accent {
     Error,
 }
 
-/// The built-in color themes. A theme file's colors go on top of the
-/// chosen one.
+/// The color themes: two built in, and `Custom`, which is ponkotsu with
+/// config.toml's `[colors]` on top.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ThemeName {
     Ponkotsu,
     Windows10,
+    Custom,
 }
 
 impl ThemeName {
-    pub const ALL: [ThemeName; 2] = [ThemeName::Ponkotsu, ThemeName::Windows10];
+    pub const ALL: [ThemeName; 3] = [ThemeName::Ponkotsu, ThemeName::Windows10, ThemeName::Custom];
 
     pub fn label(self) -> &'static str {
         return match self {
             ThemeName::Ponkotsu => "ponkotsu",
             ThemeName::Windows10 => "Windows 10",
+            ThemeName::Custom => "Custom",
         };
     }
 
@@ -63,6 +65,7 @@ impl ThemeName {
         return match self {
             ThemeName::Ponkotsu => "ponkotsu",
             ThemeName::Windows10 => "windows10",
+            ThemeName::Custom => "custom",
         };
     }
 
@@ -373,16 +376,19 @@ fn windows10() -> Theme {
 }
 
 impl Theme {
-    /// The built-in theme `name` with `colors` (role name, `#hex`) from
-    /// config.toml's `[colors]` applied on top. Touches no files, so the
-    /// theme can be switched while the app runs.
+    /// Theme `name`. `colors` (role name, `#hex`, from config.toml's
+    /// `[colors]`) are only used by `Custom`, on top of ponkotsu. Touches
+    /// no files, so the theme can be switched while the app runs.
     pub fn new(name: ThemeName, colors: &[(String, String)]) -> Theme {
-        let mut theme = match name {
+        return match name {
             ThemeName::Ponkotsu => ponkotsu(),
             ThemeName::Windows10 => windows10(),
+            ThemeName::Custom => {
+                let mut theme = ponkotsu();
+                theme.apply_colors(colors);
+                theme
+            }
         };
-        theme.apply_colors(colors);
-        return theme;
     }
 
     /// Sets each (role, `#hex`) pair. Unknown roles and bad colors are
@@ -756,6 +762,100 @@ pub fn parse_hex_color(value: &str) -> Option<Color32> {
 mod tests {
     use super::*;
 
+    /// Every color role, as named in config.toml.
+    const ROLE_NAMES: [&str; 90] = [
+        "primary",
+        "on-primary",
+        "primary-container",
+        "on-primary-container",
+        "secondary",
+        "on-secondary",
+        "secondary-container",
+        "on-secondary-container",
+        "tertiary",
+        "on-tertiary",
+        "tertiary-container",
+        "on-tertiary-container",
+        "error",
+        "on-error",
+        "error-container",
+        "on-error-container",
+        "success",
+        "on-success",
+        "success-container",
+        "on-success-container",
+        "surface",
+        "on-surface",
+        "on-surface-variant",
+        "surface-container-1",
+        "surface-container-2",
+        "surface-container-3",
+        "surface-container-4",
+        "surface-container-5",
+        "surface-container-6",
+        "surface-dim",
+        "surface-bright",
+        "outline",
+        "outline-variant",
+        "inverse-surface",
+        "inverse-on-surface",
+        "inverse-primary",
+        "pink",
+        "on-pink",
+        "d-pink",
+        "on-d-pink",
+        "l-pink",
+        "on-l-pink",
+        "red",
+        "on-red",
+        "d-red",
+        "on-d-red",
+        "l-red",
+        "on-l-red",
+        "yellow",
+        "on-yellow",
+        "d-yellow",
+        "on-d-yellow",
+        "l-yellow",
+        "on-l-yellow",
+        "green",
+        "on-green",
+        "d-green",
+        "on-d-green",
+        "l-green",
+        "on-l-green",
+        "blue",
+        "on-blue",
+        "d-blue",
+        "on-d-blue",
+        "l-blue",
+        "on-l-blue",
+        "primary-hover",
+        "primary-focus",
+        "secondary-hover",
+        "secondary-focus",
+        "tertiary-hover",
+        "tertiary-focus",
+        "error-hover",
+        "error-focus",
+        "success-hover",
+        "success-focus",
+        "surface-container-1-hover",
+        "surface-container-1-focus",
+        "primary-hover-tint",
+        "primary-focus-tint",
+        "secondary-hover-tint",
+        "secondary-focus-tint",
+        "tertiary-hover-tint",
+        "tertiary-focus-tint",
+        "error-hover-tint",
+        "error-focus-tint",
+        "success-hover-tint",
+        "success-focus-tint",
+        "on-surface-hover-tint",
+        "on-surface-focus-tint",
+    ];
+
     #[test]
     fn hex_colors() {
         assert_eq!(
@@ -786,13 +886,26 @@ mod tests {
         let windows = Theme::new(ThemeName::Windows10, &[]);
         assert_ne!(windows, ponkotsu);
 
-        // config.toml's colors go on top of either one.
+        // config.toml's colors are only used by the custom theme, on top
+        // of ponkotsu.
         let colors = pairs(&[("primary", "#112233")]);
-        for name in ThemeName::ALL {
-            let theme = Theme::new(name, &colors);
-            assert_eq!(theme.primary, Color32::from_rgb(0x11, 0x22, 0x33));
-            assert_eq!(theme.secondary, Theme::new(name, &[]).secondary);
+        let custom = Theme::new(ThemeName::Custom, &colors);
+        assert_eq!(custom.primary, Color32::from_rgb(0x11, 0x22, 0x33));
+        assert_eq!(custom.secondary, ponkotsu.secondary);
+        assert_eq!(Theme::new(ThemeName::Custom, &[]), ponkotsu);
+        assert_eq!(Theme::new(ThemeName::Ponkotsu, &colors), ponkotsu);
+        assert_eq!(Theme::new(ThemeName::Windows10, &colors), windows);
+
+        // The defaults file lists every role with ponkotsu's color, so
+        // custom starts out as ponkotsu.
+        let defaults = itamiiru_core::config::Config::parse(itamiiru_core::config::DEFAULTS, "");
+        let listed = defaults.base_strings("colors");
+        let mut listed_names = Vec::new();
+        for (role, _) in &listed {
+            listed_names.push(role.as_str());
         }
+        assert_eq!(listed_names, ROLE_NAMES, "every role, in order");
+        assert_eq!(Theme::new(ThemeName::Custom, &listed), ponkotsu);
 
         for name in ThemeName::ALL {
             assert_eq!(ThemeName::from_key(name.key()), Some(name));
@@ -842,98 +955,7 @@ mod tests {
     #[test]
     fn every_role_name_is_settable() {
         // Every role name must be accepted and change a color.
-        let names = [
-            "primary",
-            "on-primary",
-            "primary-container",
-            "on-primary-container",
-            "secondary",
-            "on-secondary",
-            "secondary-container",
-            "on-secondary-container",
-            "tertiary",
-            "on-tertiary",
-            "tertiary-container",
-            "on-tertiary-container",
-            "error",
-            "on-error",
-            "error-container",
-            "on-error-container",
-            "success",
-            "on-success",
-            "success-container",
-            "on-success-container",
-            "surface",
-            "on-surface",
-            "on-surface-variant",
-            "surface-container-1",
-            "surface-container-2",
-            "surface-container-3",
-            "surface-container-4",
-            "surface-container-5",
-            "surface-container-6",
-            "surface-dim",
-            "surface-bright",
-            "outline",
-            "outline-variant",
-            "inverse-surface",
-            "inverse-on-surface",
-            "inverse-primary",
-            "pink",
-            "on-pink",
-            "d-pink",
-            "on-d-pink",
-            "l-pink",
-            "on-l-pink",
-            "red",
-            "on-red",
-            "d-red",
-            "on-d-red",
-            "l-red",
-            "on-l-red",
-            "yellow",
-            "on-yellow",
-            "d-yellow",
-            "on-d-yellow",
-            "l-yellow",
-            "on-l-yellow",
-            "green",
-            "on-green",
-            "d-green",
-            "on-d-green",
-            "l-green",
-            "on-l-green",
-            "blue",
-            "on-blue",
-            "d-blue",
-            "on-d-blue",
-            "l-blue",
-            "on-l-blue",
-            "primary-hover",
-            "primary-focus",
-            "secondary-hover",
-            "secondary-focus",
-            "tertiary-hover",
-            "tertiary-focus",
-            "error-hover",
-            "error-focus",
-            "success-hover",
-            "success-focus",
-            "surface-container-1-hover",
-            "surface-container-1-focus",
-            "primary-hover-tint",
-            "primary-focus-tint",
-            "secondary-hover-tint",
-            "secondary-focus-tint",
-            "tertiary-hover-tint",
-            "tertiary-focus-tint",
-            "error-hover-tint",
-            "error-focus-tint",
-            "success-hover-tint",
-            "success-focus-tint",
-            "on-surface-hover-tint",
-            "on-surface-focus-tint",
-        ];
+        let names = ROLE_NAMES;
         for name in names {
             let mut theme = Theme::default();
             assert!(theme.set(name, Color32::from_rgb(1, 2, 3)), "{name}");

@@ -59,8 +59,10 @@ xdg-desktop-portal.
   The file from `itami --write-config` has the default menus, every
   built-in command, and the placeholders (`%f`, `%F`, `%d`, `%n`) and
   `for` targets.
-- **Colors:** a `[colors]` table in `config.toml` changes theme colors by
-  role name, e.g. `primary = "#dcc496"`.
+- **Colors:** pick the Custom theme (in Settings, or `theme = "custom"`)
+  and change the colors in `config.toml`'s `[colors]` table, e.g.
+  `primary = "#dcc496"`. `itami --write-config` lists every color, set to
+  ponkotsu's; ones you leave out stay ponkotsu's.
 - **USB drives** show up under This PC even before they're mounted: click
   to mount, right-click to unmount or eject (needs `udisks2`).
 - **Drag files out** onto other apps (a browser upload box, a terminal, an

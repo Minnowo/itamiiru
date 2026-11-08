@@ -69,8 +69,8 @@ pub struct App {
     theme: Theme,
     /// The built-in theme `theme` starts from (setting `theme`).
     theme_name: ThemeName,
-    /// config.toml's `[colors]`, kept so switching themes can apply them
-    /// again.
+    /// config.toml's `[colors]` for the custom theme, kept so switching
+    /// to it doesn't read the file again.
     theme_colors: Vec<(String, String)>,
 
     tabs: Vec<Tab>,
