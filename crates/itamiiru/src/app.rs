@@ -102,6 +102,8 @@ pub struct App {
     places_rx: Receiver<PlacesMsg>,
     /// Removable volumes being mounted or ejected (their ids).
     volumes_busy: HashSet<String>,
+    /// Where bookmarks are added and removed; None where they can't be.
+    bookmarks_file: Option<PathBuf>,
     /// A short message for the status bar, and when it was shown.
     notice: Option<(String, f64)>,
 
@@ -229,6 +231,7 @@ impl App {
             places_tx,
             places_rx,
             volumes_busy: HashSet::new(),
+            bookmarks_file: places::bookmarks_file(),
             notice: None,
             config,
             config_path,
@@ -819,13 +822,26 @@ impl App {
             }
         });
         if let Some(path) = target {
-            if self.places.is_bookmarked(&path) {
-                let _ = itamiiru_core::places::remove_bookmark(&path);
-            } else {
-                let _ = itamiiru_core::places::add_bookmark(&path, None);
-            }
-            self.scan_places();
+            let add = !self.places.is_bookmarked(&path);
+            self.edit_bookmark(path, add);
         }
+    }
+
+    /// Adds (`add`) or removes a bookmark on a worker. The places are
+    /// scanned again when it's done, and a failure is shown with the
+    /// operation errors.
+    fn edit_bookmark(&mut self, path: PathBuf, add: bool) {
+        let Some(file) = self.bookmarks_file.clone() else {
+            return;
+        };
+        let ctx = self.ctx.clone();
+        places::start_bookmark(
+            file,
+            path,
+            add,
+            self.places_tx.clone(),
+            Box::new(move || ctx.request_repaint()),
+        );
     }
 
     /// Runs custom action `index` on the selection, or on the folder on
@@ -1050,6 +1066,16 @@ impl App {
                             let text = format!("{}: can't {verb}: {error}", volume.name);
                             ops_ui::push_error(&mut self.op_errors, text);
                         }
+                    }
+                    self.places_scan_running = false;
+                    self.scan_places();
+                }
+                PlacesMsg::Bookmarked { path, add, result } => {
+                    if let Err(error) = result {
+                        let verb = if add { "add" } else { "remove" };
+                        let name = path.to_string_lossy();
+                        let text = format!("{name}: can't {verb} bookmark: {error}");
+                        ops_ui::push_error(&mut self.op_errors, text);
                     }
                     self.places_scan_running = false;
                     self.scan_places();
@@ -2189,10 +2215,7 @@ impl App {
             SidebarAction::CopyPath(path) => {
                 self.ctx.copy_text(path.to_string_lossy().into_owned());
             }
-            SidebarAction::RemoveBookmark(path) => {
-                let _ = itamiiru_core::places::remove_bookmark(&path);
-                self.scan_places();
-            }
+            SidebarAction::RemoveBookmark(path) => self.edit_bookmark(path, false),
             SidebarAction::Refresh => self.scan_places(),
             SidebarAction::Settings => self.settings_open = true,
         }
@@ -2447,7 +2470,7 @@ mod tests {
     fn new_app(ctx: &egui::Context, start: &Path) -> App {
         let mut config = Config::default();
         config.set("thumbnails", "false");
-        return App::new(
+        let mut app = App::new(
             ctx.clone(),
             Theme::default(),
             start.to_path_buf(),
@@ -2456,6 +2479,10 @@ mod tests {
             None,
             None,
         );
+        // Tests never edit the user's real bookmarks; one that needs a
+        // bookmarks file sets its own.
+        app.bookmarks_file = None;
+        return app;
     }
 
     /// Runs one frame of the real UI, without a window. Returns the mouse
@@ -3779,9 +3806,41 @@ mod tests {
         select_named(&mut app, "alpha");
         assert_eq!(app.selected_folder(), Some(alpha_path.clone()));
 
+        let bookmarks = folder.0.join("beta").join("bookmarks");
+        app.bookmarks_file = Some(bookmarks.clone());
         app.run_command(Command::ToggleBookmark);
-        assert!(app.places_scan_running);
-        let _ = itamiiru_core::places::remove_bookmark(&alpha_path);
+        settle_bookmark(&mut app, &ctx, |_| bookmarks.exists());
+        let text = std::fs::read_to_string(&bookmarks).expect("bookmarks written");
+        let uri = itamiiru_core::percent::path_to_file_uri(&alpha_path);
+        assert_eq!(text, format!("{uri}\n"));
+        assert!(app.op_errors.is_empty(), "{:?}", app.op_errors);
+    }
+
+    #[test]
+    fn bookmark_error_is_shown() {
+        let folder = Folder::new("bookmark_error");
+        let ctx = egui::Context::default();
+        let mut app = new_app(&ctx, &folder.0);
+        settle(&mut app, &ctx);
+        select_named(&mut app, "alpha");
+
+        // Under a file, so it can be neither read nor created.
+        app.bookmarks_file = Some(folder.0.join("file.txt").join("bookmarks"));
+        app.run_command(Command::ToggleBookmark);
+        settle_bookmark(&mut app, &ctx, |app| !app.op_errors.is_empty());
+        assert!(app.op_errors[0].contains("can't add bookmark"));
+    }
+
+    /// Runs frames until `done`, while a bookmark edit runs on its worker.
+    fn settle_bookmark(app: &mut App, ctx: &egui::Context, done: impl Fn(&App) -> bool) {
+        for _ in 0..300 {
+            frame(app, ctx, Vec::new());
+            if done(app) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("bookmark edit didn't finish");
     }
 
     /// Startup work that doesn't need a window, as the app does it.
