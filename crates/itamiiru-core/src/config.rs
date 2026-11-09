@@ -186,6 +186,11 @@ impl Config {
         return self.base.get(table)?.as_table_like()?.get(key)?.as_value();
     }
 
+    /// Whether `config.toml` has the table `name`, even an empty one.
+    pub fn has_base_table(&self, name: &str) -> bool {
+        return self.base.get(name).is_some_and(|item| item.is_table_like());
+    }
+
     /// The keys of a table in `config.toml`, in file order.
     pub fn base_keys_in(&self, table: &str) -> Vec<String> {
         let mut keys = Vec::new();

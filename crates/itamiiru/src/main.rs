@@ -17,6 +17,7 @@ mod preview;
 mod selection;
 mod settings;
 mod settings_page;
+mod shortcuts;
 mod sidebar;
 mod startup;
 mod tabs;

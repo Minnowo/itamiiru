@@ -10,6 +10,7 @@ pub mod fileops;
 pub mod format;
 pub mod glob;
 pub mod imagefile;
+pub mod keys;
 pub mod listing;
 pub mod md5;
 pub mod menu;

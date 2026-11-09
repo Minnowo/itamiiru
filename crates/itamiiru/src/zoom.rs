@@ -1,27 +1,33 @@
-//! UI zoom controls for the status bar. The keys (Ctrl+Plus, Ctrl+Minus,
-//! Ctrl+0) are egui's built-in ones, in 10% steps; these buttons use the
-//! same steps. egui's zoom scales text, icons and spacing together.
+//! UI zoom controls for the status bar, in egui's 10% steps, the same as
+//! the zoom keys (`zoom_in`, `zoom_out`, `zoom_reset` in `[keys]`). egui's zoom scales text, icons and spacing together.
 
 use eframe::egui;
+use itamiiru_core::keys::KeyConfig;
+use itamiiru_core::menu::BuiltIn;
+
+use crate::shortcuts::tip;
 
 /// Draws `[-] 110% [+]`. Clicking the percentage resets to 100%.
 /// Lay out right to left, so the widgets are added in reverse.
-pub fn controls_right_to_left(ui: &mut egui::Ui) {
+pub fn controls_right_to_left(ui: &mut egui::Ui, keys: &KeyConfig) {
     let ctx = ui.ctx().clone();
     if ui
         .button("+")
-        .on_hover_text("Zoom in (Ctrl+Plus)")
+        .on_hover_text(tip(keys, "Zoom in", BuiltIn::ZoomIn))
         .clicked()
     {
         egui::gui_zoom::zoom_in(&ctx);
     }
     let reset = ui.button(percent_text(ctx.zoom_factor()));
-    if reset.on_hover_text("Reset zoom (Ctrl+0)").clicked() {
+    if reset
+        .on_hover_text(tip(keys, "Reset zoom", BuiltIn::ZoomReset))
+        .clicked()
+    {
         ctx.set_zoom_factor(1.0);
     }
     if ui
         .button("-")
-        .on_hover_text("Zoom out (Ctrl+Minus)")
+        .on_hover_text(tip(keys, "Zoom out", BuiltIn::ZoomOut))
         .clicked()
     {
         egui::gui_zoom::zoom_out(&ctx);

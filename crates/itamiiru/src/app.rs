@@ -13,8 +13,9 @@ use itamiiru_core::config::Config;
 use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::format::{format_local_time, format_size};
+use itamiiru_core::keys::{self, KeyConfig};
 use itamiiru_core::listing;
-use itamiiru_core::menu::{self, MenuConfig};
+use itamiiru_core::menu::{self, BuiltIn, MenuConfig, Pick};
 use itamiiru_core::places::{self, DiskUsage, Places, PlacesMsg, Volume};
 use itamiiru_core::platform::{DragOut, DragState};
 use itamiiru_core::sort::{SortColumn, SortOrder, type_label};
@@ -29,6 +30,7 @@ use crate::picker::{FooterAction, Picker, ProbeOutcome};
 use crate::preview::Preview;
 use crate::settings::{DetailColumn, Settings, StatusField};
 use crate::settings_page::{self, Options};
+use crate::shortcuts;
 use crate::sidebar::{self, SidebarAction, SidebarDrop};
 use crate::startup;
 use crate::tabs::{self, MAX_PANES, MIN_PANE_WIDTH, Tab, TabAction};
@@ -154,6 +156,8 @@ pub struct App {
     /// The right-click menus and their custom actions, from the built-in
     /// defaults and config.toml (read at startup).
     menus: MenuConfig,
+    /// The key bindings, from the same files (`[keys]`).
+    keys: KeyConfig,
     /// What's wrong in config.toml (or live.toml), for the settings page.
     config_problems: Vec<String>,
     /// Items being dragged. Let go over a folder or the other pane, they
@@ -221,9 +225,14 @@ impl App {
         theme.install(&ctx);
         let (places_tx, places_rx) = mpsc::channel();
         let thumbs = Thumbs::new(&ctx, settings.thumbnails);
-        let menus = menu::load(&Config::parse(itamiiru_core::config::DEFAULTS, ""), &config);
+        let defaults = Config::parse(itamiiru_core::config::DEFAULTS, "");
+        let menus = menu::load(&defaults, &config);
+        let keys = keys::load(&defaults, &config, &menus.actions);
+        // Zoom keys are bindings like the others.
+        ctx.options_mut(|options| options.zoom_with_keyboard = false);
         let mut config_problems = config.problems().to_vec();
         config_problems.extend(menus.problems.iter().cloned());
+        config_problems.extend(keys.problems.iter().cloned());
         for problem in &config_problems {
             itamiiru_core::debug!("config: {problem}");
         }
@@ -288,6 +297,7 @@ impl App {
             drag_select: settings.drag_select,
             drag_within: settings.drag_within,
             menus,
+            keys,
             config_problems,
             drag_out: None,
             drop_target: None,
@@ -473,6 +483,7 @@ impl App {
             preview_pane: self.preview_pane,
             split,
             icons: self.toolbar_icons,
+            keys: &self.keys,
         };
         match toolbar::show(ui, &state) {
             Some(ToolbarAction::Command(command)) => self.run_command(command),
@@ -1192,216 +1203,150 @@ impl App {
         if ctx.egui_wants_keyboard_input() || dialog_open {
             return;
         }
-        let all_rows = self.pane().visible.len() as isize;
-        let steps = self.pane().key_steps;
-        let mut back = false;
-        let mut forward = false;
-        let mut up = false;
-        let mut open = false;
-        let mut select_all = false;
-        let mut toggle_hidden = false;
-        let mut refresh = false;
-        let mut cursor_move: Option<(isize, bool)> = None;
+        let mut picks = Vec::new();
         let mut typed = String::new();
         let mut now = 0.0;
-        let mut commands = Vec::new();
-        let mut edit_address = false;
-        let mut focus_search = false;
-        let mut open_filter = false;
-        let mut escape = false;
-        let mut new_tab = false;
-        let mut close_tab = false;
-        let mut next_tab = false;
-        let mut previous_tab = false;
-        let mut switch_pane = false;
-        let mut go_home = false;
-
         ctx.input_mut(|input| {
-            // egui ignores an extra Shift or Alt when matching a key, so the
-            // more specific combination must be checked first.
-            back = input.consume_key(Modifiers::ALT, Key::ArrowLeft);
-            forward = input.consume_key(Modifiers::ALT, Key::ArrowRight);
-            up = input.consume_key(Modifiers::ALT, Key::ArrowUp)
-                || input.consume_key(Modifiers::NONE, Key::Backspace);
-            open = input.consume_key(Modifiers::NONE, Key::Enter);
-            if input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::N) {
-                commands.push(Command::NewFolder);
-            }
-            if input.consume_key(Modifiers::COMMAND, Key::D) {
-                commands.push(Command::ToggleBookmark);
-            }
-            if input.consume_key(Modifiers::NONE, Key::F2) {
-                commands.push(Command::Rename);
-            }
-            if input.consume_key(Modifiers::SHIFT, Key::Delete) {
-                commands.push(Command::DeletePermanently);
-            } else if input.consume_key(Modifiers::NONE, Key::Delete) {
-                commands.push(Command::Trash);
-            }
-            select_all = input.consume_key(Modifiers::COMMAND, Key::A);
-            if input.consume_key(Modifiers::ALT, Key::P) {
-                commands.push(Command::TogglePreview);
-            }
-            if input.consume_key(Modifiers::COMMAND, Key::Comma) {
-                commands.push(Command::OpenSettings);
-            }
-            toggle_hidden = input.consume_key(Modifiers::COMMAND, Key::H);
-            refresh = input.consume_key(Modifiers::NONE, Key::F5)
-                || input.consume_key(Modifiers::COMMAND, Key::R);
-            go_home = input.consume_key(Modifiers::ALT, Key::Home);
-            new_tab = input.consume_key(Modifiers::COMMAND, Key::T);
-            close_tab = input.consume_key(Modifiers::COMMAND, Key::W);
-            previous_tab = input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab);
-            next_tab = input.consume_key(Modifiers::COMMAND, Key::Tab);
-            switch_pane = input.consume_key(Modifiers::NONE, Key::F6);
-
-            // Up/Down and Left/Right step by what the view's layout says,
-            // e.g. a whole row in the icon grid. Alt+Left/Right (back and
-            // forward) were consumed above, so they don't reach here.
-            let moves = [
-                (Key::ArrowDown, steps.vertical),
-                (Key::ArrowUp, -steps.vertical),
-                (Key::ArrowRight, steps.horizontal),
-                (Key::ArrowLeft, -steps.horizontal),
-                (Key::PageDown, PAGE_ROWS * steps.vertical),
-                (Key::PageUp, -PAGE_ROWS * steps.vertical),
-                (Key::End, all_rows),
-                (Key::Home, -all_rows),
-            ];
-            for (key, delta) in moves {
-                if delta == 0 {
-                    continue;
-                }
-                if input.consume_key(Modifiers::SHIFT, key) {
-                    cursor_move = Some((delta, true));
-                } else if input.consume_key(Modifiers::NONE, key) {
-                    cursor_move = Some((delta, false));
-                }
-            }
-
+            picks = shortcuts::take_pressed(input, &self.keys);
             // Letters typed into the list, for type-ahead. egui doesn't send
             // text events for Ctrl or Alt shortcuts.
-            // egui turns Ctrl+C/X/V into Copy/Cut/Paste events, not keys.
             for event in &input.events {
-                match event {
-                    egui::Event::Text(text) => typed.push_str(text),
-                    egui::Event::Copy => commands.push(Command::Copy),
-                    egui::Event::Cut => commands.push(Command::Cut),
-                    egui::Event::Paste(_) => commands.push(Command::Paste),
-                    _ => {}
+                if let egui::Event::Text(text) = event {
+                    typed.push_str(text);
                 }
             }
             now = input.time;
-            edit_address = input.consume_key(Modifiers::COMMAND, Key::L)
-                || input.consume_key(Modifiers::ALT, Key::D)
-                || input.consume_key(Modifiers::NONE, Key::F4);
-            // Before Ctrl+F, which would also match Ctrl+Shift+F.
-            open_filter = input.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::F);
-            focus_search = input.consume_key(Modifiers::COMMAND, Key::F)
-                || input.consume_key(Modifiers::NONE, Key::F3);
-            escape = input.consume_key(Modifiers::NONE, Key::Escape);
         });
-
-        if self.picker.is_none() {
-            if new_tab {
-                self.new_tab(None, true);
-                return;
-            }
-            if close_tab {
-                self.close_tab(self.active_tab);
-                return;
-            }
-            if next_tab || previous_tab {
-                self.cycle_tab(next_tab);
-                return;
-            }
-            if switch_pane {
-                self.tabs[self.active_tab].switch_pane();
-                return;
-            }
+        for pick in picks {
+            self.run_key(pick);
         }
-        if focus_search && !self.pane().this_pc {
-            self.pane_mut().open_search();
-            return;
-        }
-        if open_filter && !self.pane().this_pc {
-            self.pane_mut().open_filter();
-            return;
-        }
-        if escape && self.pane().filter_open {
-            let (pane, filter) = self.pane_and_filter();
-            pane.close_filter(&filter);
-            return;
-        }
-        if escape && self.pane().search_open {
-            self.pane_mut().close_search();
-            return;
-        }
-        if escape && self.picker.is_some() {
-            self.picker_cancel();
-            return;
-        }
-
-        if go_home && let Some(home) = itamiiru_core::platform::home_dir() {
-            self.pane_mut().navigate(home);
-            return;
-        }
-
-        if edit_address {
-            self.pane_mut().edit_address();
-            return;
-        }
-        if self.pane().this_pc {
-            // Only navigation makes sense on the This PC page.
-            if back {
-                self.pane_mut().go_back();
-            }
-            if forward {
-                self.pane_mut().go_forward();
-            }
-            if toggle_hidden {
-                self.toggle_hidden();
-            }
-            if refresh {
-                self.scan_places();
-            }
-            if open && let Some(path) = self.pane().this_pc_selected.clone() {
-                self.pane_mut().navigate(path);
-            }
-            return;
-        }
-
-        if back {
-            self.pane_mut().go_back();
-        }
-        if forward {
-            self.pane_mut().go_forward();
-        }
-        if up {
-            self.pane_mut().go_up();
-        }
-        if open {
-            self.open_selected();
-        }
-        for command in commands {
-            self.run_command(command);
-        }
-        if select_all {
-            self.run_command(Command::SelectAll);
-        }
-        if toggle_hidden {
-            self.toggle_hidden();
-        }
-        if refresh {
-            self.run_command(Command::Refresh);
-        }
-        if let Some((delta, extend)) = cursor_move {
-            let extend = extend && !self.single_select();
-            self.pane_mut().move_cursor(delta, extend);
-        }
-        if !typed.is_empty() {
+        if !typed.is_empty() && !self.pane().this_pc {
             self.pane_mut().type_ahead(&typed, now);
         }
+    }
+
+    /// Runs what a bound key picked. On the This PC page only moving
+    /// around and the window's commands do anything, and the file dialog
+    /// has no tabs.
+    fn run_key(&mut self, pick: Pick) {
+        let builtin = match pick {
+            Pick::BuiltIn(builtin) => builtin,
+            Pick::Action(index) => {
+                self.run_action_by_key(index);
+                return;
+            }
+        };
+        let this_pc = self.pane().this_pc;
+        let tabs_only = [
+            BuiltIn::NewTab,
+            BuiltIn::CloseTab,
+            BuiltIn::NextTab,
+            BuiltIn::PreviousTab,
+            BuiltIn::SwitchPane,
+            BuiltIn::OpenInNewTab,
+            BuiltIn::ToggleSplit,
+        ];
+        if self.picker.is_some() && tabs_only.contains(&builtin) {
+            return;
+        }
+        match builtin {
+            BuiltIn::NewTab => self.new_tab(None, true),
+            BuiltIn::CloseTab => self.close_tab(self.active_tab),
+            BuiltIn::NextTab => self.cycle_tab(true),
+            BuiltIn::PreviousTab => self.cycle_tab(false),
+            BuiltIn::SwitchPane => self.tabs[self.active_tab].switch_pane(),
+            BuiltIn::Back => self.pane_mut().go_back(),
+            BuiltIn::Forward => self.pane_mut().go_forward(),
+            BuiltIn::Home => {
+                if let Some(home) = itamiiru_core::platform::home_dir() {
+                    self.pane_mut().navigate(home);
+                }
+            }
+            BuiltIn::AddressBar => self.pane_mut().edit_address(),
+            BuiltIn::Search if !this_pc => self.pane_mut().open_search(),
+            BuiltIn::Filter if !this_pc => self.pane_mut().open_filter(),
+            BuiltIn::Cancel => {
+                if self.pane().filter_open {
+                    let (pane, filter) = self.pane_and_filter();
+                    pane.close_filter(&filter);
+                } else if self.pane().search_open {
+                    self.pane_mut().close_search();
+                } else if self.picker.is_some() {
+                    self.picker_cancel();
+                }
+            }
+            BuiltIn::ZoomIn => egui::gui_zoom::zoom_in(&self.ctx),
+            BuiltIn::ZoomOut => egui::gui_zoom::zoom_out(&self.ctx),
+            BuiltIn::ZoomReset => self.ctx.set_zoom_factor(1.0),
+            BuiltIn::Settings => self.run_command(Command::OpenSettings),
+            BuiltIn::ToggleHidden => self.toggle_hidden(),
+            BuiltIn::Refresh => self.run_command(Command::Refresh),
+            BuiltIn::Open if this_pc => {
+                if let Some(path) = self.pane().this_pc_selected.clone() {
+                    self.pane_mut().navigate(path);
+                }
+            }
+            _ if this_pc => {}
+            BuiltIn::Up => self.pane_mut().go_up(),
+            _ => {
+                let steps = self.pane().key_steps;
+                let all_rows = self.pane().visible.len() as isize;
+                if let Some((delta, extend)) = cursor_move(builtin, steps, all_rows) {
+                    if delta != 0 {
+                        let extend = extend && !self.single_select();
+                        self.pane_mut().move_cursor(delta, extend);
+                    }
+                    return;
+                }
+                let on_selection = !self.pane().selected_paths().is_empty();
+                if let Some(command) = menus::builtin_command(builtin, on_selection) {
+                    self.run_command(command);
+                }
+            }
+        }
+    }
+
+    /// A key's action: on the selection, or on the folder on screen when
+    /// nothing is selected. Like in the menus, only if its `for` matches;
+    /// otherwise a notice says why nothing ran.
+    fn run_action_by_key(&mut self, index: usize) {
+        if self.pane().this_pc {
+            return;
+        }
+        let mut items = Vec::new();
+        for entry in self.pane().selected_entries() {
+            items.push((entry.path.clone(), entry.is_dir()));
+        }
+        let on_selection = !items.is_empty();
+        if !on_selection {
+            items = menus::folder_subject(&self.pane().current);
+        }
+        let Some(action) = self.menus.actions.get(index) else {
+            return;
+        };
+        let mut subject = Vec::new();
+        for (path, is_dir) in &items {
+            subject.push(actions::Item {
+                path,
+                is_dir: *is_dir,
+            });
+        }
+        if !action.applies_to(&subject) {
+            let what = if on_selection {
+                "the selected items"
+            } else {
+                "this folder"
+            };
+            let text = format!("{} isn't for {what}", action.name);
+            self.show_notice(text);
+            return;
+        }
+        let command = if on_selection {
+            Command::ActionOnSelection(index)
+        } else {
+            Command::ActionOnFolder(index)
+        };
+        self.run_command(command);
     }
 
     /// While the window is focused, the panes on screen check every couple
@@ -1421,7 +1366,7 @@ impl App {
         // Zoom controls and view toggles from the right edge, so a long selection
         // summary is cut short instead of pushing them off the window.
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            zoom::controls_right_to_left(ui);
+            zoom::controls_right_to_left(ui, &self.keys);
             ui.separator();
             let details = crate::icons::icon_button(
                 ui,
@@ -1673,6 +1618,7 @@ impl App {
         }
         let pane = &mut tab.panes[index];
         let theme = &self.theme;
+        let keys = &self.keys;
         let filter = make_filter(self.sort, self.show_hidden, &self.picker);
 
         // In split view the active pane's bar is a step lighter.
@@ -1685,7 +1631,7 @@ impl App {
             .fill(bar_fill)
             .corner_radius(theme::RADIUS_MEDIUM)
             .inner_margin(theme::GAP as i8)
-            .show(ui, |ui| pane.nav_bar(ui, theme, &filter));
+            .show(ui, |ui| pane.nav_bar(ui, theme, &filter, keys));
         ui.add_space(theme::GAP_SMALL);
 
         if pane.this_pc {
@@ -1746,6 +1692,7 @@ impl App {
             sort: self.sort,
             is_bookmarked,
             selection,
+            keys: Some(&self.keys),
             ..MenuState::new(&self.menus, self.picker.is_some())
         };
         let cut = match &self.clipboard {
@@ -2125,8 +2072,14 @@ impl eframe::App for App {
                 .show_separator_line(false)
                 .show(ui, |ui| {
                     let dragging = self.dragged().is_some();
-                    tab_action =
-                        tabs::tab_bar(ui, &self.tabs, self.active_tab, dragging, &self.theme);
+                    tab_action = tabs::tab_bar(
+                        ui,
+                        &self.tabs,
+                        self.active_tab,
+                        dragging,
+                        &self.theme,
+                        &self.keys,
+                    );
                 });
         }
         egui::Panel::top("toolbar")
@@ -2192,6 +2145,7 @@ impl eframe::App for App {
                     &place_menus,
                     &mut self.sidebar_drop,
                     &self.theme,
+                    &self.keys,
                 );
             });
         self.sidebar_width = sidebar.response.rect.width();
@@ -2345,6 +2299,7 @@ impl App {
             &mut options,
             self.config_dir.as_deref(),
             &self.config_problems,
+            &self.keys,
         );
         if options != before {
             self.apply_options(options);
@@ -2501,6 +2456,31 @@ fn show_error(ui: &mut egui::Ui, theme: &Theme, folder: &Path, error: &str) {
             let text = format!("Can't open {}\n{}", folder.to_string_lossy(), error);
             ui.colored_label(theme.on_error_container, text);
         });
+}
+
+/// How far a cursor command moves in the file list, and whether it
+/// selects everything on the way. None for other commands.
+fn cursor_move(builtin: BuiltIn, steps: KeySteps, all_rows: isize) -> Option<(isize, bool)> {
+    let (delta, extend) = match builtin {
+        BuiltIn::CursorUp => (-steps.vertical, false),
+        BuiltIn::CursorDown => (steps.vertical, false),
+        BuiltIn::CursorLeft => (-steps.horizontal, false),
+        BuiltIn::CursorRight => (steps.horizontal, false),
+        BuiltIn::CursorPageUp => (-PAGE_ROWS * steps.vertical, false),
+        BuiltIn::CursorPageDown => (PAGE_ROWS * steps.vertical, false),
+        BuiltIn::CursorFirst => (-all_rows, false),
+        BuiltIn::CursorLast => (all_rows, false),
+        BuiltIn::SelectUp => (-steps.vertical, true),
+        BuiltIn::SelectDown => (steps.vertical, true),
+        BuiltIn::SelectLeft => (-steps.horizontal, true),
+        BuiltIn::SelectRight => (steps.horizontal, true),
+        BuiltIn::SelectPageUp => (-PAGE_ROWS * steps.vertical, true),
+        BuiltIn::SelectPageDown => (PAGE_ROWS * steps.vertical, true),
+        BuiltIn::SelectFirst => (-all_rows, true),
+        BuiltIn::SelectLast => (all_rows, true),
+        _ => return None,
+    };
+    return Some((delta, extend));
 }
 
 #[cfg(test)]
@@ -3316,6 +3296,50 @@ item = ["open", { name = "Tools", items = [{ name = "Deeper", items = ["mark"] }
         assert_eq!(app.config_problems.len(), 1, "{:?}", app.config_problems);
         assert!(app.config_problems[0].starts_with("config.toml is not valid TOML"));
         assert!(new_app(&ctx, &folder.0).notice.is_none());
+    }
+
+    #[test]
+    fn keys_come_from_the_config() {
+        let folder = Folder::new("keys");
+        let ctx = egui::Context::default();
+        let config = "[action.mark]\nname = \"Mark\"\ncommand = \"touch %d/marker\"\n\
+                      for = [\"folders\"]\n\
+                      [keys]\nf9 = \"new_tab\"\n\"ctrl+w\" = \"close_tab\"\n\
+                      \"ctrl+m\" = \"mark\"\n\"ctrl+plus\" = \"zoom_in\"\n\
+                      \"ctrl+bogus\" = \"rename\"\n";
+        let mut app = new_app_with_config(&ctx, &folder.0, config);
+        assert_eq!(app.config_problems.len(), 1, "{:?}", app.config_problems);
+        assert!(app.config_problems[0].contains("bogus"));
+        settle(&mut app, &ctx);
+
+        // The table replaces the defaults: Ctrl+T is left out, F9 opens a
+        // tab.
+        frame(&mut app, &ctx, key(Key::T, Modifiers::COMMAND));
+        settle(&mut app, &ctx);
+        assert_eq!(app.tabs.len(), 1);
+        frame(&mut app, &ctx, key(Key::F9, Modifiers::NONE));
+        settle(&mut app, &ctx);
+        assert_eq!(app.tabs.len(), 2);
+        frame(&mut app, &ctx, key(Key::W, Modifiers::COMMAND));
+        assert_eq!(app.tabs.len(), 1);
+
+        // An action's key, with nothing selected: on the folder on screen.
+        frame(&mut app, &ctx, key(Key::M, Modifiers::COMMAND));
+        assert!(wait_for(&folder.0.join("marker")), "ran on the folder");
+        // With a file selected it isn't for, it says so instead.
+        let file = text_center(&mut app, &ctx, "file.txt");
+        click(&mut app, &ctx, file);
+        assert_eq!(app.pane().selected_paths(), [folder.0.join("file.txt")]);
+        frame(&mut app, &ctx, key(Key::M, Modifiers::COMMAND));
+        assert_eq!(
+            app.notice.as_ref().map(|(text, _)| text.as_str()),
+            Some("Mark isn't for the selected items")
+        );
+
+        // The zoom keys are bindings too, not egui's own.
+        frame(&mut app, &ctx, key(Key::Plus, Modifiers::COMMAND));
+        frame(&mut app, &ctx, Vec::new());
+        assert!(ctx.zoom_factor() > 1.0, "{}", ctx.zoom_factor());
     }
 
     #[test]

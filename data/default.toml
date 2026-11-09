@@ -264,6 +264,105 @@ place = ["open", "copy_path"]
 drive = ["mount", "open", "copy_path", "---", "unmount", "eject"]
 
 
+# Keyboard shortcuts. Each line binds one key to a command:
+#
+#   "<key>" = "<command-id>"
+#
+# A key is any of ctrl, alt and shift, then a key name, joined by +, like
+# "ctrl+shift+n" or "f2" (ctrl is Cmd on macOS). Upper and lower case
+# don't matter. Key names:
+#   a-z, 0-9, f1-f35, up, down, left, right, pageup, pagedown, home, end,
+#   insert, delete, backspace, enter, escape, tab, space, comma, period,
+#   minus, plus, equals, semicolon, quote, backtick, slash, backslash,
+#   openbracket, closebracket
+#
+# The command is any built-in command from the menus above (except
+# sort_by, mount, unmount and eject), any action's id, or one of these,
+# which only keys can run:
+#   back, forward             go back or forward in the folder history
+#   up                        go to the folder above
+#   home                      go to the home folder
+#   new_tab, close_tab        open or close a tab
+#   next_tab, previous_tab    switch tabs
+#   switch_pane               switch between the panes in split view
+#   address_bar               edit the address bar
+#   search, filter            open the search or filter row
+#   cancel                    close the search or filter row, or cancel
+#                             the file dialog
+#   cursor_up, cursor_down, cursor_left, cursor_right,
+#   cursor_page_up, cursor_page_down, cursor_first, cursor_last
+#                             move to another item and select it
+#   select_up, select_down, select_left, select_right,
+#   select_page_up, select_page_down, select_first, select_last
+#                             the same, selecting everything on the way
+#   zoom_in, zoom_out, zoom_reset
+#                             make everything bigger, smaller, or 100%
+#
+# These are all the keys there are: to unbind one, delete its line. A
+# [keys] table in config.toml replaces this whole table, like a menu does;
+# without one, the keys here are used.
+# An action runs on the selected items, or on the folder on screen when
+# nothing is selected. The right-click menus show each command's first key.
+[keys]
+# Open and move around.
+enter = "open"
+"alt+left" = "back"
+"alt+right" = "forward"
+"alt+up" = "up"
+backspace = "up"
+"alt+home" = "home"
+up = "cursor_up"
+down = "cursor_down"
+left = "cursor_left"
+right = "cursor_right"
+pageup = "cursor_page_up"
+pagedown = "cursor_page_down"
+home = "cursor_first"
+end = "cursor_last"
+"shift+up" = "select_up"
+"shift+down" = "select_down"
+"shift+left" = "select_left"
+"shift+right" = "select_right"
+"shift+pageup" = "select_page_up"
+"shift+pagedown" = "select_page_down"
+"shift+home" = "select_first"
+"shift+end" = "select_last"
+"ctrl+a" = "select_all"
+
+# Files.
+"ctrl+x" = "cut"
+"ctrl+c" = "copy"
+"ctrl+v" = "paste"
+f2 = "rename"
+delete = "trash"
+"shift+delete" = "delete"
+"ctrl+shift+n" = "new_folder"
+"ctrl+d" = "pin"
+
+# The window.
+"ctrl+t" = "new_tab"
+"ctrl+w" = "close_tab"
+"ctrl+tab" = "next_tab"
+"ctrl+shift+tab" = "previous_tab"
+f6 = "switch_pane"
+"ctrl+l" = "address_bar"
+"alt+d" = "address_bar"
+f4 = "address_bar"
+"ctrl+f" = "search"
+f3 = "search"
+"ctrl+shift+f" = "filter"
+escape = "cancel"
+f5 = "refresh"
+"ctrl+r" = "refresh"
+"ctrl+h" = "toggle_hidden"
+"alt+p" = "toggle_preview"
+"ctrl+comma" = "settings"
+"ctrl+plus" = "zoom_in"
+"ctrl+equals" = "zoom_in"
+"ctrl+minus" = "zoom_out"
+"ctrl+0" = "zoom_reset"
+
+
 # The colors to use when theme = "custom".
 # These follow ponkotsu role names (https://github.com/Minnowo/ponkotsu-css).
 # You can generate themes via https://minnowo.github.io/ponkotsu.

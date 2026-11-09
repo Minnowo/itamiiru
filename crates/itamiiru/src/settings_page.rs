@@ -9,9 +9,12 @@ use std::time::SystemTime;
 use eframe::egui;
 use itamiiru_core::config;
 use itamiiru_core::entry::{Entry, EntryKind};
+use itamiiru_core::keys::KeyConfig;
+use itamiiru_core::menu::{BuiltIn, Pick};
 
 use crate::icons::{Arrow, arrow_button};
 use crate::settings::{DetailColumn, Settings, StatusField};
+use crate::shortcuts;
 use crate::theme::{self, Accent, Theme, ThemeName};
 
 const DIALOG_WIDTH: f32 = 460.0;
@@ -69,6 +72,7 @@ pub fn show(
     options: &mut Options,
     config_dir: Option<&Path>,
     problems: &[String],
+    keys: &KeyConfig,
 ) -> bool {
     let mut open = true;
     let modal = egui::Modal::new(egui::Id::new("settings")).show(ctx, |ui| {
@@ -90,8 +94,8 @@ pub fn show(
                     ui.weak("Custom is ponkotsu with the colors in config.toml's [colors].");
                 });
                 section(ui, theme, "Folders", |ui| {
-                    ui.checkbox(&mut options.show_hidden, "Show hidden files")
-                        .on_hover_text("Ctrl+H");
+                    let response = ui.checkbox(&mut options.show_hidden, "Show hidden files");
+                    key_tip(response, keys, BuiltIn::ToggleHidden);
                     ui.checkbox(
                         &mut options.auto_refresh_folder,
                         "Refresh the open folder when its contents change",
@@ -144,8 +148,8 @@ pub fn show(
                 });
                 section(ui, theme, "Pictures", |ui| {
                     ui.checkbox(&mut options.thumbnails, "Show thumbnails in the icon views");
-                    ui.checkbox(&mut options.preview_pane, "Show the preview pane")
-                        .on_hover_text("Alt+P");
+                    let response = ui.checkbox(&mut options.preview_pane, "Show the preview pane");
+                    key_tip(response, keys, BuiltIn::TogglePreview);
                     ui.add_enabled_ui(options.preview_pane, |ui| {
                         ui.checkbox(
                             &mut options.preview_auto_hide,
@@ -346,6 +350,14 @@ fn example(fields: &[StatusField]) -> String {
         executable: false,
     };
     return crate::app::selection_summary(&[&sample], fields).unwrap_or_default();
+}
+
+/// Shows the built-in's key, if it has one, when hovering `response`.
+fn key_tip(response: egui::Response, keys: &KeyConfig, builtin: BuiltIn) {
+    let key = shortcuts::hint(keys, Pick::BuiltIn(builtin));
+    if !key.is_empty() {
+        response.on_hover_text(key);
+    }
 }
 
 #[cfg(test)]

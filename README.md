@@ -59,6 +59,18 @@ xdg-desktop-portal.
   The file from `itami --write-config` has the default menus, every
   built-in command, and the placeholders (`%f`, `%F`, `%d`, `%n`) and
   `for` targets.
+- **Keyboard shortcuts** are yours too: `[keys]` binds a key to any
+  command the menus use, your actions, or keyboard-only ones like `back`,
+  `new_tab` and `cursor_down`:
+  ```toml
+  [keys]
+  "ctrl+alt+t" = "open_terminal"   # an action
+  f9 = "new_tab"
+  ```
+  Your `[keys]` table is the whole list: a key you leave out isn't bound,
+  so copy the defaults from `itami --write-config` and delete the lines
+  you don't want.
+  The menus and tooltips show the keys you bound.
 - **Colors:** pick the Custom theme (in Settings, or `theme = "custom"`)
   and change the colors in `config.toml`'s `[colors]` table, e.g.
   `primary = "#dcc496"`. `itami --write-config` lists every color, set to

@@ -14,7 +14,9 @@ use eframe::egui::{self, Key};
 use itamiiru_core::entry::Entry;
 use itamiiru_core::fileops::Op;
 use itamiiru_core::glob::Glob;
+use itamiiru_core::keys::KeyConfig;
 use itamiiru_core::listing::{self, ListMsg, MtimeMsg};
+use itamiiru_core::menu::BuiltIn;
 use itamiiru_core::search::{self, SearchMsg};
 use itamiiru_core::sort::{self, SortOrder, type_label};
 
@@ -24,6 +26,7 @@ use crate::icons::{Arrow, ButtonIcon, arrow_button, icon_button};
 use crate::iconview::KeySteps;
 use crate::picker::Picker;
 use crate::selection::{Selection, TypeAhead};
+use crate::shortcuts::tip;
 use crate::theme::{self, Theme};
 
 /// How often to check whether the open folder changed.
@@ -875,19 +878,31 @@ impl Pane {
     /// Back, Forward, Up, the address bar and the search and filter
     /// buttons, above the file list; then the search and filter rows when
     /// they're open.
-    pub fn nav_bar(&mut self, ui: &mut egui::Ui, theme: &Theme, filter: &Filter) {
+    pub fn nav_bar(&mut self, ui: &mut egui::Ui, theme: &Theme, filter: &Filter, keys: &KeyConfig) {
         ui.horizontal(|ui| {
             let back = ui.add_enabled_ui(self.can_go_back(), |ui| arrow_button(ui, Arrow::Left));
-            if back.inner.on_hover_text("Back (Alt+Left)").clicked() {
+            if back
+                .inner
+                .on_hover_text(tip(keys, "Back", BuiltIn::Back))
+                .clicked()
+            {
                 self.go_back();
             }
             let forward =
                 ui.add_enabled_ui(self.can_go_forward(), |ui| arrow_button(ui, Arrow::Right));
-            if forward.inner.on_hover_text("Forward (Alt+Right)").clicked() {
+            if forward
+                .inner
+                .on_hover_text(tip(keys, "Forward", BuiltIn::Forward))
+                .clicked()
+            {
                 self.go_forward();
             }
             let up = ui.add_enabled_ui(!self.this_pc, |ui| arrow_button(ui, Arrow::Up));
-            if up.inner.on_hover_text("Up (Alt+Up)").clicked() {
+            if up
+                .inner
+                .on_hover_text(tip(keys, "Up", BuiltIn::Up))
+                .clicked()
+            {
                 self.go_up();
             }
 
@@ -897,8 +912,8 @@ impl Pane {
                 let names = ui.add_enabled_ui(!self.this_pc, |ui| {
                     icon_button(ui, ButtonIcon::Filter, self.filter_open)
                 });
-                let tip = "Filter the names in this folder (Ctrl+Shift+F)";
-                if names.inner.on_hover_text(tip).clicked() {
+                let filter_tip = tip(keys, "Filter the names in this folder", BuiltIn::Filter);
+                if names.inner.on_hover_text(filter_tip).clicked() {
                     if self.filter_open {
                         self.close_filter(filter);
                     } else {
@@ -908,7 +923,11 @@ impl Pane {
                 let search = ui.add_enabled_ui(!self.this_pc, |ui| {
                     icon_button(ui, ButtonIcon::Search, self.search_open)
                 });
-                if search.inner.on_hover_text("Search (Ctrl+F)").clicked() {
+                if search
+                    .inner
+                    .on_hover_text(tip(keys, "Search", BuiltIn::Search))
+                    .clicked()
+                {
                     if self.search_open {
                         self.close_search();
                     } else {

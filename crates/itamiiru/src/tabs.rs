@@ -2,9 +2,12 @@
 //! toolbar, keys and sidebar act on the active pane of the active tab.
 
 use eframe::egui::{self, CornerRadius, Rect, Sense, Stroke, TextStyle};
+use itamiiru_core::keys::KeyConfig;
+use itamiiru_core::menu::BuiltIn;
 
 use crate::icons::{ButtonIcon, icon_button, paint_drive_icon, paint_folder, paint_home};
 use crate::pane::Pane;
+use crate::shortcuts::tip;
 use crate::theme::{self, Theme};
 
 /// At most this many panes side by side.
@@ -81,6 +84,7 @@ pub fn tab_bar(
     active: usize,
     dragging: bool,
     theme: &Theme,
+    keys: &KeyConfig,
 ) -> Option<TabAction> {
     let mut action = None;
     egui::ScrollArea::horizontal()
@@ -91,7 +95,7 @@ pub fn tab_bar(
                 for (i, tab) in tabs.iter().enumerate() {
                     let closable = tabs.len() > 1;
                     let (response, close) =
-                        tab_button(ui, tab.pane(), i == active, closable, theme);
+                        tab_button(ui, tab.pane(), i == active, closable, theme, keys);
                     if close || (response.middle_clicked() && closable) {
                         action = Some(TabAction::Close(i));
                     } else if response.clicked() {
@@ -101,7 +105,10 @@ pub fn tab_bar(
                     }
                 }
                 let new = icon_button(ui, ButtonIcon::Plus, false);
-                if new.on_hover_text("New tab (Ctrl+T)").clicked() {
+                if new
+                    .on_hover_text(tip(keys, "New tab", BuiltIn::NewTab))
+                    .clicked()
+                {
                     action = Some(TabAction::New);
                 }
             });
@@ -117,6 +124,7 @@ fn tab_button(
     active: bool,
     closable: bool,
     theme: &Theme,
+    keys: &KeyConfig,
 ) -> (egui::Response, bool) {
     let font = TextStyle::Button.resolve(ui.style());
     let text_color = if active {
@@ -157,7 +165,9 @@ fn tab_button(
     if closable {
         let close = ui.interact(close_rect, response.id.with("close"), Sense::click());
         close_hovered = close.hovered();
-        close_clicked = close.on_hover_text("Close tab (Ctrl+W)").clicked();
+        close_clicked = close
+            .on_hover_text(tip(keys, "Close tab", BuiltIn::CloseTab))
+            .clicked();
     }
 
     if ui.is_rect_visible(rect) {

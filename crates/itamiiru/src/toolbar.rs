@@ -6,7 +6,10 @@ use eframe::egui::{self, Pos2, Rect, Sense, StrokeKind, TextStyle};
 
 use crate::icons::{Arrow, ButtonIcon, paint_arrow, paint_button_icon};
 use crate::menus::Command;
+use crate::shortcuts;
 use crate::theme;
+use itamiiru_core::keys::KeyConfig;
+use itamiiru_core::menu::{BuiltIn, Pick};
 use itamiiru_core::sort::{SortColumn, SortOrder};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -75,7 +78,7 @@ pub enum ToolbarAction {
 }
 
 /// What the toolbar needs to know to enable its buttons.
-pub struct ToolbarState {
+pub struct ToolbarState<'a> {
     pub selected: usize,
     pub can_paste: bool,
     /// On the This PC page there are no files to act on.
@@ -88,6 +91,8 @@ pub struct ToolbarState {
     pub split: Option<bool>,
     /// Cut, Copy, Paste, Rename and Delete as icons instead of names.
     pub icons: bool,
+    /// The key bindings, for the tooltips.
+    pub keys: &'a KeyConfig,
 }
 
 /// Widths of the toolbar's items as last drawn, so the next frame can
@@ -117,23 +122,34 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
     let mut action = None;
     let in_folder = !state.this_pc;
     let has_selection = in_folder && state.selected > 0;
+    let hint = |builtin| shortcuts::hint(state.keys, Pick::BuiltIn(builtin));
     let commands = [
-        ("New folder", "Ctrl+Shift+N", in_folder, Command::NewFolder),
-        ("Cut", "Ctrl+X", has_selection, Command::Cut),
-        ("Copy", "Ctrl+C", has_selection, Command::Copy),
+        (
+            "New folder",
+            hint(BuiltIn::NewFolder),
+            in_folder,
+            Command::NewFolder,
+        ),
+        ("Cut", hint(BuiltIn::Cut), has_selection, Command::Cut),
+        ("Copy", hint(BuiltIn::Copy), has_selection, Command::Copy),
         (
             "Paste",
-            "Ctrl+V",
+            hint(BuiltIn::Paste),
             in_folder && state.can_paste,
             Command::Paste,
         ),
         (
             "Rename",
-            "F2",
+            hint(BuiltIn::Rename),
             in_folder && state.selected == 1,
             Command::Rename,
         ),
-        ("Delete", "Delete", has_selection, Command::Trash),
+        (
+            "Delete",
+            hint(BuiltIn::Trash),
+            has_selection,
+            Command::Trash,
+        ),
     ];
 
     let widths_id = ui.id().with("toolbar-widths");
@@ -181,12 +197,14 @@ pub fn show(ui: &mut egui::Ui, state: &ToolbarState) -> Option<ToolbarAction> {
                 ui.add_enabled(*enabled, egui::Button::new(*label))
             };
             widths.commands[i] = response.rect.width();
-            let tip = if as_icon {
+            let tip = if as_icon && !shortcut.is_empty() {
                 format!("{label} ({shortcut})")
+            } else if as_icon {
+                label.to_string()
             } else {
-                shortcut.to_string()
+                shortcut.clone()
             };
-            if response.on_hover_text(tip).clicked() {
+            if hover(response, &tip).clicked() {
                 action = Some(ToolbarAction::Command(*value));
             }
         }
@@ -313,34 +331,47 @@ fn switch(
             paint_button_icon(painter, area, ButtonIcon::PreviewPane, color);
         }
         let width = response.rect.width();
-        if response.on_hover_text("Preview pane (Alt+P)").clicked() {
+        let tip = shortcuts::tip(state.keys, "Preview pane", BuiltIn::TogglePreview);
+        if response.on_hover_text(tip).clicked() {
             *action = Some(ToolbarAction::Command(Command::TogglePreview));
         }
         return width;
     }
+    let hint = |builtin| shortcuts::hint(state.keys, Pick::BuiltIn(builtin));
     let (mut value, label, tip, command) = match which {
         0 => (
             state.show_hidden,
             "Hidden files",
-            "Ctrl+H",
+            hint(BuiltIn::ToggleHidden),
             Command::ToggleHidden,
         ),
         _ => match state.split {
-            Some(split) => (
-                split,
-                "Split view",
-                "Two folders side by side (F6 switches)",
-                Command::ToggleSplit,
-            ),
+            Some(split) => {
+                let switch_key = hint(BuiltIn::SwitchPane);
+                let tip = if switch_key.is_empty() {
+                    "Two folders side by side".to_string()
+                } else {
+                    format!("Two folders side by side ({switch_key} switches)")
+                };
+                (split, "Split view", tip, Command::ToggleSplit)
+            }
             None => return 0.0,
         },
     };
     let response = ui.checkbox(&mut value, label);
     let width = response.rect.width();
-    if response.on_hover_text(tip).changed() {
+    if hover(response, &tip).changed() {
         *action = Some(ToolbarAction::Command(command));
     }
     return width;
+}
+
+/// `response` with tooltip `tip`, unless it's empty (no key bound).
+fn hover(response: egui::Response, tip: &str) -> egui::Response {
+    if tip.is_empty() {
+        return response;
+    }
+    return response.on_hover_text(tip);
 }
 
 fn view_choices(ui: &mut egui::Ui, current: ViewMode, action: &mut Option<ToolbarAction>) {
@@ -603,6 +634,7 @@ mod tests {
         selected: usize,
         events: Vec<egui::Event>,
     ) -> (Option<Ring>, Option<ToolbarAction>) {
+        let keys = KeyConfig::default();
         let state = ToolbarState {
             selected,
             can_paste: false,
@@ -616,6 +648,7 @@ mod tests {
             preview_pane: false,
             split: Some(false),
             icons: true,
+            keys: &keys,
         };
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(

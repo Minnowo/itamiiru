@@ -74,6 +74,45 @@ pub enum BuiltIn {
     Mount,
     Unmount,
     Eject,
+    // Keys only (`works_as_key`, in no menu).
+    Back,
+    Forward,
+    /// The folder above.
+    Up,
+    /// The home folder.
+    Home,
+    NewTab,
+    CloseTab,
+    NextTab,
+    PreviousTab,
+    SwitchPane,
+    /// Edit the address bar.
+    AddressBar,
+    Search,
+    Filter,
+    /// Escape: close the filter or search row, or cancel the file dialog.
+    Cancel,
+    /// Move the cursor (the focused item) and select it.
+    CursorUp,
+    CursorDown,
+    CursorLeft,
+    CursorRight,
+    CursorPageUp,
+    CursorPageDown,
+    CursorFirst,
+    CursorLast,
+    /// Move the cursor and select everything it passes (Shift+arrows).
+    SelectUp,
+    SelectDown,
+    SelectLeft,
+    SelectRight,
+    SelectPageUp,
+    SelectPageDown,
+    SelectFirst,
+    SelectLast,
+    ZoomIn,
+    ZoomOut,
+    ZoomReset,
 }
 
 /// What a menu entry runs.
@@ -147,7 +186,7 @@ impl MenuKind {
 }
 
 impl BuiltIn {
-    pub const ALL: [BuiltIn; 23] = [
+    pub const ALL: [BuiltIn; 55] = [
         BuiltIn::Open,
         BuiltIn::OpenInNewTab,
         BuiltIn::Pin,
@@ -171,6 +210,38 @@ impl BuiltIn {
         BuiltIn::Mount,
         BuiltIn::Unmount,
         BuiltIn::Eject,
+        BuiltIn::Back,
+        BuiltIn::Forward,
+        BuiltIn::Up,
+        BuiltIn::Home,
+        BuiltIn::NewTab,
+        BuiltIn::CloseTab,
+        BuiltIn::NextTab,
+        BuiltIn::PreviousTab,
+        BuiltIn::SwitchPane,
+        BuiltIn::AddressBar,
+        BuiltIn::Search,
+        BuiltIn::Filter,
+        BuiltIn::Cancel,
+        BuiltIn::CursorUp,
+        BuiltIn::CursorDown,
+        BuiltIn::CursorLeft,
+        BuiltIn::CursorRight,
+        BuiltIn::CursorPageUp,
+        BuiltIn::CursorPageDown,
+        BuiltIn::CursorFirst,
+        BuiltIn::CursorLast,
+        BuiltIn::SelectUp,
+        BuiltIn::SelectDown,
+        BuiltIn::SelectLeft,
+        BuiltIn::SelectRight,
+        BuiltIn::SelectPageUp,
+        BuiltIn::SelectPageDown,
+        BuiltIn::SelectFirst,
+        BuiltIn::SelectLast,
+        BuiltIn::ZoomIn,
+        BuiltIn::ZoomOut,
+        BuiltIn::ZoomReset,
     ];
 
     /// The id used in the menus.
@@ -199,6 +270,38 @@ impl BuiltIn {
             BuiltIn::Mount => "mount",
             BuiltIn::Unmount => "unmount",
             BuiltIn::Eject => "eject",
+            BuiltIn::Back => "back",
+            BuiltIn::Forward => "forward",
+            BuiltIn::Up => "up",
+            BuiltIn::Home => "home",
+            BuiltIn::NewTab => "new_tab",
+            BuiltIn::CloseTab => "close_tab",
+            BuiltIn::NextTab => "next_tab",
+            BuiltIn::PreviousTab => "previous_tab",
+            BuiltIn::SwitchPane => "switch_pane",
+            BuiltIn::AddressBar => "address_bar",
+            BuiltIn::Search => "search",
+            BuiltIn::Filter => "filter",
+            BuiltIn::Cancel => "cancel",
+            BuiltIn::CursorUp => "cursor_up",
+            BuiltIn::CursorDown => "cursor_down",
+            BuiltIn::CursorLeft => "cursor_left",
+            BuiltIn::CursorRight => "cursor_right",
+            BuiltIn::CursorPageUp => "cursor_page_up",
+            BuiltIn::CursorPageDown => "cursor_page_down",
+            BuiltIn::CursorFirst => "cursor_first",
+            BuiltIn::CursorLast => "cursor_last",
+            BuiltIn::SelectUp => "select_up",
+            BuiltIn::SelectDown => "select_down",
+            BuiltIn::SelectLeft => "select_left",
+            BuiltIn::SelectRight => "select_right",
+            BuiltIn::SelectPageUp => "select_page_up",
+            BuiltIn::SelectPageDown => "select_page_down",
+            BuiltIn::SelectFirst => "select_first",
+            BuiltIn::SelectLast => "select_last",
+            BuiltIn::ZoomIn => "zoom_in",
+            BuiltIn::ZoomOut => "zoom_out",
+            BuiltIn::ZoomReset => "zoom_reset",
         };
     }
 
@@ -234,8 +337,18 @@ impl BuiltIn {
                 &[Item, Background]
             }
             BuiltIn::Mount | BuiltIn::Unmount | BuiltIn::Eject => &[Drive],
+            _ => &[],
         };
         return kinds.contains(&kind);
+    }
+
+    /// Whether a key can run it (`[keys]`). Not the Sort by submenu, and
+    /// not the drive commands, which need a drive to act on.
+    pub fn works_as_key(self) -> bool {
+        return !matches!(
+            self,
+            BuiltIn::SortBy | BuiltIn::Mount | BuiltIn::Unmount | BuiltIn::Eject
+        );
     }
 }
 
@@ -683,10 +796,11 @@ background = "paste"
     }
 
     #[test]
-    fn every_builtin_has_an_id_and_a_menu() {
+    fn every_builtin_has_an_id_and_a_menu_or_a_key() {
         for builtin in BuiltIn::ALL {
             assert_eq!(BuiltIn::from_id(builtin.id()), Some(builtin));
-            assert!(MenuKind::ALL.iter().any(|kind| builtin.works_in(*kind)));
+            let in_a_menu = MenuKind::ALL.iter().any(|kind| builtin.works_in(*kind));
+            assert!(in_a_menu || builtin.works_as_key(), "{builtin:?}");
         }
         for kind in MenuKind::ALL {
             assert_eq!(MenuKind::from_key(kind.key()), Some(kind));

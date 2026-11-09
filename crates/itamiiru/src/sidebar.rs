@@ -8,12 +8,14 @@ use eframe::egui::{self, Align2, Rect, Sense, TextStyle};
 use itamiiru_core::format::format_size;
 use itamiiru_core::places::{DiskUsage, Drive, DriveKind, Place, Places, Volume};
 
-use itamiiru_core::menu::MenuKind;
+use itamiiru_core::keys::KeyConfig;
+use itamiiru_core::menu::{BuiltIn, MenuKind};
 
 use crate::icons::{
     ButtonIcon, icon_button, paint_drive_icon, paint_eject, paint_quick_access_icon,
 };
 use crate::menus::{self, PlaceCommand, PlaceMenus};
+use crate::shortcuts::tip;
 use crate::theme::{self, Theme};
 
 /// Height of a drive's usage bar, in points.
@@ -74,6 +76,7 @@ pub fn show(
     menus: &PlaceMenus,
     drop: &mut SidebarDrop,
     theme: &Theme,
+    keys: &KeyConfig,
 ) -> Option<SidebarAction> {
     let mut action = None;
     drop.hover = None;
@@ -96,7 +99,10 @@ pub fn show(
                     action = Some(SidebarAction::Refresh);
                 }
                 let settings = icon_button(ui, ButtonIcon::Settings, false);
-                if settings.on_hover_text("Settings (Ctrl+Comma)").clicked() {
+                if settings
+                    .on_hover_text(tip(keys, "Settings", BuiltIn::Settings))
+                    .clicked()
+                {
                     action = Some(SidebarAction::Settings);
                 }
             });

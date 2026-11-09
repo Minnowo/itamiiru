@@ -9,9 +9,12 @@ use std::path::{Path, PathBuf};
 
 use eframe::egui;
 use itamiiru_core::actions::{self, Action};
+use itamiiru_core::keys::KeyConfig;
 use itamiiru_core::menu::{BuiltIn, Entry, MenuConfig, MenuKind, Pick};
 use itamiiru_core::places::{Places, Volume};
 use itamiiru_core::sort::{SortColumn, SortOrder};
+
+use crate::shortcuts;
 
 /// What the file list runs: from a menu, a key or the toolbar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,6 +122,9 @@ pub struct MenuState<'a> {
     pub is_bookmarked: bool,
     /// Drive menu, removable drives: (mounted, busy mounting or ejecting).
     pub volume: Option<(bool, bool)>,
+    /// The key bindings, for the shortcut shown next to each entry. None
+    /// shows none.
+    pub keys: Option<&'a KeyConfig>,
 }
 
 /// One menu entry as it will be drawn.
@@ -126,7 +132,7 @@ pub struct MenuState<'a> {
 enum Shown {
     Button {
         label: String,
-        shortcut: &'static str,
+        shortcut: String,
         hover: &'static str,
         enabled: bool,
         pick: MenuPick,
@@ -162,6 +168,7 @@ impl<'a> MenuState<'a> {
             },
             is_bookmarked: false,
             volume: None,
+            keys: None,
         };
     }
 }
@@ -245,19 +252,26 @@ fn place_command(
 
 /// What a pick in the file list's menus runs there.
 fn file_list_command(pick: MenuPick, kind: MenuKind) -> Option<Command> {
-    let builtin = match pick {
-        MenuPick::BuiltIn(builtin) => builtin,
+    return match pick {
+        MenuPick::BuiltIn(builtin) => builtin_command(builtin, kind == MenuKind::Item),
         MenuPick::Action(index) if kind == MenuKind::Item => {
-            return Some(Command::ActionOnSelection(index));
+            Some(Command::ActionOnSelection(index))
         }
-        MenuPick::Action(index) => return Some(Command::ActionOnFolder(index)),
-        MenuPick::SetSort(sort) => return Some(Command::SetSort(sort)),
+        MenuPick::Action(index) => Some(Command::ActionOnFolder(index)),
+        MenuPick::SetSort(sort) => Some(Command::SetSort(sort)),
     };
+}
+
+/// What a built-in runs in the file list: on the selection
+/// (`on_selection`, the item menu) or on the folder on screen (the
+/// background menu). None for the ones the file list doesn't run (Sort
+/// by, the drive commands, and those only keys run).
+pub fn builtin_command(builtin: BuiltIn, on_selection: bool) -> Option<Command> {
     let command = match builtin {
         BuiltIn::Open => Command::Open,
         BuiltIn::OpenInNewTab => Command::OpenInNewTab,
         BuiltIn::Pin => Command::ToggleBookmark,
-        BuiltIn::CopyPath if kind == MenuKind::Background => Command::CopyFolderPath,
+        BuiltIn::CopyPath if !on_selection => Command::CopyFolderPath,
         BuiltIn::CopyPath => Command::CopyPath,
         BuiltIn::Cut => Command::Cut,
         BuiltIn::Copy => Command::Copy,
@@ -274,8 +288,7 @@ fn file_list_command(pick: MenuPick, kind: MenuKind) -> Option<Command> {
         BuiltIn::TogglePreview => Command::TogglePreview,
         BuiltIn::ToggleSplit => Command::ToggleSplit,
         BuiltIn::Settings => Command::OpenSettings,
-        // Drawn as the submenu itself; not in the file list's other menus.
-        BuiltIn::SortBy | BuiltIn::Mount | BuiltIn::Unmount | BuiltIn::Eject => return None,
+        _ => return None,
     };
     return Some(command);
 }
@@ -354,7 +367,7 @@ fn collect(
                     Pick::BuiltIn(builtin) => {
                         builtin_shown(*builtin, kind, !subject.is_empty(), state)
                     }
-                    Pick::Action(index) => action_shown(*index, action, subject),
+                    Pick::Action(index) => action_shown(*index, action, kind, subject, state),
                 };
                 let Some(mut item) = item else {
                     continue;
@@ -370,11 +383,22 @@ fn collect(
 
 /// A custom action's button; greyed out when there's nothing to run it on
 /// (a drive that isn't mounted).
-fn action_shown(index: usize, action: Option<&Action>, subject: &[actions::Item]) -> Option<Shown> {
+fn action_shown(
+    index: usize,
+    action: Option<&Action>,
+    kind: MenuKind,
+    subject: &[actions::Item],
+    state: &MenuState,
+) -> Option<Shown> {
     let action = action?;
+    let in_list = kind == MenuKind::Item || kind == MenuKind::Background;
+    let shortcut = match (in_list, state.keys) {
+        (true, Some(keys)) => shortcuts::hint(keys, Pick::Action(index)),
+        _ => String::new(),
+    };
     return Some(Shown::Button {
         label: action.name.clone(),
-        shortcut: "",
+        shortcut,
         hover: "",
         enabled: !subject.is_empty(),
         pick: MenuPick::Action(index),
@@ -389,15 +413,13 @@ fn builtin_shown(
     has_path: bool,
     state: &MenuState,
 ) -> Option<Shown> {
-    let in_list = kind == MenuKind::Item || kind == MenuKind::Background;
     let mut hover = "";
-    let (label, shortcut, enabled): (String, &'static str, bool) = match builtin {
+    let (label, enabled): (String, bool) = match builtin {
         BuiltIn::Open => {
             if !has_path {
                 return None;
             }
-            let shortcut = if kind == MenuKind::Item { "Enter" } else { "" };
-            ("Open".to_string(), shortcut, true)
+            ("Open".to_string(), true)
         }
         BuiltIn::OpenInNewTab => {
             let folder = if kind == MenuKind::Item {
@@ -408,12 +430,7 @@ fn builtin_shown(
             if !state.tabs || !folder {
                 return None;
             }
-            let shortcut = if kind == MenuKind::Item {
-                "Middle-click"
-            } else {
-                ""
-            };
-            ("Open in new tab".to_string(), shortcut, true)
+            ("Open in new tab".to_string(), true)
         }
         BuiltIn::Pin => {
             if (kind == MenuKind::Item && !state.selected_folder) || !has_path {
@@ -425,18 +442,17 @@ fn builtin_shown(
                 (_, true) => "Unpin from Bookmarks",
                 (_, false) => "Pin to Bookmarks",
             };
-            let shortcut = if in_list { "Ctrl+D" } else { "" };
-            (label.to_string(), shortcut, true)
+            (label.to_string(), true)
         }
         BuiltIn::CopyPath => {
             if !has_path {
                 return None;
             }
-            ("Copy path".to_string(), "", true)
+            ("Copy path".to_string(), true)
         }
-        BuiltIn::Cut => ("Cut".to_string(), "Ctrl+X", true),
-        BuiltIn::Copy => ("Copy".to_string(), "Ctrl+C", true),
-        BuiltIn::Paste => ("Paste".to_string(), "Ctrl+V", state.can_paste),
+        BuiltIn::Cut => ("Cut".to_string(), true),
+        BuiltIn::Copy => ("Copy".to_string(), true),
+        BuiltIn::Paste => ("Paste".to_string(), state.can_paste),
         BuiltIn::CopyToOtherPane | BuiltIn::MoveToOtherPane => {
             let name = state.other_pane.as_ref()?;
             let verb = if builtin == BuiltIn::CopyToOtherPane {
@@ -444,27 +460,27 @@ fn builtin_shown(
             } else {
                 "Move"
             };
-            (format!("{verb} to \"{name}\""), "", !state.other_pane_same)
+            (format!("{verb} to \"{name}\""), !state.other_pane_same)
         }
-        BuiltIn::Rename => ("Rename".to_string(), "F2", state.selected == 1),
+        BuiltIn::Rename => ("Rename".to_string(), state.selected == 1),
         BuiltIn::Trash => {
             if !state.trash_supported {
                 return None;
             }
-            ("Move to trash".to_string(), "Delete", true)
+            ("Move to trash".to_string(), true)
         }
-        BuiltIn::Delete => ("Delete permanently".to_string(), "Shift+Delete", true),
-        BuiltIn::NewFolder => ("New folder".to_string(), "Ctrl+Shift+N", true),
+        BuiltIn::Delete => ("Delete permanently".to_string(), true),
+        BuiltIn::NewFolder => ("New folder".to_string(), true),
         BuiltIn::SortBy => return Some(Shown::SortBy),
-        BuiltIn::SelectAll => ("Select all".to_string(), "Ctrl+A", true),
-        BuiltIn::Refresh => ("Refresh".to_string(), "F5", true),
+        BuiltIn::SelectAll => ("Select all".to_string(), true),
+        BuiltIn::Refresh => ("Refresh".to_string(), true),
         BuiltIn::ToggleHidden => {
             let label = if state.show_hidden {
                 "Hide hidden files"
             } else {
                 "Show hidden files"
             };
-            (label.to_string(), "Ctrl+H", true)
+            (label.to_string(), true)
         }
         BuiltIn::TogglePreview => {
             let label = if state.preview_pane {
@@ -472,7 +488,7 @@ fn builtin_shown(
             } else {
                 "Show preview pane"
             };
-            (label.to_string(), "Alt+P", true)
+            (label.to_string(), true)
         }
         BuiltIn::ToggleSplit => {
             if !state.tabs {
@@ -483,15 +499,15 @@ fn builtin_shown(
             } else {
                 "Split view"
             };
-            (label.to_string(), "", true)
+            (label.to_string(), true)
         }
-        BuiltIn::Settings => ("Settings".to_string(), "Ctrl+Comma", true),
+        BuiltIn::Settings => ("Settings".to_string(), true),
         BuiltIn::Mount => {
             let (mounted, busy) = state.volume?;
             if mounted {
                 return None;
             }
-            ("Mount and open".to_string(), "", !busy)
+            ("Mount and open".to_string(), !busy)
         }
         BuiltIn::Unmount | BuiltIn::Eject => {
             let (mounted, busy) = state.volume?;
@@ -500,13 +516,24 @@ fn builtin_shown(
             }
             if builtin == BuiltIn::Unmount {
                 hover = "Stays plugged in; mount it again with a click";
-                ("Unmount".to_string(), "", !busy)
+                ("Unmount".to_string(), !busy)
             } else {
                 hover = "Unmounts it and powers it off, ready to unplug";
-                ("Eject".to_string(), "", !busy)
+                ("Eject".to_string(), !busy)
             }
         }
+        // Keys only: the menus never hold them.
+        _ => return None,
     };
+    // Keys work in the file list, so only its menus show them.
+    let in_list = kind == MenuKind::Item || kind == MenuKind::Background;
+    let mut shortcut = match (in_list, state.keys) {
+        (true, Some(keys)) => shortcuts::hint(keys, Pick::BuiltIn(builtin)),
+        _ => String::new(),
+    };
+    if builtin == BuiltIn::OpenInNewTab && kind == MenuKind::Item && shortcut.is_empty() {
+        shortcut = "Middle-click".to_string();
+    }
     return Some(Shown::Button {
         label,
         shortcut,
@@ -545,7 +572,7 @@ fn draw(ui: &mut egui::Ui, shown: &[Shown], sort: SortOrder) -> Option<MenuPick>
                 enabled,
                 pick,
             } => {
-                let button = egui::Button::new(label.as_str()).shortcut_text(*shortcut);
+                let button = egui::Button::new(label.as_str()).shortcut_text(shortcut.as_str());
                 let mut response = ui.add_enabled(*enabled, button);
                 if !hover.is_empty() {
                     response = response.on_hover_text(*hover);
@@ -635,7 +662,7 @@ pub fn folder_subject(path: &Path) -> Vec<(PathBuf, bool)> {
 mod tests {
     use super::*;
     use itamiiru_core::config::Config;
-    use itamiiru_core::menu;
+    use itamiiru_core::{keys, menu};
 
     fn config(user: &str) -> MenuConfig {
         let menus = menu::load(
@@ -667,6 +694,22 @@ mod tests {
 
     fn labels_of(shown: &[Shown]) -> String {
         return labels(shown).join(", ");
+    }
+
+    /// The shortcut shown next to the button labelled `label`.
+    fn shortcut_of(shown: &[Shown], label: &str) -> String {
+        for item in shown {
+            if let Shown::Button {
+                label: text,
+                shortcut,
+                ..
+            } = item
+                && text == label
+            {
+                return shortcut.clone();
+            }
+        }
+        panic!("no {label:?} in {shown:?}");
     }
 
     fn file(path: &str) -> (PathBuf, bool) {
@@ -725,6 +768,29 @@ mod tests {
                 "Delete permanently",
             ]
         );
+    }
+
+    #[test]
+    fn shortcuts_come_from_the_key_bindings() {
+        let menus = config("");
+        let defaults = Config::parse(itamiiru_core::config::DEFAULTS, "");
+        let user = Config::parse("[keys]\nf9 = \"rename\"\ndelete = \"trash\"\n", "");
+        let keys = keys::load(&defaults, &user, &menus.actions);
+        assert!(keys.problems.is_empty(), "{:?}", keys.problems);
+        let mut state = MenuState::new(&menus, false);
+        state.selection = vec![file("/a.txt")];
+        state.selected = 1;
+        state.trash_supported = true;
+        state.keys = Some(&keys);
+        let shown = visible(MenuKind::Item, menus.menu(MenuKind::Item, false), &state);
+        assert_eq!(shortcut_of(&shown, "Rename"), "F9");
+        assert_eq!(shortcut_of(&shown, "Move to trash"), "Delete");
+        assert_eq!(shortcut_of(&shown, "Copy path"), "", "not bound");
+
+        // The side menus act on the side pane, where keys don't reach.
+        state.folder = folder_subject(Path::new("/home/me"));
+        let shown = visible(MenuKind::Place, menus.menu(MenuKind::Place, false), &state);
+        assert_eq!(shortcut_of(&shown, "Open"), "");
     }
 
     #[test]
